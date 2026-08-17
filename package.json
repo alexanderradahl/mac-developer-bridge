@@ -7,7 +7,7 @@
     "start": "node bridge.mjs",
     "start:http": "node mcp-http.mjs",
     "check": "node --check bridge.mjs && node --check mcp-http.mjs",
-    "test": "node tests/smoke.mjs && node tests/integration.mjs && node tests/http.mjs && node tests/oauth.mjs && node tests/pty.mjs && node tests/federation.mjs && bash tests/installer-mock.sh"
+    "test": "node tests/smoke.mjs && node tests/integration.mjs && node tests/adversarial.mjs && node tests/http.mjs && node tests/oauth.mjs && node tests/pty.mjs && node tests/federation.mjs && bash tests/installer-mock.sh"
   },
   "engines": {
     "node": ">=18"
