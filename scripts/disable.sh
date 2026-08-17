@@ -15,16 +15,23 @@ set -uo pipefail
 #   4. Child MCP servers started by the federation gateway, recorded with
 #      kind:"mcp-child" and their own pgid (they are spawned detached so the
 #      group is reclaimable from here).
-#   5. The LaunchAgent, on the Tunnel transport (the HTTP transport has none).
+#   5. The background-Chrome native messaging host, which Chrome owns rather
+#      than bridge.mjs and can otherwise survive the MCP processes.
+#   6. The LaunchAgent, on the Tunnel transport (the HTTP transport has none).
 
 LABEL="com.openai.mac-developer-bridge-tunnel"
 DOMAIN="gui/$(id -u)"
 DATA_DIR="${MAC_DEV_BRIDGE_DATA_DIR:-$HOME/Library/Application Support/MacDeveloperBridge}"
 UNLOCK_FILE="${MAC_DEV_BRIDGE_UNLOCK_FILE:-$DATA_DIR/FULL_ACCESS_ENABLED}"
+PERSONAL_BROWSER_APPROVAL_FILE="${MAC_DEV_BRIDGE_PERSONAL_APPROVAL_FILE:-$DATA_DIR/PERSONAL_BROWSER_APPROVED}"
+FOREGROUND_GUI_APPROVAL_FILE="${MAC_DEV_BRIDGE_FOREGROUND_GUI_APPROVAL_FILE:-$DATA_DIR/FOREGROUND_GUI_APPROVED}"
 # Not configurable: bridge.mjs hardcodes this location, so an override here
 # would silently search a directory the bridge never writes to.
 JOB_DIR="$DATA_DIR/jobs"
 PID_FILE="$DATA_DIR/mcp-http.pid"
+CHROME_NATIVE_PID_FILE="$DATA_DIR/chrome-native-host.pid"
+CHROME_BACKGROUND_SOCKET="$DATA_DIR/chrome-background.sock"
+BACKGROUND_CHROME_GRANT_DIR="$DATA_DIR/chrome-background-grants"
 LAUNCHCTL_BIN="${LAUNCHCTL_BIN:-$(command -v launchctl 2>/dev/null || true)}"
 HTTP_PORT="${MAC_DEV_BRIDGE_HTTP_PORT:-8787}"
 INSTALL_DIR="${MAC_DEV_BRIDGE_INSTALL_DIR:-$(cd "$(dirname "$0")/.." && pwd -P)}"
@@ -75,10 +82,14 @@ runs_script() { _runs_script_impl "$1" "$2" 1; }
 runs_script_basename() { _runs_script_impl "([^[:space:]]*/)?$1" "$2" 0; }
 
 pids_for_script() {
-  local script="$1" pid cmd resolved="$INSTALL_DIR/$1"
-  if [[ "$script" == "mcp-http.mjs" && -f "$PID_FILE" ]]; then
+  local script="$1" pid cmd resolved="$INSTALL_DIR/$1" script_pid_file=""
+  case "$script" in
+    mcp-http.mjs) script_pid_file="$PID_FILE" ;;
+    chrome-native-host.mjs) script_pid_file="$CHROME_NATIVE_PID_FILE" ;;
+  esac
+  if [[ -n "$script_pid_file" && -f "$script_pid_file" ]]; then
     # First line only: concatenating digits across lines would fabricate a pid.
-    pid="$(head -1 "$PID_FILE" | tr -dc '0-9')"
+    pid="$(head -1 "$script_pid_file" | tr -dc '0-9')"
     # The pidfile is NOT self-cleaning — process.on("exit") does not run on
     # SIGKILL, and neither reboot nor uninstall.sh removes it. So confirm the pid
     # is really running this script before signalling it; a stale pidfile plus
@@ -191,6 +202,31 @@ else
 fi
 printf '  (a running bridge re-checks this before each tool call and then exits)\n'
 
+# Revoke pending one-shot authority too. Leaving either file behind after the
+# kill switch would let the next bridge process consume an approval that the
+# operator reasonably expected "disable" to have cancelled.
+for approval_file in "$PERSONAL_BROWSER_APPROVAL_FILE" "$FOREGROUND_GUI_APPROVAL_FILE"; do
+  if [[ -e "$approval_file" || -L "$approval_file" ]]; then
+    if rm -f "$approval_file" 2>/dev/null && [[ ! -e "$approval_file" && ! -L "$approval_file" ]]; then
+      printf 'Revoked pending approval: %s\n' "$approval_file"
+      did_something=1
+    else
+      printf 'WARNING: failed to revoke pending approval: %s\n' "$approval_file"
+      still_running=1
+    fi
+  fi
+done
+
+if [[ -d "$BACKGROUND_CHROME_GRANT_DIR" ]]; then
+  if rm -rf "$BACKGROUND_CHROME_GRANT_DIR" 2>/dev/null && [[ ! -e "$BACKGROUND_CHROME_GRANT_DIR" ]]; then
+    printf 'Revoked shared background-Chrome grants: %s\n' "$BACKGROUND_CHROME_GRANT_DIR"
+    did_something=1
+  else
+    printf 'WARNING: failed to revoke shared background-Chrome grants: %s\n' "$BACKGROUND_CHROME_GRANT_DIR"
+    still_running=1
+  fi
+fi
+
 # --- LaunchAgent ------------------------------------------------------------
 if [[ -n "$LAUNCHCTL_BIN" && -x "$LAUNCHCTL_BIN" ]]; then
   launchctl_out="$("$LAUNCHCTL_BIN" print "$DOMAIN/$LABEL" 2>&1)"
@@ -221,7 +257,7 @@ if [[ -n "$LAUNCHCTL_BIN" && -x "$LAUNCHCTL_BIN" ]]; then
 fi
 
 # --- serving processes ------------------------------------------------------
-for script in mcp-http.mjs bridge.mjs; do
+for script in mcp-http.mjs bridge.mjs chrome-native-host.mjs; do
   # shellcheck disable=SC2046
   pids=$(pids_for_script "$script")
   [[ -n "$pids" ]] || continue
@@ -315,7 +351,7 @@ fi
 sleep 1
 
 # --- escalate ---------------------------------------------------------------
-for script in mcp-http.mjs bridge.mjs; do
+for script in mcp-http.mjs bridge.mjs chrome-native-host.mjs; do
   pids=$(pids_for_script "$script")
   for pid in $pids; do
     printf '  pid %s ignored SIGTERM, sending SIGKILL\n' "$pid"
@@ -334,13 +370,20 @@ fi
 sleep 1
 
 # --- verify, using exactly the targets that were signalled ------------------
-for script in mcp-http.mjs bridge.mjs; do
+for script in mcp-http.mjs bridge.mjs chrome-native-host.mjs; do
   survivors=$(pids_for_script "$script")
   if [[ -n "$survivors" ]]; then
     printf '\nWARNING: %s is STILL RUNNING after SIGKILL: %s\n' "$script" "$(echo "$survivors" | tr '\n' ' ')"
     still_running=1
   fi
 done
+
+# A SIGKILL cannot run the native host's cleanup handlers. Once the process
+# verification above proves it is gone, stale control-plane artifacts are safe
+# to remove so a later extension connection cannot mistake them for a live host.
+if [[ -z "$(pids_for_script chrome-native-host.mjs)" ]]; then
+  rm -f "$CHROME_NATIVE_PID_FILE" "$CHROME_BACKGROUND_SOCKET" 2>/dev/null || true
+fi
 
 if (( ${#targets[@]} )); then
   job_survivors="$(live_targets "${targets[@]}" | tr '\n' ' ')"
@@ -383,8 +426,9 @@ if (( still_running )); then
   exit 1
 fi
 if (( did_something )); then
-  printf 'Disabled. Re-checked after SIGKILL: no front end, no bridge, no recorded\n'
-  printf 'background jobs running, and nothing answers on 127.0.0.1:%s.\n' "$HTTP_PORT"
+  printf 'Disabled. Re-checked after SIGKILL: no front end, no bridge, no background\n'
+  printf 'Chrome native host, no recorded background jobs running, and nothing answers\n'
+  printf 'on 127.0.0.1:%s.\n' "$HTTP_PORT"
 else
   printf 'Nothing was running and no unlock file was present.\n'
 fi

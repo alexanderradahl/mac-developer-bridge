@@ -88,6 +88,7 @@ struct Paths {
     static var tunnelPidFile: String { dataDir + "/cloudflared.pid" }
     static var clientIdFile: String { dataDir + "/oauth-client-id" }
     static var unlockFile: String { dataDir + "/FULL_ACCESS_ENABLED" }
+    static var settingsFile: String { dataDir + "/settings.json" }
     static var httpLog: String { logDir + "/http.stderr.log" }
     static var tunnelLog: String { logDir + "/tunnel.stderr.log" }
 }
@@ -203,6 +204,35 @@ enum TokenStore {
     }
 }
 
+enum OperatorSettingsStore {
+    static func strictApprovals() -> Bool {
+        guard let data = FileManager.default.contents(atPath: Paths.settingsFile),
+              let object = try? JSONSerialization.jsonObject(with: data),
+              let dictionary = object as? [String: Any],
+              let value = dictionary["strictApprovals"] as? Bool
+        else { return false }
+        return value
+    }
+
+    static func setStrictApprovals(_ enabled: Bool) throws {
+        let fm = FileManager.default
+        try fm.createDirectory(atPath: Paths.dataDir, withIntermediateDirectories: true,
+                               attributes: [.posixPermissions: 0o700])
+        try? fm.setAttributes([.posixPermissions: 0o700], ofItemAtPath: Paths.dataDir)
+
+        var dictionary: [String: Any] = [:]
+        if let existing = fm.contents(atPath: Paths.settingsFile),
+           let object = try? JSONSerialization.jsonObject(with: existing),
+           let parsed = object as? [String: Any] {
+            dictionary = parsed
+        }
+        dictionary["strictApprovals"] = enabled
+        let data = try JSONSerialization.data(withJSONObject: dictionary, options: [.prettyPrinted, .sortedKeys])
+        try data.write(to: URL(fileURLWithPath: Paths.settingsFile), options: .atomic)
+        try fm.setAttributes([.posixPermissions: 0o600], ofItemAtPath: Paths.settingsFile)
+    }
+}
+
 enum ClientIdStore {
     /// Stable across restarts, because ChatGPT stores it in the connector config —
     /// regenerating it on every launch would silently break an existing connection.
@@ -260,6 +290,7 @@ final class Controller: NSObject, NSApplicationDelegate {
     private let clientIdMenuItem = NSMenuItem(title: "OAuth Client ID: —", action: nil, keyEquivalent: "")
     private let tunnelModeMenuItem = NSMenuItem(title: "Tunnel: —", action: nil, keyEquivalent: "")
     private let startStopItem = NSMenuItem(title: "Start", action: nil, keyEquivalent: "")
+    private let strictApprovalsItem = NSMenuItem(title: "Strict approvals", action: nil, keyEquivalent: "")
 
     /// Reclaim anything a previous instance left behind.
     ///
@@ -436,6 +467,11 @@ final class Controller: NSObject, NSApplicationDelegate {
         startStopItem.action = #selector(toggleBridge)
         menu.addItem(startStopItem)
 
+        strictApprovalsItem.target = self
+        strictApprovalsItem.action = #selector(toggleStrictApprovals)
+        strictApprovalsItem.toolTip = "Off by default: MDB can use the signed-in Chrome profile and foreground apps without per-site/per-app approval files. Turn this on to require short-lived scoped approvals."
+        menu.addItem(strictApprovalsItem)
+
         let regen = NSMenuItem(title: "Rotate Token…", action: #selector(rotateToken), keyEquivalent: "")
         regen.target = self
         menu.addItem(regen)
@@ -504,6 +540,8 @@ final class Controller: NSObject, NSApplicationDelegate {
         case .running, .starting: startStopItem.title = "Stop"
         default: startStopItem.title = "Start"
         }
+        strictApprovalsItem.state = OperatorSettingsStore.strictApprovals() ? .on : .off
+        strictApprovalsItem.title = "Strict approvals"
     }
 
     // MARK: Actions
@@ -514,6 +552,21 @@ final class Controller: NSObject, NSApplicationDelegate {
         default: startBridge()
         }
         render()
+    }
+
+    @objc private func toggleStrictApprovals() {
+        let enabled = !OperatorSettingsStore.strictApprovals()
+        do {
+            try OperatorSettingsStore.setStrictApprovals(enabled)
+            render()
+            if enabled {
+                notify("Strict approvals enabled", "Websites and foreground app control now require scoped short-lived approvals.")
+            } else {
+                notify("Relaxed access enabled", "MDB can execute through the signed-in Chrome profile and apps without per-site/per-app approval commands.")
+            }
+        } catch {
+            notify("Could not update approval mode", error.localizedDescription)
+        }
     }
 
     @objc private func copyURL() {

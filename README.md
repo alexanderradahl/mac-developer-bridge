@@ -5,7 +5,7 @@
 [![CI](https://github.com/alexanderradahl/mac-developer-bridge/actions/workflows/ci.yml/badge.svg)](https://github.com/alexanderradahl/mac-developer-bridge/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-Mac Developer Bridge turns a ChatGPT conversation into the reasoning layer for your actual Mac. It can run shell commands, edit files, start interactive terminal sessions, manage long-running jobs, and read stored Codex threads without starting another Codex model turn.
+Mac Developer Bridge turns a ChatGPT conversation into the reasoning layer for your actual Mac. It can run shell commands, edit files, start interactive terminal sessions, manage long-running jobs, read stored Codex threads without starting another Codex model turn, and optionally operate your real logged-in Chrome tabs **in the background without stealing focus**.
 
 ![Mac Developer Bridge showing ChatGPT reasoning through MCP into shell, PTY sessions, Codex history, and a live Mac](docs/assets/mac-developer-bridge-workflow.png)
 
@@ -40,6 +40,7 @@ The bridge itself makes no OpenAI model call. It exposes deterministic local too
 - Keep interactive shells and terminal programs alive through a real PTY instead of pretending stdin is a terminal.
 - Start long-running local jobs, inspect their logs later, and stop the whole process group.
 - Read and modify files anywhere your macOS user can access.
+- Optionally operate approved pages in your real logged-in Chrome profile without bringing Chrome to the foreground.
 
 This is intentionally different from a local coding agent. There is no second reasoning loop. ChatGPT remains the agent; the Mac is the execution environment.
 
@@ -80,7 +81,7 @@ Mac Developer Bridge is released under the [MIT License](LICENSE). Bug reports a
 - Outbound-only private connectivity through OpenAI Secure MCP Tunnel, or a plain-HTTP loopback front end that Cloudflare Tunnel publishes over HTTPS
 - Per-user persistence through a macOS LaunchAgent
 - Fail-closed unlock latch: `bridge.mjs` re-reads the unlock file before every tool call, so removing it refuses the next call and exits — unless the process inherited `MAC_DEV_BRIDGE_FULL_ACCESS_ACK`, which bypasses the file entirely
-- Local kill switch (`scripts/disable.sh`), which stops the front end, the bridge, detached `shell_start` job groups, interactive pty sessions, and federated child MCP servers, verifying the same targets it signalled
+- Local kill switch (`scripts/disable.sh`), which stops the front end, the bridge, the optional background-Chrome native host, detached `shell_start` job groups, interactive pty sessions, and federated child MCP servers, verifying the same targets it signalled
 
 Git, package managers, Vercel CLI, database CLIs, AppleScript, browser CLIs, build tools, and other installed programs remain reachable through `shell_exec`; the bridge deliberately maintains no command allowlist.
 
@@ -88,7 +89,16 @@ Git, package managers, Vercel CLI, database CLIs, AppleScript, browser CLIs, bui
 
 | Tool | Purpose |
 |---|---|
-| `bridge_status` | Runtime identity, paths, permissions context, shell, audit mode, and Codex binary |
+| `bridge_status` | Runtime identity, paths, permissions context, shell, audit mode, Codex binary, focus policy, and background-Chrome status |
+| `chrome_workspace_status` | Inspect the extension-owned `MDB` Chrome group and reusable background-tab pool; no website grant required |
+| `chrome_workspace_setup` | Create or expand the `MDB` pool once while Chrome is already foreground |
+| `chrome_tabs` | List tabs in the real signed-in Chrome profile without activating Chrome; scoped only when Strict approvals is on |
+| `chrome_open` | Lease an idle tab from the persistent `MDB` group and open a URL without creating a new tab |
+| `chrome_navigate` | Navigate an approved tab without selecting it |
+| `chrome_snapshot` | Read visible text and interactive elements from an approved tab |
+| `chrome_click` | Click an element in an approved tab without foregrounding Chrome |
+| `chrome_fill` | Fill inputs, textareas, selects, or contenteditable fields in the background |
+| `chrome_close` | Release an `MDB` workspace tab back to the idle pool, or close a non-workspace background tab |
 | `shell_exec` | Run any foreground shell command, optionally with cwd, env, stdin, timeout, and output cap |
 | `shell_start` | Start a detached long-running process |
 | `shell_job_status` | Inspect running state and log tails |
@@ -104,6 +114,75 @@ Git, package managers, Vercel CLI, database CLIs, AppleScript, browser CLIs, bui
 | `codex_thread_list` | Search and page stored Codex threads |
 | `codex_thread_turns_list` | Page stored turns with full, summary, or omitted items |
 | `audit_tail` | Read the local bridge audit tail |
+
+### Background Chrome without stealing focus
+
+On macOS, the optional Background Browser integration operates the **same signed-in Chrome profile you already use**, so existing website sessions work, but routine automation happens through a small local extension instead of AppleScript UI automation or Chrome DevTools Protocol page selection. The native host is bound at install time to the selected Chrome profile/account and refuses a signed-out or mismatched profile.
+
+This is intentionally opt-in because authenticated browser control is powerful. Install the native host once, then load the unpacked extension once in Chrome:
+
+```bash
+./scripts/install-background-chrome.sh
+```
+
+Then in Chrome open `chrome://extensions`, enable **Developer mode**, choose **Load unpacked**, and select this repository's `chrome-extension/` directory. The expected extension id is `pcebfblnmcappinbenkmddjdapaoajgm`.
+
+The extension keeps a Chrome-native tab group named **`MDB`**. By default it contains four extension-owned idle tabs. They are created once during setup, then leased and reused for routine work. The group is collapsed when idle and expands while one or more tabs are leased. This mirrors the managed-group approach used by browser-agent extensions while avoiding a macOS/Chrome quirk measured on this project: even `chrome.tabs.create({ active:false })` can bring Chrome to the foreground.
+
+Initialize the pool once while Chrome is already the foreground app:
+
+1. Bring any normal Chrome window to the front.
+2. Call `chrome_workspace_setup` (default pool size: 4).
+3. Switch back to whatever you were doing. Routine `chrome_open` calls now reuse those tabs and do not create new ones.
+
+`chrome_workspace_status` is grantless because it only reads extension-owned local workspace state. `chrome_workspace_setup` is also grantless because it creates only extension-owned idle pages; it refuses to create or expand the pool unless Chrome is already focused rather than stealing focus itself.
+
+**Relaxed access is the default.** Normal HTTP/HTTPS work through the signed-in `MDB` Chrome profile does not require a terminal approval command or per-site allowlist. This is intentional: Mac Developer Bridge already exposes unrestricted shell/file authority as the logged-in macOS user, and the useful default is for browser execution to match that operator-chosen trust level while remaining background-first.
+
+If you want a tighter browser/app workflow, enable **Strict approvals** from the Mac Developer Bridge menu-bar app. The toggle is live; no restart is needed. In Strict mode, `chrome-background` approvals are additive and shared across every ChatGPT session connected to the bridge until each grant expires:
+
+```bash
+./scripts/approve-personal-browser.sh \
+  --provider chrome-background \
+  --url-pattern 'https://www.producthunt.com/*' \
+  --url-pattern 'https://www.reddit.com/*' \
+  --ttl 900
+```
+
+A normal workflow is:
+
+1. `chrome_open` an approved URL into an idle tab leased from the `MDB` group.
+2. `chrome_snapshot` to read the page and get stable-enough selectors for visible controls.
+3. `chrome_fill` / `chrome_click` / `chrome_navigate` as needed.
+4. `chrome_close` to return the workspace tab to its idle extension page and release the lease.
+
+Profile binding is always enforced. In relaxed mode the extension permits normal HTTP/HTTPS sites without a per-site grant. In Strict mode, each `chrome-background` approval is stored as its own mode-0600 file under `$DATA_DIR/chrome-background-grants/`, expires after at most 15 minutes, and is merged with other still-live approvals. Expired files are pruned automatically and URL patterns are enforced inside Chrome. Federated personal-browser providers keep their separate single-use behavior.
+
+What background mode does **not** promise: CAPTCHAs, native browser/OS permission dialogs, file pickers, downloads requiring a trusted user gesture, passkeys, and other browser security UI may require a foreground/manual step. The bridge reports that limitation rather than silently activating Chrome. This is also deliberately narrower than arbitrary page JavaScript or network-header capture; see [SECURITY.md](SECURITY.md).
+
+To remove the integration:
+
+```bash
+./scripts/uninstall-background-chrome.sh
+```
+
+### Desktop apps and focus
+
+For native macOS apps, MDB still **prefers** background-capable APIs or web paths because Accessibility/AppleScript automation of apps such as Slack may require the target application to become frontmost. In the default relaxed mode, native app control is allowed without a separate terminal approval, so MDB can still complete the task when a foreground app interaction is genuinely necessary.
+
+Prefer, in order:
+
+1. an API or MCP connector for the service;
+2. the service's web app through the signed-in `MDB` Chrome group;
+3. native-app GUI automation only when foreground interaction is genuinely required.
+
+When **Strict approvals** is enabled, native foreground app control is blocked unless the operator creates a one-use, app-scoped grant:
+
+```bash
+./scripts/approve-foreground-gui.sh --app Slack --ttl 60
+```
+
+Strict mode is optional and off by default. The menu-bar checkbox changes it live.
 
 ### Interactive terminal sessions
 
@@ -155,7 +234,12 @@ These are read by `bridge.mjs` on both transports.
 | `MAC_DEV_BRIDGE_MCP_SERVERS_JSON` | — | The same registry inline. Takes precedence. |
 | `MAC_DEV_BRIDGE_MCP_START_DEADLINE_MS` | `15000` (1 s–120 s) | Wall-clock ceiling on one provider's whole startup — handshake, grant check, and every `tools/list` page. A provider that exceeds it is abandoned rather than left holding up the tool surface. |
 | `MAC_DEV_BRIDGE_MCP_PING_IDLE_MS` | `30000` | Idle interval after which a federated child is pinged; a child that fails the ping is treated as hung and restarted. |
-| `MAC_DEV_BRIDGE_PERSONAL_APPROVAL_FILE` | `$DATA_DIR/PERSONAL_BROWSER_APPROVED` | Where the single-use personal-browser grant is read from. The bridge never creates it. |
+| `MAC_DEV_BRIDGE_PERSONAL_APPROVAL_FILE` | `$DATA_DIR/PERSONAL_BROWSER_APPROVED` | Legacy/federated single-use personal-browser grant path. A legacy `chrome-background` grant here is imported into the shared pool for backward compatibility. |
+| `MAC_DEV_BRIDGE_BACKGROUND_CHROME_GRANT_DIR` | `$DATA_DIR/chrome-background-grants` | Directory of additive, expiring background-Chrome URL grants shared across all sessions and reloaded after bridge restarts. |
+| `MAC_DEV_BRIDGE_SETTINGS_FILE` | `$DATA_DIR/settings.json` | Operator settings. `strictApprovals` defaults to `false` when the file/key is absent. The menu-bar app manages it. |
+| `MAC_DEV_BRIDGE_FOREGROUND_GUI_APPROVAL_FILE` | `$DATA_DIR/FOREGROUND_GUI_APPROVED` | Strict-mode single-use, app-scoped foreground-GUI approval. |
+| `MAC_DEV_BRIDGE_CHROME_SOCKET` | `$DATA_DIR/chrome-background.sock` | Unix socket between `bridge.mjs` and the optional Chrome native-messaging host. Mode 0600 inside the mode-0700 data directory. |
+| `MAC_DEV_BRIDGE_CHROME_NATIVE_PID_FILE` | `$DATA_DIR/chrome-native-host.pid` | PID record used by the kill switch for the optional Chrome native host. |
 | `MAC_DEV_BRIDGE_FULL_ACCESS_ACK` | — | Environment form of the acknowledgement. **Not** revocable; see below. |
 
 ## What “full access” means
@@ -294,7 +378,7 @@ finds the package.
 
 The menu gives you: current status, the tunnel mode, **Copy Server URL**, **Copy
 OAuth Client ID**, **Copy ChatGPT Setup** (the whole dialog filled in, in order),
-**Copy Bearer Token**, Start/Stop, Rotate Token, Open Logs, and Quit.
+**Copy Bearer Token**, Start/Stop, a live **Strict approvals** checkbox (off by default), Rotate Token, Open Logs, and Quit.
 
 It prefers a **named** Cloudflare tunnel when `~/.cloudflared/config.yml` declares
 one, giving a stable URL — otherwise a quick tunnel, whose hostname changes every
