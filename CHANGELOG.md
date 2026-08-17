@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### Poisoned repository adversarial fixture
+
+- Added a deterministic, disposable Git repository fixture covering malicious
+  model-visible content in README/AGENTS guidance, source comments, test and
+  package output, filenames, Git metadata, and synthetic credential-shaped
+  files. The test drives the real stdio bridge, records that armed tools still
+  expose their documented authority, then removes the file latch and verifies
+  the next call exits 78 with an audit record. It executes no embedded
+  instruction, makes no network request, and is not presented as a model safety
+  benchmark or prompt-injection mitigation.
+
 ### Interactive pty sessions and the federation gateway: verifier findings
 
 Blocking findings from independent verifiers of the new pty layer and child-MCP

@@ -88,6 +88,22 @@ The bridge refuses to start unless either:
 
 This is a revocation latch, not a sandbox or authorization boundary: it gates whether tools may be invoked, and does nothing about what an already-executing command or a detached background job is doing. Note the environment form (`MAC_DEV_BRIDGE_FULL_ACCESS_ACK`) is deliberately *not* revocable this way — it lives in the process's own environment, so a bridge started with it set is not stoppable by deleting a file. Prefer the unlock file for anything you may need to revoke.
 
+## Poisoned repository test harness
+
+`tests/adversarial.mjs` generates a disposable repository with synthetic
+adversarial instructions in repository guidance, source comments, logs,
+package output, filenames, Git metadata, and credential-shaped files. It proves
+the current boundary rather than simulating a defense: while the latch is
+armed, model-visible content is returned verbatim and the registered shell and
+filesystem authority remains available. Removing the latch makes the next call
+fail closed and exits 78.
+
+The harness never executes the embedded instructions, uses no real credential,
+and contacts no network endpoint. It does not run a model or claim prompt-
+injection resistance. See
+[`tests/fixtures/poisoned-repository.md`](tests/fixtures/poisoned-repository.md)
+for the test matrix and explicit limitations.
+
 ## OAuth redirect policy (HTTP transport)
 
 An authorization endpoint that redirects to an attacker-chosen URL leaks authorization
