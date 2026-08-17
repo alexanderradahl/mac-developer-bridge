@@ -127,15 +127,11 @@ This is intentionally opt-in because authenticated browser control is powerful. 
 
 Then in Chrome open `chrome://extensions`, enable **Developer mode**, choose **Load unpacked**, and select this repository's `chrome-extension/` directory. The expected extension id is `pcebfblnmcappinbenkmddjdapaoajgm`.
 
-The extension keeps a Chrome-native tab group named **`MDB`**. By default it contains four extension-owned idle tabs. They are created once during setup, then leased and reused for routine work. The group is collapsed when idle and expands while one or more tabs are leased. This mirrors the managed-group approach used by browser-agent extensions while avoiding a macOS/Chrome quirk measured on this project: even `chrome.tabs.create({ active:false })` can bring Chrome to the foreground.
+The extension keeps a Chrome-native tab group named **`MDB`**. By default it contains four extension-owned idle tabs. They are created only while Chrome is already foreground, then leased and reused for routine work. The group is collapsed when idle and expands while one or more tabs are leased. This mirrors the managed-group approach used by browser-agent extensions while avoiding a macOS/Chrome quirk measured on this project: even `chrome.tabs.create({ active:false })` can bring Chrome to the foreground.
 
-Initialize the pool once while Chrome is already the foreground app:
+The pool now self-heals. If Chrome or the extension restarts and the `MDB` group is missing, the extension recreates the default four-tab pool the next time you **naturally focus Chrome**. It never activates Chrome just to repair itself. You can also force setup while Chrome is already foreground by calling `chrome_workspace_setup` (default pool size: 4).
 
-1. Bring any normal Chrome window to the front.
-2. Call `chrome_workspace_setup` (default pool size: 4).
-3. Switch back to whatever you were doing. Routine `chrome_open` calls now reuse those tabs and do not create new ones.
-
-`chrome_workspace_status` is grantless because it only reads extension-owned local workspace state. `chrome_workspace_setup` is also grantless because it creates only extension-owned idle pages; it refuses to create or expand the pool unless Chrome is already focused rather than stealing focus itself.
+`chrome_workspace_status` is grantless because it only reads extension-owned local workspace state. `chrome_workspace_setup` is also grantless because it creates only extension-owned idle pages; it refuses to create or expand the pool unless Chrome is already focused rather than stealing focus itself. Legacy/internal `tabs.open` callers are routed to the same `workspace.open` lease path, so they cannot create loose tabs outside `MDB`; if the pool is unavailable while Chrome is background, the open fails closed until the group can be repaired.
 
 **Relaxed access is the default.** Normal HTTP/HTTPS work through the signed-in `MDB` Chrome profile does not require a terminal approval command or per-site allowlist. This is intentional: Mac Developer Bridge already exposes unrestricted shell/file authority as the logged-in macOS user, and the useful default is for browser execution to match that operator-chosen trust level while remaining background-first.
 

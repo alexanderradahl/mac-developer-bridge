@@ -4,6 +4,7 @@
 
 ### Background Chrome without focus stealing
 
+- Routed the legacy low-level `tabs.open` primitive through `workspace.open` at the client, native-host, and extension layers. Older/stale sessions can no longer create loose Chrome tabs outside `MDB`; if the workspace is missing they fail closed until the group is auto-healed. The extension now recreates the default four-tab workspace whenever Chrome is naturally focused, avoiding manual re-setup after browser/extension restarts.
 - Separated approval strictness from Chrome routing. Direct Chrome AppleScript/JXA, direct Chrome executable launches, and shell `open` calls for web URLs (including `open -g`) are always refused with `CHROME_BACKGROUND_REQUIRED` in both Relaxed and Strict modes, forcing browser work through the signed-in `MDB` tab group. This fixes a regression where Relaxed mode let other sessions bypass the extension, create ungrouped tabs, and steal foreground focus.
 - Fixed test isolation so the federation/installer suites cannot target the live checkout or inherit/remove the running menu-bar bridge unlock file. Running `npm test` no longer causes the live MDB endpoint to fall into 502 afterward.
 - Changed the product default to **relaxed approvals**: the signed-in MDB Chrome workspace can use normal HTTP/HTTPS sites and native foreground app control can execute without per-site/per-app terminal approval commands. Added a live **Strict approvals** checkbox to the menu-bar app; when enabled it restores the scoped background-Chrome grant pool and one-use foreground-app approvals.

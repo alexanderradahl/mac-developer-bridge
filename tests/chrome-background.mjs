@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import crypto from "node:crypto";
 import fs from "node:fs/promises";
+import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import readline from "node:readline";
@@ -41,6 +42,31 @@ async function waitForPath(target, timeoutMs = 3_000) {
     if (Date.now() >= deadline) throw new Error(`timed out waiting for ${target}`);
     await new Promise((resolve) => setTimeout(resolve, 25));
   }
+}
+
+function rawSocketCall(payload, target = socketPath) {
+  return new Promise((resolve, reject) => {
+    const socket = net.createConnection(target);
+    let buffer = "";
+    const timer = setTimeout(() => {
+      socket.destroy();
+      reject(new Error("raw native-host socket call timed out"));
+    }, 5_000);
+    socket.setEncoding("utf8");
+    socket.on("connect", () => socket.write(`${JSON.stringify(payload)}\n`));
+    socket.on("data", (chunk) => {
+      buffer += chunk;
+      const newline = buffer.indexOf("\n");
+      if (newline === -1) return;
+      clearTimeout(timer);
+      socket.destroy();
+      resolve(JSON.parse(buffer.slice(0, newline)));
+    });
+    socket.on("error", (error) => {
+      clearTimeout(timer);
+      reject(error);
+    });
+  });
 }
 
 function startFakeExtensionHost() {
@@ -167,6 +193,13 @@ try {
   assert.match(workerSource, /chrome\.tabs\.group/);
   assert.match(workerSource, /chrome\.tabGroups\.query/);
   assert.match(workerSource, /workspace\.open/);
+  assert.match(workerSource, /case "tabs\.open"/);
+  assert.match(workerSource, /initializeWorkspaceIfChromeFocused/);
+  assert.match(workerSource, /chrome\.windows\.onFocusChanged/);
+  const legacyOpenCase = workerSource.match(/case "workspace\.open":[\s\S]*?case "workspace\.release":/)?.[0] || "";
+  assert.match(legacyOpenCase, /case "tabs\.open"/);
+  assert.match(legacyOpenCase, /return await leaseWorkspaceTab/);
+  assert.doesNotMatch(legacyOpenCase, /await chrome\.tabs\.create/);
   assert.match(workerSource, /CHROME_WORKSPACE_SETUP_FOREGROUND_REQUIRED/);
   assert.match(workerSource, /targetWindow\.focused !== true/);
   assert.match(workerSource, /waitForApprovedNavigation/);
@@ -268,6 +301,30 @@ try {
   assert.equal(direct.count, 1);
   assert.equal(host.seen.at(-1).method, "tabs.list");
   assert.deepEqual(host.seen.at(-1).allowedUrlPatterns, ["https://www.producthunt.com/*"]);
+
+  // Legacy callers may still use the old low-level tabs.open primitive. The
+  // client must rewrite it to workspace.open so it cannot create a loose tab.
+  const legacyClientOpen = await backgroundChromeCall(
+    "tabs.open",
+    { url: "https://www.producthunt.com/" },
+    ["https://www.producthunt.com/*"],
+    { socketPath },
+  );
+  assert.equal(legacyClientOpen.echoedMethod, "workspace.open");
+  assert.equal(host.seen.at(-1).method, "workspace.open");
+  assert.equal(host.seen.at(-1).args.url, "https://www.producthunt.com/");
+
+  // The native host repeats the same normalization for callers that bypass the
+  // JS client and talk to its local socket directly.
+  const rawLegacy = await rawSocketCall({
+    id: "raw-legacy-open",
+    method: "tabs.open",
+    args: { url: "https://www.producthunt.com/" },
+    allowedUrlPatterns: ["https://www.producthunt.com/*"],
+  });
+  assert.equal(rawLegacy.ok, true);
+  assert.equal(host.seen.at(-1).method, "workspace.open");
+  assert.equal(host.seen.at(-1).args.url, "https://www.producthunt.com/");
 
   // The bridge now consumes the grant, returns only the fake extension result,
   // and reuses the in-memory grant for later calls until expiry.
