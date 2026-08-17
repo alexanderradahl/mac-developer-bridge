@@ -117,6 +117,9 @@ export MAC_DEV_BRIDGE_INSTALL_DIR="$INSTALL_DIR"
 export MAC_DEV_BRIDGE_BIN_DIR="$BIN_DIR"
 export MAC_DEV_BRIDGE_PLIST_DIR="$PLIST_DIR"
 export MAC_DEV_BRIDGE_DATA_DIR="$DATA_DIR"
+# The test process can inherit the real menu-bar bridge unlock path. Override it
+# explicitly so mock uninstall.sh can never revoke the running developer bridge.
+export MAC_DEV_BRIDGE_UNLOCK_FILE="$DATA_DIR/FULL_ACCESS_ENABLED"
 export MAC_DEV_BRIDGE_LOG_DIR="$LOG_DIR"
 export MAC_DEV_BRIDGE_AUDIT_MODE="metadata"
 export MAC_DEV_BRIDGE_SHELL="/bin/bash"

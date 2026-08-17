@@ -139,6 +139,8 @@ Initialize the pool once while Chrome is already the foreground app:
 
 **Relaxed access is the default.** Normal HTTP/HTTPS work through the signed-in `MDB` Chrome profile does not require a terminal approval command or per-site allowlist. This is intentional: Mac Developer Bridge already exposes unrestricted shell/file authority as the logged-in macOS user, and the useful default is for browser execution to match that operator-chosen trust level while remaining background-first.
 
+Relaxed approval does **not** relax Chrome routing. Direct Chrome control through `shell_exec`/`shell_start` — AppleScript, JXA, direct Chrome executable launches, or shell `open` of an HTTP/HTTPS URL (including `open -g`) — is always refused with `CHROME_BACKGROUND_REQUIRED`, in both Relaxed and Strict modes. Browser work must use the `chrome_*` tools and the managed `MDB` group. This keeps the no-focus-stealing behavior structural instead of depending on which approval mode is selected.
+
 If you want a tighter browser/app workflow, enable **Strict approvals** from the Mac Developer Bridge menu-bar app. The toggle is live; no restart is needed. In Strict mode, `chrome-background` approvals are additive and shared across every ChatGPT session connected to the bridge until each grant expires:
 
 ```bash
@@ -168,7 +170,7 @@ To remove the integration:
 
 ### Desktop apps and focus
 
-For native macOS apps, MDB still **prefers** background-capable APIs or web paths because Accessibility/AppleScript automation of apps such as Slack may require the target application to become frontmost. In the default relaxed mode, native app control is allowed without a separate terminal approval, so MDB can still complete the task when a foreground app interaction is genuinely necessary.
+For native macOS apps, MDB still **prefers** background-capable APIs or web paths because Accessibility/AppleScript automation of apps such as Slack may require the target application to become frontmost. In the default relaxed mode, non-Chrome native app control is allowed without a separate terminal approval, so MDB can still complete the task when a foreground app interaction is genuinely necessary. Chrome is the exception: because MDB has a dedicated signed-in background extension, direct Chrome GUI automation is always forced back to the `MDB` browser path rather than allowed to steal focus.
 
 Prefer, in order:
 

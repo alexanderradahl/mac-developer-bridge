@@ -1030,7 +1030,9 @@ try {
     // is about reclaiming the recorded child, not a real bridge/cloudflared that
     // may happen to be running outside temporaryRoot.
     const fakeBin = path.join(temporaryRoot, "disable-test-bin");
+    const disableInstallDir = path.join(temporaryRoot, "disable-install");
     await fsp.mkdir(fakeBin, { recursive: true });
+    await fsp.mkdir(disableInstallDir, { recursive: true });
     const realPgrep = "/usr/bin/pgrep";
     const pgrepWrapper = path.join(fakeBin, "pgrep");
     await fsp.writeFile(pgrepWrapper, `#!/bin/sh
@@ -1045,6 +1047,10 @@ exec ${realPgrep} "$@"
           PATH: `${fakeBin}:${process.env.PATH || "/usr/bin:/bin"}`,
           MAC_DEV_BRIDGE_DATA_DIR: dataDir,
           MAC_DEV_BRIDGE_UNLOCK_FILE: path.join(dataDir, "FULL_ACCESS_ENABLED"),
+          // Critical isolation: never let disable.sh resolve bridge.mjs or
+          // mcp-http.mjs against this repository checkout. Otherwise its
+          // fallback process scan can match and signal the live developer MDB.
+          MAC_DEV_BRIDGE_INSTALL_DIR: disableInstallDir,
           MAC_DEV_BRIDGE_HTTP_PORT: "65534",
         },
         stdio: ["ignore", "pipe", "pipe"],
