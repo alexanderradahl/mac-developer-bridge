@@ -137,6 +137,57 @@ try {
   assert.equal(command.exitCode, 0);
 
   if (process.platform === "darwin") {
+    // Relaxed approvals removes approval ceremony, but Chrome routing is always
+    // background-only. These branches are deliberately false so a regression in
+    // the detector cannot actually manipulate Chrome during the test.
+    const relaxedChromeBlocked = await request("relaxed-chrome-blocked", "tools/call", {
+      _meta: meta,
+      name: "shell_exec",
+      arguments: {
+        command: "if false; then osascript -e 'tell application \"Google Chrome\" to get URL of active tab of front window'; fi; printf should-not-run",
+      },
+    });
+    assert.equal(relaxedChromeBlocked.result.isError, true);
+    assert.match(relaxedChromeBlocked.result.content[0].text, /Chrome web work must use the built-in chrome_\* tools/);
+
+    const relaxedChromeStartBlocked = await request("relaxed-chrome-start-blocked", "tools/call", {
+      _meta: meta,
+      name: "shell_start",
+      arguments: {
+        command: "if false; then osascript -e 'tell application \"Google Chrome\" to activate'; fi; printf should-not-start",
+        label: "should-not-start",
+      },
+    });
+    assert.equal(relaxedChromeStartBlocked.result.isError, true);
+    assert.match(relaxedChromeStartBlocked.result.content[0].text, /Chrome web work must use the built-in chrome_\* tools/);
+
+    const relaxedWebOpenBlocked = await request("relaxed-web-open-blocked", "tools/call", {
+      _meta: meta,
+      name: "shell_exec",
+      arguments: {
+        command: "if false; then open https://example.com; fi; printf should-not-run",
+      },
+    });
+    assert.equal(relaxedWebOpenBlocked.result.isError, true);
+    assert.match(relaxedWebOpenBlocked.result.content[0].text, /MDB tab group/);
+
+    const relaxedBackgroundWebOpenBlocked = await request("relaxed-background-web-open-blocked", "tools/call", {
+      _meta: meta,
+      name: "shell_exec",
+      arguments: {
+        command: "if false; then open -g https://example.com; fi; printf should-not-run",
+      },
+    });
+    assert.equal(relaxedBackgroundWebOpenBlocked.result.isError, true);
+    assert.match(relaxedBackgroundWebOpenBlocked.result.content[0].text, /MDB tab group/);
+
+    // Non-Chrome desktop apps remain allowed in relaxed mode; Strict approvals
+    // only controls approval ceremony for those apps.
+    const relaxedNonChrome = await call("relaxed-non-chrome", "shell_exec", {
+      command: "if false; then osascript -e 'tell application \"Slack\" to activate'; fi; printf relaxed",
+    });
+    assert.equal(relaxedNonChrome.stdout, "relaxed");
+
     await fs.mkdir(dataDir, { recursive: true });
     await fs.writeFile(settingsFile, JSON.stringify({ strictApprovals: true }), { mode: 0o600 });
     const strictStatus = await call("strict-status", "bridge_status");
@@ -148,7 +199,7 @@ try {
       arguments: { command: "osascript -e 'tell application \"Google Chrome\" to get URL of active tab of front window'" },
     });
     assert.equal(focusBlocked.result.isError, true);
-    assert.match(focusBlocked.result.content[0].text, /Strict approvals is enabled/);
+    assert.match(focusBlocked.result.content[0].text, /Chrome web work must use the built-in chrome_\* tools/);
 
     const selfBypassBlocked = await request("focus-self-bypass-blocked", "tools/call", {
       _meta: meta,

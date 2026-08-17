@@ -469,7 +469,7 @@ final class Controller: NSObject, NSApplicationDelegate {
 
         strictApprovalsItem.target = self
         strictApprovalsItem.action = #selector(toggleStrictApprovals)
-        strictApprovalsItem.toolTip = "Off by default: MDB can use the signed-in Chrome profile and foreground apps without per-site/per-app approval files. Turn this on to require short-lived scoped approvals."
+        strictApprovalsItem.toolTip = "Off by default: MDB can use the signed-in Chrome profile and non-Chrome foreground apps without per-site/per-app approval files. Chrome still stays background-only through the MDB tab group. Turn this on to require short-lived scoped approvals."
         menu.addItem(strictApprovalsItem)
 
         let regen = NSMenuItem(title: "Rotate Token…", action: #selector(rotateToken), keyEquivalent: "")
@@ -560,9 +560,9 @@ final class Controller: NSObject, NSApplicationDelegate {
             try OperatorSettingsStore.setStrictApprovals(enabled)
             render()
             if enabled {
-                notify("Strict approvals enabled", "Websites and foreground app control now require scoped short-lived approvals.")
+                notify("Strict approvals enabled", "Websites and non-Chrome foreground app control now require scoped short-lived approvals.")
             } else {
-                notify("Relaxed access enabled", "MDB can execute through the signed-in Chrome profile and apps without per-site/per-app approval commands.")
+                notify("Relaxed access enabled", "No per-site/per-app approval commands are required. Chrome still routes through the background MDB tab group.")
             }
         } catch {
             notify("Could not update approval mode", error.localizedDescription)
