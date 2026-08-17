@@ -20,6 +20,12 @@ const MAX_SOCKET_LINE_BYTES = 2 * 1024 * 1024;
 const REQUEST_TIMEOUT_MS = 30_000;
 const GRANTLESS_EXTENSION_METHODS = new Set(["status", "workspace.status", "workspace.init"]);
 
+function normalizeExtensionMethod(method) {
+  // Old/stale clients may still issue tabs.open directly. Never forward that
+  // loose-tab primitive: all opens must lease from the managed MDB workspace.
+  return method === "tabs.open" ? "workspace.open" : method;
+}
+
 await fsp.mkdir(DATA_DIR, { recursive: true, mode: 0o700 });
 await fsp.chmod(DATA_DIR, 0o700).catch(() => {});
 
@@ -216,7 +222,8 @@ const server = net.createServer((socket) => {
       sendSocket(socket, { id: request?.id || null, ok: false, error: { code: "CHROME_REQUEST_INVALID", message: "method is required" } });
       return;
     }
-    const grantless = GRANTLESS_EXTENSION_METHODS.has(request.method);
+    const routedMethod = normalizeExtensionMethod(request.method);
+    const grantless = GRANTLESS_EXTENSION_METHODS.has(routedMethod);
     if (!grantless && (!Array.isArray(request.allowedUrlPatterns) || request.allowedUrlPatterns.length === 0)) {
       sendSocket(socket, { id: request.id || null, ok: false, error: { code: "CHROME_NO_URL_GRANT", message: "allowedUrlPatterns must be a non-empty array" } });
       return;
@@ -234,7 +241,7 @@ const server = net.createServer((socket) => {
       sendNative({
         type: "request",
         id,
-        method: request.method,
+        method: routedMethod,
         args: request.args || {},
         allowedUrlPatterns: request.allowedUrlPatterns,
       });

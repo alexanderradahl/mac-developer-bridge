@@ -1,10 +1,11 @@
 const NATIVE_HOST = "io.github.alexanderradahl.mac_developer_bridge";
-const VERSION = "0.2.2";
+const VERSION = "0.2.3";
 const WORKSPACE_KEY = "macDeveloperBridgeWorkspace";
 const WORKSPACE_GROUP_TITLE = "MDB";
 const WORKSPACE_GROUP_COLOR = "blue";
 const WORKSPACE_LEASE_STALE_MS = 30 * 60 * 1000;
 const WORKSPACE_NAVIGATION_TIMEOUT_MS = 15_000;
+const DEFAULT_WORKSPACE_POOL_SIZE = 4;
 let port = null;
 let reconnectTimer = null;
 
@@ -261,11 +262,27 @@ async function waitForApprovedNavigation(tabId, compiled, {
   }
 }
 
+async function initializeWorkspaceIfChromeFocused() {
+  const state = await reconcileWorkspaceState();
+  if (state) return state;
+  const windows = await chrome.windows.getAll({ windowTypes: ["normal"] });
+  const focused = windows.find((win) => win.focused === true);
+  if (!focused) return null;
+  try {
+    await initializeWorkspace(DEFAULT_WORKSPACE_POOL_SIZE);
+  } catch (error) {
+    if (error?.code !== "CHROME_WORKSPACE_SETUP_FOREGROUND_REQUIRED") throw error;
+    return null;
+  }
+  return await reconcileWorkspaceState();
+}
+
 async function leaseWorkspaceTab(url, compiled) {
   assertUrlAllowed(url, compiled);
-  const state = await reconcileWorkspaceState();
+  let state = await reconcileWorkspaceState();
+  if (!state) state = await initializeWorkspaceIfChromeFocused();
   if (!state) {
-    const error = new Error("The Mac Developer Bridge Chrome tab group has not been initialized. Run the one-time workspace setup while Chrome is already foreground.");
+    const error = new Error("The Mac Developer Bridge Chrome tab group is missing. MDB will recreate it automatically the next time Chrome is naturally foreground; browser work refuses to create a loose fallback tab in the meantime.");
     error.code = "CHROME_WORKSPACE_MISSING";
     throw error;
   }
@@ -502,7 +519,11 @@ async function dispatch(message) {
 
   const compiled = compilePatterns(message.allowedUrlPatterns);
   switch (message.method) {
-    case "workspace.open": {
+    case "workspace.open":
+    case "tabs.open": {
+      // tabs.open is retained only as a compatibility alias for older callers.
+      // It must never call chrome.tabs.create directly; every agent open leases
+      // a managed tab from the MDB group.
       const url = String(args.url || "");
       return await leaseWorkspaceTab(url, compiled);
     }
@@ -534,15 +555,6 @@ async function dispatch(message) {
         })),
         count: filtered.length,
       };
-    }
-
-    case "tabs.open": {
-      const url = String(args.url || "");
-      assertUrlAllowed(url, compiled);
-      const create = { url, active: false };
-      if (Number.isInteger(args.windowId)) create.windowId = args.windowId;
-      const tab = await chrome.tabs.create(create);
-      return { tabId: tab.id, windowId: tab.windowId, active: Boolean(tab.active), title: tab.title || "", url: tab.url || url };
     }
 
     case "tabs.navigate": {
@@ -600,6 +612,15 @@ chrome.tabGroups.onRemoved.addListener((group) => {
   })().catch(() => {});
 });
 
+chrome.windows.onFocusChanged.addListener((windowId) => {
+  if (windowId === chrome.windows.WINDOW_ID_NONE) return;
+  void (async () => {
+    const win = await chrome.windows.get(windowId);
+    if (win?.type !== "normal" || win.focused !== true) return;
+    await initializeWorkspaceIfChromeFocused();
+  })().catch(() => {});
+});
+
 function scheduleReconnect() {
   if (reconnectTimer) return;
   reconnectTimer = setTimeout(() => {
@@ -628,7 +649,8 @@ async function connect() {
     return;
   }
   try {
-    const workspace = await reconcileWorkspaceState();
+    let workspace = await reconcileWorkspaceState();
+    if (!workspace) workspace = await initializeWorkspaceIfChromeFocused();
     if (workspace) await setWorkspaceGroupActivity(workspace);
   } catch {}
 
