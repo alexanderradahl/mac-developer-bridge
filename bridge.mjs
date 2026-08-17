@@ -9,7 +9,8 @@ import path from "node:path";
 import readline from "node:readline";
 import { fileURLToPath } from "node:url";
 
-import { createFederation } from "./lib/federation.mjs";
+import { createFederation, consumePersonalApproval } from "./lib/federation.mjs";
+import { backgroundChromeCall, backgroundChromeStatus } from "./lib/chrome-extension-client.mjs";
 
 const BRIDGE_VERSION = "0.2.0";
 const SERVER_NAME = "mac-developer-bridge";
@@ -230,6 +231,135 @@ function optionalInteger(args, key, fallback, min, max) {
   if (!Number.isInteger(value)) throw new Error(`'${key}' must be an integer`);
   if (value < min || value > max) throw new Error(`'${key}' must be between ${min} and ${max}`);
   return value;
+}
+
+function requireInteger(args, key, min, max) {
+  const value = args?.[key];
+  if (!Number.isInteger(value)) throw new Error(`'${key}' must be an integer`);
+  if (value < min || value > max) throw new Error(`'${key}' must be between ${min} and ${max}`);
+  return value;
+}
+
+const GUI_FOCUS_POLICY = process.env.MAC_DEV_BRIDGE_GUI_FOCUS_POLICY || "background-first";
+const SETTINGS_FILE = process.env.MAC_DEV_BRIDGE_SETTINGS_FILE || path.join(APP_SUPPORT_DIR, "settings.json");
+const DEFAULT_OPERATOR_SETTINGS = Object.freeze({ strictApprovals: false });
+const RELAXED_BROWSER_PATTERNS = Object.freeze(["http://*/*", "https://*/*"]);
+const FOREGROUND_GUI_APPROVAL_FILE = process.env.MAC_DEV_BRIDGE_FOREGROUND_GUI_APPROVAL_FILE
+  || path.join(APP_SUPPORT_DIR, "FOREGROUND_GUI_APPROVED");
+const FOREGROUND_GUI_MAX_TTL_MS = 5 * 60 * 1000;
+
+async function readOperatorSettings() {
+  let raw;
+  try {
+    raw = await fsp.readFile(SETTINGS_FILE, "utf8");
+  } catch (error) {
+    if (error?.code === "ENOENT") return { ...DEFAULT_OPERATOR_SETTINGS };
+    throw error;
+  }
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    // A malformed operator settings file fails toward the safer behavior rather
+    // than silently granting broader browser/GUI access.
+    return { strictApprovals: true, settingsError: "invalid-json" };
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return { strictApprovals: true, settingsError: "invalid-shape" };
+  }
+  return {
+    strictApprovals: typeof parsed.strictApprovals === "boolean"
+      ? parsed.strictApprovals
+      : DEFAULT_OPERATOR_SETTINGS.strictApprovals,
+  };
+}
+
+function extractQuotedTargets(command, pattern) {
+  const out = [];
+  for (const match of command.matchAll(pattern)) {
+    const value = String(match[1] || match[2] || "").trim();
+    if (value) out.push(value);
+  }
+  return out;
+}
+
+function guiFocusRisk(command) {
+  if (process.platform !== "darwin" || GUI_FOCUS_POLICY !== "background-first") return null;
+  if (typeof command !== "string" || command.length === 0) return null;
+
+  const usesOsascript = /(^|[\s;&|()])(?:\/usr\/bin\/)?osascript(?:[\s;&|<]|$)/m.test(command);
+  const jxaApps = extractQuotedTargets(command, /\bApplication\s*\(\s*(?:["']([^"']+)["'])\s*\)/g);
+  const tellApps = extractQuotedTargets(command, /tell\s+application\s+(?:["']([^"']+)["'])/gi);
+  const tellProcesses = extractQuotedTargets(command, /tell\s+process\s+(?:["']([^"']+)["'])/gi);
+  const appTargets = [...new Set([...jxaApps, ...tellApps, ...tellProcesses])];
+  const nonSystemTargets = appTargets.filter((name) => name.toLowerCase() !== "system events");
+
+  if ((usesOsascript || jxaApps.length > 0) && nonSystemTargets.length > 0) {
+    return { reason: "apple-events-app-control", apps: nonSystemTargets };
+  }
+
+  if (usesOsascript && /\b(?:activate|frontmost\s+(?:to|=)\s+true|AXRaise|keystroke|key code)\b/i.test(command)) {
+    return { reason: "apple-events-focus-action", apps: appTargets.length ? appTargets : ["System Events"] };
+  }
+
+  if (/(^|[\s;&|()])(?:\/usr\/bin\/)?open(?:[\s;&|<]|$)/m.test(command) && !/(^|\s)-g(?:\s|$)/m.test(command)) {
+    const appMatches = extractQuotedTargets(command, /(?:^|\s)-a\s+(?:["']([^"']+)["'])/gm);
+    return { reason: "macos-open-foreground", apps: appMatches.length ? appMatches : ["open"] };
+  }
+
+  return null;
+}
+
+async function foregroundGuiApprovalPresent() {
+  try {
+    await fsp.stat(FOREGROUND_GUI_APPROVAL_FILE);
+    return { present: true, path: FOREGROUND_GUI_APPROVAL_FILE };
+  } catch (error) {
+    return { present: false, path: FOREGROUND_GUI_APPROVAL_FILE, reason: error?.code || String(error) };
+  }
+}
+
+async function consumeForegroundGuiApproval(risk) {
+  let raw;
+  try {
+    raw = await fsp.readFile(FOREGROUND_GUI_APPROVAL_FILE, "utf8");
+  } catch (error) {
+    if (error?.code === "ENOENT") return null;
+    throw error;
+  }
+
+  let grant;
+  try {
+    grant = JSON.parse(raw);
+  } catch (source) {
+    const error = new Error("Foreground GUI approval file is invalid JSON.");
+    error.code = "GUI_FOREGROUND_APPROVAL_INVALID";
+    throw error;
+  }
+
+  const nonce = typeof grant?.nonce === "string" ? grant.nonce : "";
+  const expiresAt = typeof grant?.expiresAt === "string" ? grant.expiresAt : "";
+  const allowedApps = Array.isArray(grant?.allowedApps) ? grant.allowedApps.filter((x) => typeof x === "string") : [];
+  const expiry = Date.parse(expiresAt);
+  const now = Date.now();
+  if (!/^[0-9a-fA-F]{32}$/.test(nonce) || !Number.isFinite(expiry) || expiry <= now || expiry - now > FOREGROUND_GUI_MAX_TTL_MS) {
+    await fsp.unlink(FOREGROUND_GUI_APPROVAL_FILE).catch(() => {});
+    const error = new Error("Foreground GUI approval is missing, expired, or malformed.");
+    error.code = "GUI_FOREGROUND_APPROVAL_INVALID";
+    throw error;
+  }
+
+  const normalized = new Set(allowedApps.map((x) => x.trim().toLowerCase()).filter(Boolean));
+  const missing = risk.apps.filter((app) => !normalized.has(String(app).trim().toLowerCase()));
+  if (missing.length > 0) {
+    const error = new Error(`Foreground GUI approval does not allow: ${missing.join(", ")}.`);
+    error.code = "GUI_FOREGROUND_APP_NOT_APPROVED";
+    throw error;
+  }
+
+  // Single use. Unlink before executing the focus-stealing shell call.
+  await fsp.unlink(FOREGROUND_GUI_APPROVAL_FILE);
+  return { nonce, expiresAt, allowedApps };
 }
 
 function optionalStringArray(args, key, fallback = undefined) {
@@ -549,6 +679,139 @@ const TOOLS = [
     description: "Inspect the host identity, runtime paths, permissions context, configured shell, audit log, and Codex executable. This is read-only.",
     inputSchema: { type: "object", additionalProperties: false },
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  },
+  {
+    name: "chrome_workspace_status",
+    title: "MDB Chrome workspace status",
+    description: "Inspect the extension-owned MDB Chrome tab group and reusable background-tab pool. This is local extension state only and does not access authenticated websites, so it does not consume a personal-browser URL grant.",
+    inputSchema: { type: "object", additionalProperties: false },
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  },
+  {
+    name: "chrome_workspace_setup",
+    title: "Set up MDB Chrome workspace",
+    description: "Create or expand the extension-owned MDB Chrome tab group and its reusable background-tab pool. This is a one-time/local setup action and does not access authenticated websites. On macOS, setup refuses to create tabs unless a normal Chrome window is already focused, because Chrome may otherwise steal focus even for active:false tab creation.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        pool_size: {
+          type: "integer",
+          minimum: 1,
+          maximum: 8,
+          default: 4,
+          description: "Number of reusable extension-owned tabs to keep in the MDB group.",
+        },
+      },
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  },
+  {
+    name: "chrome_tabs",
+    title: "List approved Chrome tabs in background",
+    description: "List tabs from the user's real signed-in Chrome profile without activating Chrome. Relaxed mode is the default and needs no per-site approval. When Strict approvals is enabled in the menu-bar app, only tabs covered by active scoped grants are returned.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        url_contains: { type: "string", description: "Optional case-insensitive URL substring filter." },
+        title_contains: { type: "string", description: "Optional case-insensitive title substring filter." },
+        max_tabs: { type: "integer", minimum: 1, maximum: 500, default: 200 },
+      },
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+  },
+  {
+    name: "chrome_open",
+    title: "Open background Chrome tab",
+    description: "Open a URL in an idle tab from the persistent MDB Chrome tab group. Routine calls never create a new Chrome tab, which avoids macOS focus theft. Relaxed mode is the default and permits normal HTTP/HTTPS sites without per-site approvals; Strict approvals optionally restores scoped URL grants.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        url: { type: "string", minLength: 1, maxLength: 20000 },
+      },
+      required: ["url"],
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+  },
+  {
+    name: "chrome_navigate",
+    title: "Navigate Chrome tab in background",
+    description: "Navigate an existing MDB Chrome tab without selecting it or activating Chrome. In relaxed mode normal HTTP/HTTPS navigation needs no per-site approval; Strict approvals restricts navigation to active scoped grants.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        tab_id: { type: "integer", minimum: 0 },
+        url: { type: "string", minLength: 1, maxLength: 20000 },
+      },
+      required: ["tab_id", "url"],
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
+  },
+  {
+    name: "chrome_snapshot",
+    title: "Read Chrome page in background",
+    description: "Read visible text and a bounded list of interactive elements from an MDB Chrome tab without activating Chrome. Password input values are redacted. Strict approvals, when enabled, restricts readable URLs to active scoped grants.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        tab_id: { type: "integer", minimum: 0 },
+        max_text_chars: { type: "integer", minimum: 1000, maximum: 200000, default: 50000 },
+        max_elements: { type: "integer", minimum: 1, maximum: 500, default: 200 },
+      },
+      required: ["tab_id"],
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+  },
+  {
+    name: "chrome_click",
+    title: "Click Chrome element in background",
+    description: "Programmatically click an element in an MDB Chrome tab without activating Chrome. Use selectors returned by chrome_snapshot. Relaxed mode is the default; Strict approvals optionally restricts sites. Trusted-user-gesture flows, CAPTCHAs, native dialogs, and file pickers may still require foreground/manual interaction.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        tab_id: { type: "integer", minimum: 0 },
+        selector: { type: "string", minLength: 1, maxLength: 10000 },
+      },
+      required: ["tab_id", "selector"],
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
+  },
+  {
+    name: "chrome_fill",
+    title: "Fill Chrome field in background",
+    description: "Fill an input, textarea, select, or contenteditable element in an MDB Chrome tab without activating Chrome. Relaxed mode is the default; Strict approvals optionally restricts sites. File inputs remain foreground-only.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        tab_id: { type: "integer", minimum: 0 },
+        selector: { type: "string", minLength: 1, maxLength: 10000 },
+        value: { type: "string", maxLength: 500000 },
+        submit: { type: "boolean", default: false, description: "If true, request form submission after filling. This can trigger external side effects." },
+      },
+      required: ["tab_id", "selector", "value"],
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
+  },
+  {
+    name: "chrome_close",
+    title: "Close background Chrome tab",
+    description: "Release an MDB workspace tab back to the pool, or close a non-workspace Chrome tab. Strict approvals affects site access, not local workspace cleanup.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        tab_id: { type: "integer", minimum: 0 },
+        allow_active: { type: "boolean", default: false },
+      },
+      required: ["tab_id"],
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
   },
   {
     name: "shell_exec",
@@ -1204,6 +1467,317 @@ async function personalBrowserApprovalPresent() {
   }
 }
 
+const BACKGROUND_CHROME_PROVIDER_KEY = "chrome-background";
+const BACKGROUND_CHROME_GRANT_DIR = process.env.MAC_DEV_BRIDGE_BACKGROUND_CHROME_GRANT_DIR
+  || path.join(APP_SUPPORT_DIR, "chrome-background-grants");
+const BACKGROUND_CHROME_MAX_TTL_MS = 15 * 60 * 1000;
+const BACKGROUND_CHROME_MAX_GRANT_FILES = 256;
+
+function backgroundChromeApprovalError(reason) {
+  const error = new Error(`Background Chrome is not approved for this website: ${reason}. Run scripts/approve-personal-browser.sh --provider chrome-background with the required URL patterns. Approvals are shared across all ChatGPT sessions on this bridge until their individual expiry times.`);
+  error.code = "PERSONAL_MODE_NOT_APPROVED";
+  return error;
+}
+
+function parseBackgroundChromeGrant(raw, sourcePath = null) {
+  let grant;
+  try {
+    grant = typeof raw === "string" ? JSON.parse(raw) : raw;
+  } catch {
+    throw backgroundChromeApprovalError(`grant ${sourcePath || "<memory>"} is not valid JSON`);
+  }
+  if (!grant || typeof grant !== "object" || Array.isArray(grant)) {
+    throw backgroundChromeApprovalError(`grant ${sourcePath || "<memory>"} is not a JSON object`);
+  }
+  if (grant.provider !== BACKGROUND_CHROME_PROVIDER_KEY) {
+    throw backgroundChromeApprovalError(`grant ${sourcePath || "<memory>"} names provider '${grant.provider}', not '${BACKGROUND_CHROME_PROVIDER_KEY}'`);
+  }
+  if (typeof grant.nonce !== "string" || !/^[0-9a-f]{32}$/i.test(grant.nonce)) {
+    throw backgroundChromeApprovalError(`grant ${sourcePath || "<memory>"} has an invalid nonce`);
+  }
+  const expiresAt = Date.parse(grant.expiresAt);
+  if (!Number.isFinite(expiresAt)) {
+    throw backgroundChromeApprovalError(`grant ${sourcePath || "<memory>"} has an invalid expiresAt timestamp`);
+  }
+  const patterns = grant.allowedUrlPatterns;
+  if (!Array.isArray(patterns) || patterns.length === 0 || patterns.some((pattern) => typeof pattern !== "string" || pattern.length === 0)) {
+    throw backgroundChromeApprovalError(`grant ${sourcePath || "<memory>"} must contain non-empty allowedUrlPatterns`);
+  }
+  return {
+    nonce: grant.nonce,
+    expiresAt,
+    allowedUrlPatterns: [...new Set(patterns)],
+    sourcePath,
+  };
+}
+
+async function ensureBackgroundChromeGrantDir() {
+  await fsp.mkdir(BACKGROUND_CHROME_GRANT_DIR, { recursive: true, mode: 0o700 });
+  await fsp.chmod(BACKGROUND_CHROME_GRANT_DIR, 0o700).catch(() => {});
+}
+
+async function persistBackgroundChromeGrant(grant) {
+  await ensureBackgroundChromeGrantDir();
+  const target = path.join(BACKGROUND_CHROME_GRANT_DIR, `${grant.nonce}.json`);
+  const tmp = `${target}.tmp-${process.pid}-${crypto.randomUUID()}`;
+  const body = `${JSON.stringify({
+    nonce: grant.nonce,
+    expiresAt: new Date(grant.expiresAt).toISOString(),
+    provider: BACKGROUND_CHROME_PROVIDER_KEY,
+    allowedUrlPatterns: grant.allowedUrlPatterns,
+  }, null, 2)}
+`;
+  await fsp.writeFile(tmp, body, { mode: 0o600 });
+  await fsp.chmod(tmp, 0o600).catch(() => {});
+  await fsp.rename(tmp, target);
+  return target;
+}
+
+async function importLegacyBackgroundChromeApproval() {
+  let raw;
+  try {
+    raw = await fsp.readFile(PERSONAL_BROWSER_APPROVAL_FILE, "utf8");
+  } catch (error) {
+    if (error?.code === "ENOENT") return null;
+    throw error;
+  }
+
+  // The fixed legacy file is shared with federated personal-browser providers.
+  // Only consume it here when it explicitly names chrome-background; otherwise
+  // leave it untouched for the federation gateway.
+  let preview;
+  try {
+    preview = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  if (preview?.provider !== BACKGROUND_CHROME_PROVIDER_KEY) return null;
+
+  const consumed = await consumePersonalApproval(PERSONAL_BROWSER_APPROVAL_FILE, BACKGROUND_CHROME_PROVIDER_KEY);
+  const grant = parseBackgroundChromeGrant({
+    nonce: consumed.nonce,
+    expiresAt: new Date(consumed.expiresAt).toISOString(),
+    provider: BACKGROUND_CHROME_PROVIDER_KEY,
+    allowedUrlPatterns: consumed.allowedUrlPatterns,
+  }, PERSONAL_BROWSER_APPROVAL_FILE);
+  await persistBackgroundChromeGrant(grant);
+  return grant;
+}
+
+async function loadBackgroundChromeGrantPool({ importLegacy = true } = {}) {
+  await ensureBackgroundChromeGrantDir();
+  // Backward compatibility matters for other conversations that may have already
+  // printed the old fixed-file command. Import a fresh legacy grant on EVERY call,
+  // even when other grants are active, so a second chat can extend the shared scope.
+  if (importLegacy) await importLegacyBackgroundChromeApproval();
+
+  const names = (await fsp.readdir(BACKGROUND_CHROME_GRANT_DIR))
+    .filter((name) => /^[0-9a-f]{32}\.json$/i.test(name))
+    .sort()
+    .slice(0, BACKGROUND_CHROME_MAX_GRANT_FILES);
+  const now = Date.now();
+  const grants = [];
+  const invalid = [];
+  for (const name of names) {
+    const filePath = path.join(BACKGROUND_CHROME_GRANT_DIR, name);
+    let raw;
+    try {
+      raw = await fsp.readFile(filePath, "utf8");
+    } catch (error) {
+      invalid.push({ file: name, reason: error?.code || String(error) });
+      continue;
+    }
+    let grant;
+    try {
+      grant = parseBackgroundChromeGrant(raw, filePath);
+    } catch (error) {
+      invalid.push({ file: name, reason: error.message });
+      continue;
+    }
+    if (grant.expiresAt <= now) {
+      await fsp.unlink(filePath).catch(() => {});
+      continue;
+    }
+    // An operator approval can never create more than 15 minutes of authority.
+    // A persisted grant naturally has LESS remaining time after a restart.
+    if (grant.expiresAt - now > BACKGROUND_CHROME_MAX_TTL_MS) {
+      invalid.push({ file: name, reason: "remaining TTL exceeds 15-minute ceiling" });
+      continue;
+    }
+    grants.push(grant);
+  }
+
+  const allowedUrlPatterns = [...new Set(grants.flatMap((grant) => grant.allowedUrlPatterns))];
+  const expiries = grants.map((grant) => grant.expiresAt).sort((a, b) => a - b);
+  return {
+    grants,
+    invalid,
+    allowedUrlPatterns,
+    nextExpiryAt: expiries[0] ?? null,
+    lastExpiryAt: expiries.at(-1) ?? null,
+  };
+}
+
+async function backgroundChromeGrantStatus() {
+  const settings = await readOperatorSettings();
+  if (!settings.strictApprovals) {
+    return {
+      active: true,
+      required: false,
+      accessMode: "relaxed",
+      strictApprovals: false,
+      provider: BACKGROUND_CHROME_PROVIDER_KEY,
+      sharedAcrossSessions: true,
+      persistentUntilExpiry: false,
+      grantDirectory: BACKGROUND_CHROME_GRANT_DIR,
+      grantCount: 0,
+      grants: [],
+      allowedUrlPatterns: RELAXED_BROWSER_PATTERNS.slice(),
+      nextExpiryAt: null,
+      lastExpiryAt: null,
+      invalidGrantFiles: [],
+    };
+  }
+  try {
+    const pool = await loadBackgroundChromeGrantPool({ importLegacy: false });
+    return {
+      active: pool.grants.length > 0,
+      required: true,
+      accessMode: "strict",
+      strictApprovals: true,
+      provider: BACKGROUND_CHROME_PROVIDER_KEY,
+      sharedAcrossSessions: true,
+      persistentUntilExpiry: true,
+      grantDirectory: BACKGROUND_CHROME_GRANT_DIR,
+      grantCount: pool.grants.length,
+      grants: pool.grants.map((grant) => ({
+        nonce: grant.nonce,
+        expiresAt: new Date(grant.expiresAt).toISOString(),
+        allowedUrlPatterns: grant.allowedUrlPatterns.slice(),
+      })),
+      allowedUrlPatterns: pool.allowedUrlPatterns,
+      nextExpiryAt: pool.nextExpiryAt ? new Date(pool.nextExpiryAt).toISOString() : null,
+      lastExpiryAt: pool.lastExpiryAt ? new Date(pool.lastExpiryAt).toISOString() : null,
+      invalidGrantFiles: pool.invalid,
+    };
+  } catch (error) {
+    return {
+      active: false,
+      required: true,
+      accessMode: "strict",
+      strictApprovals: true,
+      provider: BACKGROUND_CHROME_PROVIDER_KEY,
+      sharedAcrossSessions: true,
+      persistentUntilExpiry: true,
+      grantDirectory: BACKGROUND_CHROME_GRANT_DIR,
+      error: { code: error?.code || "BACKGROUND_CHROME_GRANT_ERROR", message: error?.message || String(error) },
+    };
+  }
+}
+
+async function ensureBackgroundChromeGrant() {
+  // Profile binding is always enforced, regardless of approval strictness.
+  const connection = await backgroundChromeStatus({ dataDir: APP_SUPPORT_DIR, timeoutMs: 1_000 });
+  if (!connection?.extensionReady) {
+    const error = new Error(connection?.profileError?.message || connection?.error?.message || "The background Chrome extension is not connected. Run scripts/install-background-chrome.sh and load chrome-extension/ once in Chrome.");
+    error.code = connection?.profileError?.code || connection?.error?.code || "CHROME_EXTENSION_OFFLINE";
+    throw error;
+  }
+
+  const settings = await readOperatorSettings();
+  if (!settings.strictApprovals) {
+    return {
+      accessMode: "relaxed",
+      strictApprovals: false,
+      grants: [],
+      invalid: [],
+      allowedUrlPatterns: RELAXED_BROWSER_PATTERNS.slice(),
+      nextExpiryAt: null,
+      lastExpiryAt: null,
+    };
+  }
+
+  const pool = await loadBackgroundChromeGrantPool();
+  if (pool.grants.length === 0 || pool.allowedUrlPatterns.length === 0) {
+    throw backgroundChromeApprovalError("strict approvals are enabled and no unexpired shared chrome-background grant is active");
+  }
+  return { ...pool, accessMode: "strict", strictApprovals: true };
+}
+
+async function callBackgroundChrome(toolName, method, args) {
+  let pool;
+  try {
+    pool = await ensureBackgroundChromeGrant();
+    const result = await backgroundChromeCall(method, args, pool.allowedUrlPatterns, { dataDir: APP_SUPPORT_DIR });
+    const nonces = pool.grants.map((grant) => grant.nonce);
+    await audit(toolName, args, {
+      ok: true,
+      backgroundChrome: true,
+      provider: BACKGROUND_CHROME_PROVIDER_KEY,
+      accessMode: pool.accessMode,
+      strictApprovals: pool.strictApprovals,
+      grantNonces: nonces,
+      grantCount: nonces.length,
+      nextGrantExpiryAt: pool.nextExpiryAt ? new Date(pool.nextExpiryAt).toISOString() : null,
+      lastGrantExpiryAt: pool.lastExpiryAt ? new Date(pool.lastExpiryAt).toISOString() : null,
+    });
+    return {
+      ...result,
+      _background: {
+        focusPolicy: "background-only",
+        provider: BACKGROUND_CHROME_PROVIDER_KEY,
+        accessMode: pool.accessMode,
+        strictApprovals: pool.strictApprovals,
+        sharedAcrossSessions: true,
+        grantCount: nonces.length,
+        nextGrantExpiryAt: pool.nextExpiryAt ? new Date(pool.nextExpiryAt).toISOString() : null,
+        lastGrantExpiryAt: pool.lastExpiryAt ? new Date(pool.lastExpiryAt).toISOString() : null,
+        allowedUrlPatterns: pool.allowedUrlPatterns.slice(),
+      },
+    };
+  } catch (error) {
+    await audit(toolName, args, {
+      backgroundChrome: true,
+      provider: BACKGROUND_CHROME_PROVIDER_KEY,
+      ...(pool ? { grantNonces: pool.grants.map((grant) => grant.nonce) } : {}),
+    }, error);
+    throw error;
+  }
+}
+
+async function callBackgroundChromeLocal(toolName, method, args = {}) {
+  try {
+    const connection = await backgroundChromeStatus({ dataDir: APP_SUPPORT_DIR, timeoutMs: 1_000 });
+    if (!connection?.extensionReady) {
+      const error = new Error(connection?.profileError?.message || connection?.error?.message || "The background Chrome extension is not connected.");
+      error.code = connection?.profileError?.code || connection?.error?.code || "CHROME_EXTENSION_OFFLINE";
+      throw error;
+    }
+    const result = await backgroundChromeCall(method, args, [], { dataDir: APP_SUPPORT_DIR });
+    await audit(toolName, args, {
+      ok: true,
+      backgroundChrome: true,
+      localWorkspaceOnly: true,
+      provider: BACKGROUND_CHROME_PROVIDER_KEY,
+    });
+    return {
+      ...result,
+      _background: {
+        focusPolicy: "background-only",
+        provider: BACKGROUND_CHROME_PROVIDER_KEY,
+        localWorkspaceOnly: true,
+      },
+    };
+  } catch (error) {
+    await audit(toolName, args, {
+      backgroundChrome: true,
+      localWorkspaceOnly: true,
+      provider: BACKGROUND_CHROME_PROVIDER_KEY,
+    }, error);
+    throw error;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Interactive pty sessions
 // ---------------------------------------------------------------------------
@@ -1567,7 +2141,8 @@ const federationReady = federation.start().then(() => {
 // from the advertised set with -32601, so a dispatchTool case reached through only
 // one of the two would be unreachable in one direction and unguarded in the other.
 function advertisedTools() {
-  const base = ptyAvailable ? TOOLS : TOOLS.filter((tool) => !tool.name.startsWith("pty_"));
+  let base = ptyAvailable ? TOOLS : TOOLS.filter((tool) => !tool.name.startsWith("pty_"));
+  if (process.platform !== "darwin") base = base.filter((tool) => !tool.name.startsWith("chrome_"));
   const federated = federation.listTools();
   return federated.length === 0 ? base : base.concat(federated);
 }
@@ -2368,6 +2943,10 @@ async function dispatchTool(name, args) {
         jobDir: JOB_DIR,
         auditLog: AUDIT_LOG,
         auditMode: AUDIT_MODE,
+        guiFocusPolicy: GUI_FOCUS_POLICY,
+        operatorSettings: await readOperatorSettings(),
+        settingsFile: SETTINGS_FILE,
+        foregroundGuiApproved: await foregroundGuiApprovalPresent(),
         fullAccessUnlocked,
         fullAccessUnlockFile: FULL_ACCESS_UNLOCK_FILE,
         // Set once by the startup probe and deliberately not recomputed: the helper
@@ -2395,15 +2974,92 @@ async function dispatchTool(name, args) {
         federation: federationStatus,
         childServerEnvAllowlist: federationStatus.childServerEnvAllowlist,
         personalBrowserApproved: await personalBrowserApprovalPresent(),
+        backgroundChrome: {
+          ...(await backgroundChromeStatus({ dataDir: APP_SUPPORT_DIR, timeoutMs: 750 })),
+          grant: await backgroundChromeGrantStatus(),
+          providerKey: BACKGROUND_CHROME_PROVIDER_KEY,
+          focusPolicy: "background-only via Chrome extension; no activate/select/new foreground window",
+        },
         accessModel: "No bridge sandbox or path allowlist. Effective access equals the macOS account running tunnel-client/this server, subject to macOS TCC, Full Disk Access, ACLs, and sudo authentication.",
       };
       await audit(name, args, { ok: true });
       return status;
     }
 
+    case "chrome_workspace_status": {
+      return await callBackgroundChromeLocal(name, "workspace.status", {});
+    }
+
+    case "chrome_workspace_setup": {
+      const poolSize = optionalInteger(args, "pool_size", 4, 1, 8);
+      return await callBackgroundChromeLocal(name, "workspace.init", { poolSize });
+    }
+
+    case "chrome_tabs": {
+      const urlContains = optionalString(args, "url_contains", "");
+      const titleContains = optionalString(args, "title_contains", "");
+      const maxTabs = optionalInteger(args, "max_tabs", 200, 1, 500);
+      return await callBackgroundChrome(name, "tabs.list", { urlContains, titleContains, maxTabs });
+    }
+
+    case "chrome_open": {
+      const url = requireString(args, "url");
+      if (url.length > 20_000) throw new Error("'url' must be at most 20000 characters");
+      return await callBackgroundChrome(name, "workspace.open", { url });
+    }
+
+    case "chrome_navigate": {
+      const tabId = requireInteger(args, "tab_id", 0, 2_147_483_647);
+      const url = requireString(args, "url");
+      if (url.length > 20_000) throw new Error("'url' must be at most 20000 characters");
+      return await callBackgroundChrome(name, "tabs.navigate", { tabId, url });
+    }
+
+    case "chrome_snapshot": {
+      const tabId = requireInteger(args, "tab_id", 0, 2_147_483_647);
+      const maxTextChars = optionalInteger(args, "max_text_chars", 50_000, 1_000, 200_000);
+      const maxElements = optionalInteger(args, "max_elements", 200, 1, 500);
+      return await callBackgroundChrome(name, "tabs.snapshot", { tabId, maxTextChars, maxElements });
+    }
+
+    case "chrome_click": {
+      const tabId = requireInteger(args, "tab_id", 0, 2_147_483_647);
+      const selector = requireString(args, "selector");
+      if (selector.length > 10_000) throw new Error("'selector' must be at most 10000 characters");
+      return await callBackgroundChrome(name, "tabs.click", { tabId, selector });
+    }
+
+    case "chrome_fill": {
+      const tabId = requireInteger(args, "tab_id", 0, 2_147_483_647);
+      const selector = requireString(args, "selector");
+      const value = requireString(args, "value", { allowEmpty: true });
+      const submit = optionalBoolean(args, "submit", false);
+      if (selector.length > 10_000) throw new Error("'selector' must be at most 10000 characters");
+      if (value.length > 500_000) throw new Error("'value' must be at most 500000 characters");
+      return await callBackgroundChrome(name, "tabs.fill", { tabId, selector, value, submit });
+    }
+
+    case "chrome_close": {
+      const tabId = requireInteger(args, "tab_id", 0, 2_147_483_647);
+      const allowActive = optionalBoolean(args, "allow_active", false);
+      return await callBackgroundChrome(name, "tabs.close", { tabId, allowActive });
+    }
+
     case "shell_exec": {
       const command = requireString(args, "command");
       const cwd = optionalString(args, "cwd", HOME);
+      const focusRisk = guiFocusRisk(command);
+      const operatorSettings = await readOperatorSettings();
+      let foregroundGrant = null;
+      if (focusRisk && operatorSettings.strictApprovals) {
+        foregroundGrant = await consumeForegroundGuiApproval(focusRisk);
+        if (!foregroundGrant) {
+          const error = new Error(`Desktop GUI automation is blocked because Strict approvals is enabled (${focusRisk.reason}; targets: ${focusRisk.apps.join(", ")}). Use a background-capable API/connector/extension instead, or approve a one-time foreground action with scripts/approve-foreground-gui.sh.`);
+          error.code = "GUI_FOCUS_BLOCKED";
+          await audit(name, args, { guiFocusPolicy: GUI_FOCUS_POLICY, strictApprovals: true, blocked: true, focusRisk }, error);
+          throw error;
+        }
+      }
       const env = normalizeEnv(args?.env);
       const stdin = optionalString(args, "stdin", undefined);
       const timeoutMs = optionalInteger(args, "timeout_ms", 120_000, 0, 1_800_000);
@@ -2420,6 +3076,17 @@ async function dispatchTool(name, args) {
 
     case "shell_start": {
       const command = requireString(args, "command");
+      const operatorSettings = await readOperatorSettings();
+      const focusRisk = guiFocusRisk(command);
+      if (focusRisk && operatorSettings.strictApprovals) {
+        const foregroundGrant = await consumeForegroundGuiApproval(focusRisk);
+        if (!foregroundGrant) {
+          const error = new Error(`Desktop GUI automation is blocked because Strict approvals is enabled (${focusRisk.reason}; targets: ${focusRisk.apps.join(", ")}). Approve a one-time foreground action with scripts/approve-foreground-gui.sh, or use a background-capable API/web path.`);
+          error.code = "GUI_FOCUS_BLOCKED";
+          await audit(name, args, { guiFocusPolicy: GUI_FOCUS_POLICY, strictApprovals: true, blocked: true, focusRisk }, error);
+          throw error;
+        }
+      }
       const cwd = resolvePath(optionalString(args, "cwd", HOME));
       const env = normalizeEnv(args?.env);
       const label = optionalString(args, "label", "background-job").replace(/[^A-Za-z0-9._-]+/g, "-").slice(0, 80) || "background-job";
@@ -3123,7 +3790,7 @@ async function handleMessage(message) {
       resultType: "complete",
       supportedVersions: [MODERN_PROTOCOL, "2025-11-25", "2025-06-18"],
       capabilities: { tools: { listChanged: false } },
-      instructions: "This bridge has unrestricted access under the host macOS user. Prefer codex_thread_read over invoking Codex model turns. Use shell_start for long-running commands. Do not print secrets unless the user explicitly requests them.",
+      instructions: "This bridge has unrestricted access under the host macOS user. Prefer codex_thread_read over invoking Codex model turns. Use shell_start for long-running commands. Relaxed access is the default: routine HTTP/HTTPS work through the signed-in MDB Chrome workspace and foreground desktop-app control do not require per-site/per-app approval files. Still prefer background browser/API paths so the operator keeps focus. If the operator enables Strict approvals in the menu-bar app, scoped browser and foreground-app approvals are required until they turn it off. Do not print secrets unless the user explicitly requests them.",
       ttlMs: 3_600_000,
       cacheScope: "private",
       _meta: resultMeta(),
@@ -3142,7 +3809,7 @@ async function handleMessage(message) {
       protocolVersion: negotiatedProtocol,
       capabilities: { tools: { listChanged: false } },
       serverInfo: serverInfo(),
-      instructions: "This bridge runs without a filesystem sandbox or command allowlist. Effective permissions equal the macOS user running it. Prefer codex_thread_read for persisted Codex history without model usage.",
+      instructions: "This bridge runs without a filesystem sandbox or command allowlist. Effective permissions equal the macOS user running it. Prefer codex_thread_read for persisted Codex history without model usage. On macOS, use the MDB chrome_* background workspace for normal logged-in web work and prefer APIs/connectors over native UI automation. Relaxed access is the default and does not require per-site/per-app approval files; Strict approvals is an operator-controlled optional mode exposed in the menu-bar app.",
     });
     return;
   }

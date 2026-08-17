@@ -12,6 +12,8 @@ const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "mac-developer-bridge-t
 const dataDir = path.join(tempRoot, "data");
 const logDir = path.join(tempRoot, "logs");
 const workDir = path.join(tempRoot, "work");
+const foregroundApprovalFile = path.join(dataDir, "FOREGROUND_GUI_APPROVED");
+const settingsFile = path.join(dataDir, "settings.json");
 await fs.mkdir(workDir, { recursive: true });
 
 async function verifyLockedByDefault() {
@@ -21,6 +23,7 @@ async function verifyLockedByDefault() {
       ...process.env,
       MAC_DEV_BRIDGE_DATA_DIR: path.join(tempRoot, "locked-data"),
       MAC_DEV_BRIDGE_LOG_DIR: path.join(tempRoot, "locked-logs"),
+      MAC_DEV_BRIDGE_UNLOCK_FILE: path.join(tempRoot, "locked-data", "FULL_ACCESS_ENABLED"),
       MAC_DEV_BRIDGE_FULL_ACCESS_ACK: "",
     },
   });
@@ -48,6 +51,7 @@ const child = spawn(process.execPath, [bridge], {
     ...process.env,
     MAC_DEV_BRIDGE_DATA_DIR: dataDir,
     MAC_DEV_BRIDGE_LOG_DIR: logDir,
+    MAC_DEV_BRIDGE_FOREGROUND_GUI_APPROVAL_FILE: foregroundApprovalFile,
     MAC_DEV_BRIDGE_FULL_ACCESS_ACK: "I_UNDERSTAND_THIS_GRANTS_FULL_ACCESS",
   },
 });
@@ -108,12 +112,21 @@ try {
   assert.equal(tools.result.resultType, "complete");
   const byName = new Map(tools.result.tools.map((tool) => [tool.name, tool]));
   assert.ok(byName.has("shell_exec"));
+  if (process.platform === "darwin") {
+    for (const tool of ["chrome_workspace_status", "chrome_workspace_setup", "chrome_tabs", "chrome_open", "chrome_navigate", "chrome_snapshot", "chrome_click", "chrome_fill", "chrome_close"]) {
+      assert.ok(byName.has(tool), `expected ${tool} on macOS`);
+    }
+    assert.equal(byName.get("chrome_workspace_status").annotations.readOnlyHint, true);
+    assert.equal(byName.get("chrome_tabs").annotations.readOnlyHint, true);
+    assert.equal(byName.get("chrome_click").annotations.destructiveHint, true);
+  }
   assert.equal(byName.get("fs_write").annotations.destructiveHint, true);
   assert.equal(byName.get("apply_patch").annotations.destructiveHint, true);
 
   const status = await call("status", "bridge_status");
   assert.equal(status.fullAccessUnlocked, true);
   assert.equal(status.dataDir, dataDir);
+  assert.equal(status.operatorSettings.strictApprovals, false, "relaxed approvals should be the default");
 
   const command = await call("shell", "shell_exec", {
     command: "printf smoke",
@@ -122,6 +135,51 @@ try {
   });
   assert.equal(command.stdout, "smoke");
   assert.equal(command.exitCode, 0);
+
+  if (process.platform === "darwin") {
+    await fs.mkdir(dataDir, { recursive: true });
+    await fs.writeFile(settingsFile, JSON.stringify({ strictApprovals: true }), { mode: 0o600 });
+    const strictStatus = await call("strict-status", "bridge_status");
+    assert.equal(strictStatus.operatorSettings.strictApprovals, true);
+
+    const focusBlocked = await request("focus-blocked", "tools/call", {
+      _meta: meta,
+      name: "shell_exec",
+      arguments: { command: "osascript -e 'tell application \"Google Chrome\" to get URL of active tab of front window'" },
+    });
+    assert.equal(focusBlocked.result.isError, true);
+    assert.match(focusBlocked.result.content[0].text, /Strict approvals is enabled/);
+
+    const selfBypassBlocked = await request("focus-self-bypass-blocked", "tools/call", {
+      _meta: meta,
+      name: "shell_exec",
+      arguments: {
+        command: "if false; then osascript -e 'tell application \"Slack\" to activate'; fi; printf should-not-run",
+        env: { MAC_DEV_BRIDGE_ALLOW_FOREGROUND_GUI: "1" },
+      },
+    });
+    assert.equal(selfBypassBlocked.result.isError, true);
+    assert.match(selfBypassBlocked.result.content[0].text, /Strict approvals is enabled/);
+
+    await fs.writeFile(foregroundApprovalFile, JSON.stringify({
+      nonce: "abcdef0123456789abcdef0123456789",
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      allowedApps: ["Slack"],
+    }), { mode: 0o600 });
+    const foregroundApproved = await call("focus-operator-approved", "shell_exec", {
+      command: "if false; then osascript -e 'tell application \"Slack\" to activate'; fi; printf approved",
+    });
+    assert.equal(foregroundApproved.stdout, "approved");
+    await assert.rejects(fs.stat(foregroundApprovalFile), (error) => error?.code === "ENOENT");
+
+    // Switching Strict approvals off is live and requires no bridge restart. The
+    // GUI-looking branch is false so this test never activates Slack.
+    await fs.writeFile(settingsFile, JSON.stringify({ strictApprovals: false }), { mode: 0o600 });
+    const relaxedGui = await call("relaxed-gui", "shell_exec", {
+      command: "if false; then osascript -e 'tell application \"Slack\" to activate'; fi; printf relaxed",
+    });
+    assert.equal(relaxedGui.stdout, "relaxed");
+  }
 
   const originalPath = path.join(workDir, "demo.txt");
   const copyPath = path.join(workDir, "copy.txt");

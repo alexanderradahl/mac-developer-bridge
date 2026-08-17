@@ -1026,9 +1026,27 @@ try {
       stderrPath: null,
     }, null, 2));
 
+    // Isolate disable.sh from the developer machine running this test. The test
+    // is about reclaiming the recorded child, not a real bridge/cloudflared that
+    // may happen to be running outside temporaryRoot.
+    const fakeBin = path.join(temporaryRoot, "disable-test-bin");
+    await fsp.mkdir(fakeBin, { recursive: true });
+    const realPgrep = "/usr/bin/pgrep";
+    const pgrepWrapper = path.join(fakeBin, "pgrep");
+    await fsp.writeFile(pgrepWrapper, `#!/bin/sh
+if [ "$1" = "-x" ] && [ "$2" = "cloudflared" ]; then exit 1; fi
+exec ${realPgrep} "$@"
+`, { mode: 0o700 });
+
     const result = await new Promise((resolve) => {
       const proc = spawn("bash", [disablePath], {
-        env: { ...process.env, MAC_DEV_BRIDGE_DATA_DIR: dataDir, MAC_DEV_BRIDGE_UNLOCK_FILE: path.join(dataDir, "FULL_ACCESS_ENABLED") },
+        env: {
+          ...process.env,
+          PATH: `${fakeBin}:${process.env.PATH || "/usr/bin:/bin"}`,
+          MAC_DEV_BRIDGE_DATA_DIR: dataDir,
+          MAC_DEV_BRIDGE_UNLOCK_FILE: path.join(dataDir, "FULL_ACCESS_ENABLED"),
+          MAC_DEV_BRIDGE_HTTP_PORT: "65534",
+        },
         stdio: ["ignore", "pipe", "pipe"],
       });
       let out = "";

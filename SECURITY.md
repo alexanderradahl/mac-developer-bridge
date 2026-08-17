@@ -191,11 +191,56 @@ Known gaps in this release, stated rather than implied:
 - **`killNow()` (the kill-switch path) does not remove the child's job-metadata file.** A stale entry naming a dead process group is left in `$DATA_DIR/jobs`, and `disable.sh`'s ownership check accepts a recycled pgid.
 - There are **no per-conversation capability leases, and none are achievable** without a protocol change. `mcp-http.mjs` re-keys every request onto one shared `bridge.mjs` child, so nothing on the stdio line distinguishes one OAuth session or conversation from another. What is enforceable is process-global: which providers may start at all, the env allowlist, and isolated-by-default browsing. Do not read the controls above as a per-caller authorization boundary — **every credential that reaches `/mcp` already has unrestricted shell.**
 
+## Background Chrome extension
+
+The optional `chrome_*` tools are designed specifically for the UX problem created by GUI/CDP browser automation on macOS: routine work should not activate Chrome, select a page, or pull the operator out of another app. The integration uses an unpacked Manifest V3 extension plus a Chrome native-messaging host. The extension runs inside the operator's **existing signed-in Chrome profile**, so its tabs carry the same cookies and logged-in sessions as normal browsing.
+
+The native host is bound at install time to the selected Chrome profile's account identity. The extension reports the signed-in profile through Chrome's identity API; the host refuses a signed-out profile or an email/Gaia-id mismatch. This prevents an unnoticed switch to another Chrome profile, but it is not a credential boundary against same-user code that can modify the extension, binding file, or host.
+
+That convenience is an authority grant, not a sandbox. An approved background click can submit a form, send a message, change a cloud setting, publish content, or delete data with whatever authority the logged-in website session has. Losing focus theft does not reduce the consequence of a bad action.
+
+The built-in background surface is intentionally narrower than the federated Chrome-DevTools personal mode described below:
+
+- no arbitrary `evaluate_script` tool;
+- no network-request/header capture;
+- no file-upload tool or native file picker;
+- password input values are returned as `<redacted>` by `chrome_snapshot`;
+- authenticated web actions are tab list/open/navigate/snapshot/click/fill/close;
+- `chrome_workspace_status` and `chrome_workspace_setup` manage only extension-owned local workspace state and do not consume a website grant;
+- routine `chrome_open` **does not create a Chrome tab**. It leases one of the pre-created extension-owned tabs from the `MDB` group;
+- `chrome_close` releases an `MDB` tab back to its idle extension page instead of destroying the pool tab.
+
+The `MDB` group is a Chrome-native tab group backed by `chrome.storage.local`. The default pool size is four (maximum eight). The group is collapsed when idle and expands while tabs are leased. State is reconciled after extension/service-worker restarts, and the extension can rediscover its own group by title/color plus the presence of an extension-owned workspace page. It deliberately does not adopt an arbitrary user group that merely happens to have the same title.
+
+Pool creation is a one-time setup boundary. On the measured Chrome/macOS combination, even `chrome.tabs.create({active:false})` can foreground Chrome. `chrome_workspace_setup` therefore refuses to create or expand the pool unless a normal Chrome window is **already focused**. It never activates Chrome on the operator's behalf. Once the pool exists, routine open/navigate/read/click/fill/release operations reuse those tabs and avoid creation-time focus theft.
+
+By default, background Chrome runs in **relaxed** approval mode: once the extension/profile binding is installed, normal HTTP/HTTPS URLs do not require per-site grant files. This matches the project's intentional unrestricted-shell trust model and removes approval ceremony from ordinary execution. The operator can enable **Strict approvals** in the menu-bar app at any time; the bridge re-reads `$DATA_DIR/settings.json` on each relevant action, so the change is live. In Strict mode, background-Chrome grants are additive mode-0600 files under `$DATA_DIR/chrome-background-grants/`, each with its own nonce, URL patterns, and expiry capped at 15 minutes. The bridge unions all unexpired patterns and Chrome remains the final URL authority.
+
+The shared-pool behavior is intentionally process-global because `mcp-http.mjs` multiplexes every conversation into one bridge child and does not carry a per-conversation identity on the stdio line. This is a UX/authorization-lifetime improvement, not a per-chat security boundary: once the operator approves a site for background Chrome, every conversation that already has unrestricted access to this bridge can use that site until the grant expires. The same-user/unrestricted-shell caveat still applies.
+
+The local transport between `bridge.mjs` and Chrome is a Unix-domain socket at `$DATA_DIR/chrome-background.sock`, mode 0600 inside the mode-0700 data directory. Chrome starts `scripts/chrome-native-host.mjs` through its registered Native Messaging manifest; the host records its pid in `$DATA_DIR/chrome-native-host.pid`. `scripts/disable.sh` treats that host as part of the kill-switch surface, stops it independently of the bridge processes, verifies the process is gone, and removes stale socket/pid artifacts after SIGKILL if cleanup handlers could not run.
+
+The extension requests `tabs`, `tabGroups`, `storage`, `scripting`, `nativeMessaging`, `identity`, `identity.email`, and `<all_urls>` because the actual per-use URL scope is dynamic and the group/profile state is local to the extension. Treat the unpacked extension directory, its native-host manifest, the profile-binding file, and the repository code they point at as security-sensitive local code. If another same-user process can modify those files, it can modify what the extension does. Likewise, the same honest limit as every personal-browser grant still applies: **`shell_exec` can forge the approval file or talk to same-user local resources.** The grant is an operator-drift gate and an audit boundary, not containment against an already-hostile unrestricted shell.
+
+Some browser actions cannot be made reliable in the background without defeating Chrome's security model. CAPTCHAs, passkeys, native permission prompts, downloads requiring trusted user gestures, file pickers, and similar browser/OS UI may require the human to foreground Chrome. The background tools report that boundary instead of silently activating the browser.
+
+## Background-first desktop GUI policy
+
+Native macOS Accessibility/AppleScript/JXA automation is different from the Chrome extension path. Driving Slack, Finder, System Settings, or another desktop app can inherently require that app to become frontmost. Mac Developer Bridge cannot generically make such UI scripting invisible without changing what operation is being performed.
+
+`MAC_DEV_BRIDGE_GUI_FOCUS_POLICY=background-first` remains the routing preference: use background browser/API paths first. In relaxed approval mode, however, native GUI control is allowed without an additional approval file when execution genuinely requires it. If the operator turns on **Strict approvals**, `shell_exec` and `shell_start` block detected foreground GUI automation until a single-use, app-scoped, maximum-five-minute grant from `scripts/approve-foreground-gui.sh` is consumed. A model-supplied environment variable does not disable Strict mode.
+
+Prefer an API/MCP connector first, then the service's web UI through the signed-in `MDB` Chrome group, before native GUI scripting. For example, Slack Web can be automated through the background Chrome path while native Slack Accessibility scripting cannot reliably stay in the background.
+
+Strict approvals is an operator-UX/drift control, **not containment**. The bridge still exposes unrestricted shell under the macOS user. Same-user code can forge approval state, invoke lower-level OS mechanisms, modify bridge code, or otherwise bypass a policy implemented by that same unrestricted process. In relaxed mode foreground GUI execution is allowed when needed; in Strict mode the documented foreground path requires an explicit short-lived operator action.
+
 ## Personal-profile browser mode
 
-Isolated browsing (a fresh temporary profile, auto-cleaned) is the default and needs no approval.
+This section describes **federated child-MCP browser providers** such as Chrome DevTools MCP. The built-in background extension above shares the approval-file mechanism but has a different, narrower tool surface and lifecycle.
 
-Attaching to the **live** Chrome profile is a *larger* grant than shell access, so it is not a config flag:
+Isolated browsing (a fresh temporary profile, auto-cleaned) is the default for a federated browser provider and needs no approval.
+
+Attaching a federated provider to the **live** Chrome profile is a *larger* grant than shell access, so it is not a config flag:
 
 - `evaluate_script` against a live profile is arbitrary JavaScript in the origin of every authenticated session on the machine — mail, banking, cloud consoles.
 - `list_network_requests` returns `Authorization` and `Cookie` headers, because `--redactNetworkHeaders` defaults to **false**.
