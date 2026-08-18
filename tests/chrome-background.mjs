@@ -188,6 +188,8 @@ try {
   assert.ok(manifest.permissions.includes("tabGroups"));
   assert.ok(manifest.permissions.includes("storage"));
   assert.ok(manifest.icons?.["16"] && manifest.icons?.["128"]);
+  assert.equal(manifest.version, "0.2.5");
+  assert.equal(manifest.permissions.includes("debugger"), false, "realistic click support must not require Chrome debugger permission");
   await Promise.all([16, 32, 48, 128].map(async (size) => {
     const stat = await fs.stat(path.join(root, "chrome-extension", "icons", `icon-${size}.png`));
     assert.ok(stat.size > 0, `expected non-empty ${size}px extension icon`);
@@ -215,6 +217,12 @@ try {
   assert.match(workerSource, /touchWorkspaceLease/);
   assert.match(workerSource, /chatgptExtensionStatus/);
   assert.match(workerSource, /chatgpt-extension-request-status/);
+  assert.match(workerSource, /dispatchPointer\("pointerdown", 1\)/);
+  assert.match(workerSource, /dispatchMouse\("mousedown", 1\)/);
+  assert.match(workerSource, /dispatchMouse\("mouseup", 0\)/);
+  assert.match(workerSource, /strategy: "pointer-mouse-sequence"/);
+  assert.match(workerSource, /trusted: false/);
+  assert.equal((workerSource.match(/async function executeInTab\(/g) || []).length, 1, "executeInTab should have one definition");
   const publicKey = Buffer.from(manifest.key, "base64");
   const digest = crypto.createHash("sha256").update(publicKey).digest().subarray(0, 16);
   const extensionId = [...digest].flatMap((byte) => [byte >> 4, byte & 0x0f]).map((n) => String.fromCharCode(97 + n)).join("");

@@ -1,5 +1,5 @@
 const NATIVE_HOST = "io.github.alexanderradahl.mac_developer_bridge";
-const VERSION = "0.2.4";
+const VERSION = "0.2.5";
 const WORKSPACE_KEY = "macDeveloperBridgeWorkspace";
 const WORKSPACE_GROUP_TITLE = "MDB";
 const WORKSPACE_GROUP_COLOR = "blue";
@@ -623,14 +623,92 @@ function pageSnapshot(maxTextChars, maxElements) {
 
 function pageClick(selector) {
   const element = document.querySelector(selector);
-  if (!element) throw new Error(`No element matches selector: ${selector}`);
+  if (!(element instanceof Element)) {
+    const error = new Error(`No element matches selector: ${selector}`);
+    error.code = "CHROME_ELEMENT_NOT_FOUND";
+    throw error;
+  }
   if (element instanceof HTMLInputElement && element.type === "file") {
     const error = new Error("File pickers require foreground/user interaction; background mode will not open one.");
     error.code = "CHROME_FOREGROUND_REQUIRED";
     throw error;
   }
+  if (("disabled" in element && Boolean(element.disabled)) || element.getAttribute("aria-disabled") === "true") {
+    const error = new Error(`Element is disabled: ${selector}`);
+    error.code = "CHROME_ELEMENT_DISABLED";
+    throw error;
+  }
+
+  element.scrollIntoView({ block: "center", inline: "center", behavior: "instant" });
+  const rect = element.getBoundingClientRect();
+  const style = getComputedStyle(element);
+  if (rect.width <= 0 || rect.height <= 0 || style.visibility === "hidden" || style.display === "none") {
+    const error = new Error(`Element is not visible: ${selector}`);
+    error.code = "CHROME_ELEMENT_NOT_VISIBLE";
+    throw error;
+  }
+
+  const clientX = Math.max(0, Math.min(Math.max(0, window.innerWidth - 1), rect.left + rect.width / 2));
+  const clientY = Math.max(0, Math.min(Math.max(0, window.innerHeight - 1), rect.top + rect.height / 2));
+  const common = {
+    bubbles: true,
+    cancelable: true,
+    composed: true,
+    clientX,
+    clientY,
+    screenX: Number(window.screenX || 0) + clientX,
+    screenY: Number(window.screenY || 0) + clientY,
+    button: 0,
+  };
+  const events = [];
+  const dispatchPointer = (type, buttons) => {
+    if (typeof PointerEvent !== "function") return true;
+    events.push(type);
+    return element.dispatchEvent(new PointerEvent(type, {
+      ...common,
+      buttons,
+      pointerId: 1,
+      pointerType: "mouse",
+      isPrimary: true,
+      pressure: buttons ? 0.5 : 0,
+    }));
+  };
+  const dispatchMouse = (type, buttons) => {
+    events.push(type);
+    return element.dispatchEvent(new MouseEvent(type, { ...common, buttons, detail: type === "mousedown" ? 1 : 0 }));
+  };
+
+  // Many modern component libraries open menus on pointerdown/mousedown rather
+  // than click. HTMLElement.click() alone skips those phases entirely. Recreate
+  // the normal pointer/mouse ordering, then use click() for the element's native
+  // activation behavior (checkboxes, links, buttons, etc.). These events remain
+  // synthetic (isTrusted=false); true user-gesture security boundaries are not
+  // bypassed by this helper.
+  dispatchPointer("pointerover", 0);
+  dispatchMouse("mouseover", 0);
+  dispatchPointer("pointermove", 0);
+  dispatchMouse("mousemove", 0);
+  dispatchPointer("pointerdown", 1);
+  const mouseDownAllowed = dispatchMouse("mousedown", 1);
+  if (mouseDownAllowed && element instanceof HTMLElement) {
+    try { element.focus({ preventScroll: true }); } catch {}
+  }
+  dispatchPointer("pointerup", 0);
+  dispatchMouse("mouseup", 0);
+  events.push("click");
   element.click();
-  return { clicked: true, selector, title: document.title, url: location.href };
+
+  return {
+    clicked: true,
+    selector,
+    strategy: "pointer-mouse-sequence",
+    trusted: false,
+    clientX,
+    clientY,
+    events,
+    title: document.title,
+    url: location.href,
+  };
 }
 
 function pageFill(selector, value, submit) {

@@ -812,7 +812,7 @@ const TOOLS = [
   {
     name: "chrome_click",
     title: "Click Chrome element in background",
-    description: "Programmatically click an element in an MDB Chrome tab without activating Chrome. Use selectors returned by chrome_snapshot. Relaxed mode is the default; Strict approvals optionally restricts sites. Trusted-user-gesture flows, CAPTCHAs, native dialogs, and file pickers may still require foreground/manual interaction.",
+    description: "Click an element in an MDB Chrome tab without activating Chrome. Uses a pointer/mouse event sequence (including pointerdown/mousedown) before native click activation so modern custom controls work more like a real mouse. Events remain synthetic/isTrusted=false, so genuine trusted-user-gesture flows, CAPTCHAs, native dialogs, and file pickers still require foreground/manual interaction.",
     inputSchema: {
       type: "object",
       properties: {

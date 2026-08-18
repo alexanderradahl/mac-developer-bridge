@@ -4,6 +4,7 @@
 
 ### Background Chrome without focus stealing
 
+- Upgraded `chrome_click` from bare DOM `.click()` to a pointer/mouse event sequence including `pointerdown`, `mousedown`, focus, `pointerup`, and `mouseup` before native click activation. This supports modern custom controls that listen earlier in the interaction cycle while preserving the boundary that synthetic events are not trusted user gestures.
 - Raised the managed `MDB` pool target from four to eight tabs and made contention resilient: opens wait up to 20 seconds for a release, active browser operations renew a lease heartbeat, and leases idle for 10 minutes are reclaimed/reset. Existing smaller pools expand only when Chrome is naturally foreground, preserving the no-focus-steal rule.
 - Added read-only `chatgpt_extension_status`, which reports the installed ChatGPT Chrome extension, its local OpenAI native-host registration, and the live `chatgpt.com` page-bridge status when available without patching the OpenAI extension or exposing its private native-host RPC protocol.
 - Made workspace release grantless so Strict-mode URL approval expiry cannot strand a finished lease.
