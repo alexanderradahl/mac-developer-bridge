@@ -3118,8 +3118,16 @@ async function dispatchTool(name, args) {
     case "chrome_close": {
       const tabId = requireInteger(args, "tab_id", 0, 2_147_483_647);
       const allowActive = optionalBoolean(args, "allow_active", false);
-      const localRelease = await callBackgroundChromeLocal(name, "workspace.release", { tabId });
-      if (localRelease?.released === true) return localRelease;
+      try {
+        const localRelease = await callBackgroundChromeLocal(name, "workspace.release", { tabId });
+        if (localRelease?.released === true) return localRelease;
+      } catch (error) {
+        // Rolling-upgrade compatibility: v0.2.3 native hosts did not mark
+        // workspace.release grantless. During the short bridge-first upgrade
+        // window, fall back to the old granted tabs.close path rather than
+        // stranding a lease. Other errors remain real failures.
+        if (error?.code !== "CHROME_NO_URL_GRANT" && error?.code !== "CHROME_UNKNOWN_METHOD") throw error;
+      }
       return await callBackgroundChrome(name, "tabs.close", { tabId, allowActive });
     }
 
