@@ -18,7 +18,7 @@ const PROFILE_BINDING_FILE = process.env.MAC_DEV_BRIDGE_CHROME_PROFILE_BINDING_F
 const MAX_NATIVE_MESSAGE_BYTES = 8 * 1024 * 1024;
 const MAX_SOCKET_LINE_BYTES = 2 * 1024 * 1024;
 const REQUEST_TIMEOUT_MS = 45_000;
-const GRANTLESS_EXTENSION_METHODS = new Set(["status", "workspace.status", "workspace.init", "workspace.release", "chatgpt.extensionStatus"]);
+const GRANTLESS_EXTENSION_METHODS = new Set(["status", "extension.reload", "workspace.status", "workspace.init", "workspace.release", "chatgpt.extensionStatus"]);
 
 function normalizeExtensionMethod(method) {
   // Old/stale clients may still issue tabs.open directly. Never forward that

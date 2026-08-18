@@ -188,7 +188,7 @@ try {
   assert.ok(manifest.permissions.includes("tabGroups"));
   assert.ok(manifest.permissions.includes("storage"));
   assert.ok(manifest.icons?.["16"] && manifest.icons?.["128"]);
-  assert.equal(manifest.version, "0.2.6");
+  assert.equal(manifest.version, "0.2.7");
   assert.equal(manifest.permissions.includes("debugger"), false, "realistic click support must not require Chrome debugger permission");
   await Promise.all([16, 32, 48, 128].map(async (size) => {
     const stat = await fs.stat(path.join(root, "chrome-extension", "icons", `icon-${size}.png`));
@@ -228,6 +228,12 @@ try {
   assert.match(workerSource, /ariaExpanded: element\.getAttribute\("aria-expanded"\)/);
   assert.match(workerSource, /ariaHasPopup: element\.getAttribute\("aria-haspopup"\)/);
   assert.match(workerSource, /dataState: element\.getAttribute\("data-state"\)/);
+  assert.match(workerSource, /executeInTab\(tab\.id, pageClick, \[String\(args\.selector \|\| ""\)\], "MAIN"\)/);
+  assert.match(workerSource, /keyboardFallbackUsed/);
+  assert.match(workerSource, /keydown:ArrowDown/);
+  assert.match(workerSource, /activation = "keyboard-arrowdown"/);
+  assert.match(workerSource, /message\.method === "extension\.reload"/);
+  assert.match(workerSource, /chrome\.runtime\.reload\(\)/);
   assert.equal((workerSource.match(/async function executeInTab\(/g) || []).length, 1, "executeInTab should have one definition");
   const publicKey = Buffer.from(manifest.key, "base64");
   const digest = crypto.createHash("sha256").update(publicKey).digest().subarray(0, 16);
@@ -304,6 +310,9 @@ try {
 
   // Workspace setup/status are local extension state. They must not require or
   // consume an authenticated-site URL grant.
+  const reloadLocal = await backgroundChromeCall("extension.reload", {}, [], { socketPath });
+  assert.equal(reloadLocal.echoedMethod, "extension.reload");
+  assert.deepEqual(host.seen.at(-1).allowedUrlPatterns, []);
   const localStatus = await backgroundChromeCall("workspace.status", {}, [], { socketPath });
   assert.equal(localStatus.echoedMethod, "workspace.status");
   assert.deepEqual(host.seen.at(-1).allowedUrlPatterns, []);

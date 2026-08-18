@@ -4,6 +4,7 @@
 
 ### Background Chrome without focus stealing
 
+- Moved `chrome_click` execution into the page MAIN world so framework handlers receive page-world event objects, added an accessible `ArrowDown` fallback for semantic comboboxes that remain closed after pointer/mouse activation, and added an internal grantless `extension.reload` maintenance hook so future unpacked-extension code updates can reload without another manual `chrome://extensions` click.
 - Made `chrome_click` adaptive for mousedown-driven combobox/menu controls: if `mousedown` is consumed or changes popup/expanded state, MDB stops after pointer-up/mouse-up instead of issuing a redundant `.click()` that can toggle the control closed. `chrome_snapshot` now exposes `aria-expanded`, `aria-haspopup`, `aria-controls`, and `data-state` for interaction diagnostics.
 - Upgraded `chrome_click` from bare DOM `.click()` to a pointer/mouse event sequence including `pointerdown`, `mousedown`, focus, `pointerup`, and `mouseup` before native click activation. This supports modern custom controls that listen earlier in the interaction cycle while preserving the boundary that synthetic events are not trusted user gestures.
 - Raised the managed `MDB` pool target from four to eight tabs and made contention resilient: opens wait up to 20 seconds for a release, active browser operations renew a lease heartbeat, and leases idle for 10 minutes are reclaimed/reset. Existing smaller pools expand only when Chrome is naturally foreground, preserving the no-focus-steal rule.

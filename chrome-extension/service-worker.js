@@ -1,5 +1,5 @@
 const NATIVE_HOST = "io.github.alexanderradahl.mac_developer_bridge";
-const VERSION = "0.2.6";
+const VERSION = "0.2.7";
 const WORKSPACE_KEY = "macDeveloperBridgeWorkspace";
 const WORKSPACE_GROUP_TITLE = "MDB";
 const WORKSPACE_GROUP_COLOR = "blue";
@@ -728,7 +728,29 @@ async function pageClick(selector) {
     activation = "click";
   }
   await new Promise((resolve) => setTimeout(resolve, 0));
-  const after = readActivationState();
+  let after = readActivationState();
+
+  // Accessible comboboxes are expected to open on ArrowDown. Some React/headless
+  // controls ignore synthetic pointer/mouse activation but still honor keyboard
+  // semantics. Use that as a narrow fallback only when the semantic combobox is
+  // still closed after the mouse path.
+  let keyboardFallbackUsed = false;
+  if (semanticMouseDownControl && after.ariaExpanded !== "true" && after.dataState !== "open" && after.visiblePopupCount === 0) {
+    if (element instanceof HTMLElement) {
+      try { element.focus({ preventScroll: true }); } catch {}
+    }
+    const keyCommon = { bubbles: true, cancelable: true, composed: true, key: "ArrowDown", code: "ArrowDown" };
+    events.push("keydown:ArrowDown");
+    element.dispatchEvent(new KeyboardEvent("keydown", keyCommon));
+    events.push("keyup:ArrowDown");
+    element.dispatchEvent(new KeyboardEvent("keyup", keyCommon));
+    keyboardFallbackUsed = true;
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    after = readActivationState();
+    if (after.ariaExpanded === "true" || after.dataState === "open" || after.visiblePopupCount > 0) {
+      activation = "keyboard-arrowdown";
+    }
+  }
 
   return {
     clicked: true,
@@ -738,6 +760,7 @@ async function pageClick(selector) {
     trusted: false,
     mouseDownAllowed,
     semanticMouseDownControl,
+    keyboardFallbackUsed,
     stateChangedOnMouseDown: stateChanged(before, afterMouseDown),
     before,
     afterMouseDown,
@@ -790,10 +813,10 @@ function pageFill(selector, value, submit) {
   return { filled: true, submitted: Boolean(submit), selector, title: document.title, url: location.href };
 }
 
-async function executeInTab(tabId, func, args) {
+async function executeInTab(tabId, func, args, world = "ISOLATED") {
   const result = await chrome.scripting.executeScript({
     target: { tabId },
-    world: "ISOLATED",
+    world,
     func,
     args,
   });
@@ -807,6 +830,12 @@ async function dispatch(message) {
   // content and therefore do not need a personal-browser URL grant.
   if (message.method === "status") {
     return { version: VERSION, extensionId: chrome.runtime.id, connected: true };
+  }
+  if (message.method === "extension.reload") {
+    // Internal maintenance hook for this unpacked extension. Respond first so the
+    // native host/client sees success, then let Chrome restart the service worker.
+    setTimeout(() => chrome.runtime.reload(), 100);
+    return { reloading: true, version: VERSION, extensionId: chrome.runtime.id };
   }
   if (message.method === "workspace.status") return await workspaceStatus();
   if (message.method === "workspace.init") return await initializeWorkspace(args.poolSize);
@@ -883,7 +912,7 @@ async function dispatch(message) {
 
     case "tabs.click": {
       const tab = await getApprovedTab(args.tabId, compiled);
-      return await executeInTab(tab.id, pageClick, [String(args.selector || "")]);
+      return await executeInTab(tab.id, pageClick, [String(args.selector || "")], "MAIN");
     }
 
     case "tabs.fill": {
