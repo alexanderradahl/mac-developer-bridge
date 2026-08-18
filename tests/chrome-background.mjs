@@ -188,7 +188,7 @@ try {
   assert.ok(manifest.permissions.includes("tabGroups"));
   assert.ok(manifest.permissions.includes("storage"));
   assert.ok(manifest.icons?.["16"] && manifest.icons?.["128"]);
-  assert.equal(manifest.version, "0.2.5");
+  assert.equal(manifest.version, "0.2.6");
   assert.equal(manifest.permissions.includes("debugger"), false, "realistic click support must not require Chrome debugger permission");
   await Promise.all([16, 32, 48, 128].map(async (size) => {
     const stat = await fs.stat(path.join(root, "chrome-extension", "icons", `icon-${size}.png`));
@@ -220,8 +220,14 @@ try {
   assert.match(workerSource, /dispatchPointer\("pointerdown", 1\)/);
   assert.match(workerSource, /dispatchMouse\("mousedown", 1\)/);
   assert.match(workerSource, /dispatchMouse\("mouseup", 0\)/);
-  assert.match(workerSource, /strategy: "pointer-mouse-sequence"/);
+  assert.match(workerSource, /strategy: "adaptive-pointer-mouse-sequence"/);
   assert.match(workerSource, /trusted: false/);
+  assert.match(workerSource, /semanticMouseDownControl/);
+  assert.match(workerSource, /activatedOnMouseDown/);
+  assert.match(workerSource, /mouseDownAllowed === false/);
+  assert.match(workerSource, /ariaExpanded: element\.getAttribute\("aria-expanded"\)/);
+  assert.match(workerSource, /ariaHasPopup: element\.getAttribute\("aria-haspopup"\)/);
+  assert.match(workerSource, /dataState: element\.getAttribute\("data-state"\)/);
   assert.equal((workerSource.match(/async function executeInTab\(/g) || []).length, 1, "executeInTab should have one definition");
   const publicKey = Buffer.from(manifest.key, "base64");
   const digest = crypto.createHash("sha256").update(publicKey).digest().subarray(0, 16);

@@ -812,7 +812,7 @@ const TOOLS = [
   {
     name: "chrome_click",
     title: "Click Chrome element in background",
-    description: "Click an element in an MDB Chrome tab without activating Chrome. Uses a pointer/mouse event sequence (including pointerdown/mousedown) before native click activation so modern custom controls work more like a real mouse. Events remain synthetic/isTrusted=false, so genuine trusted-user-gesture flows, CAPTCHAs, native dialogs, and file pickers still require foreground/manual interaction.",
+    description: "Click an element in an MDB Chrome tab without activating Chrome. Uses an adaptive pointer/mouse event sequence; controls that activate on pointerdown/mousedown are not followed by a redundant synthetic click that could toggle them closed. Events remain synthetic/isTrusted=false, so genuine trusted-user-gesture flows, CAPTCHAs, native dialogs, and file pickers still require foreground/manual interaction.",
     inputSchema: {
       type: "object",
       properties: {

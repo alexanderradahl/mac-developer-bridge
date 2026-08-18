@@ -1,5 +1,5 @@
 const NATIVE_HOST = "io.github.alexanderradahl.mac_developer_bridge";
-const VERSION = "0.2.5";
+const VERSION = "0.2.6";
 const WORKSPACE_KEY = "macDeveloperBridgeWorkspace";
 const WORKSPACE_GROUP_TITLE = "MDB";
 const WORKSPACE_GROUP_COLOR = "blue";
@@ -603,6 +603,10 @@ function pageSnapshot(maxTextChars, maxElements) {
       role: element.getAttribute("role"),
       text: String(element.innerText || element.textContent || "").trim().slice(0, 500),
       ariaLabel: element.getAttribute("aria-label"),
+      ariaExpanded: element.getAttribute("aria-expanded"),
+      ariaHasPopup: element.getAttribute("aria-haspopup"),
+      ariaControls: element.getAttribute("aria-controls"),
+      dataState: element.getAttribute("data-state"),
       name: element.getAttribute("name"),
       placeholder: element.getAttribute("placeholder"),
       href: element instanceof HTMLAnchorElement ? element.href : null,
@@ -621,7 +625,7 @@ function pageSnapshot(maxTextChars, maxElements) {
   };
 }
 
-function pageClick(selector) {
+async function pageClick(selector) {
   const element = document.querySelector(selector);
   if (!(element instanceof Element)) {
     const error = new Error(`No element matches selector: ${selector}`);
@@ -677,13 +681,24 @@ function pageClick(selector) {
     events.push(type);
     return element.dispatchEvent(new MouseEvent(type, { ...common, buttons, detail: type === "mousedown" ? 1 : 0 }));
   };
+  const visiblePopupCount = () => [...document.querySelectorAll('[role="listbox"],[role="menu"],[role="dialog"],[data-state="open"]')]
+    .filter((node) => {
+      if (!(node instanceof Element)) return false;
+      const box = node.getBoundingClientRect();
+      const computed = getComputedStyle(node);
+      return box.width > 0 && box.height > 0 && computed.display !== "none" && computed.visibility !== "hidden";
+    }).length;
+  const readActivationState = () => ({
+    ariaExpanded: element.getAttribute("aria-expanded"),
+    ariaHasPopup: element.getAttribute("aria-haspopup"),
+    dataState: element.getAttribute("data-state"),
+    visiblePopupCount: visiblePopupCount(),
+  });
+  const stateChanged = (before, after) => before.ariaExpanded !== after.ariaExpanded
+    || before.dataState !== after.dataState
+    || before.visiblePopupCount !== after.visiblePopupCount;
 
-  // Many modern component libraries open menus on pointerdown/mousedown rather
-  // than click. HTMLElement.click() alone skips those phases entirely. Recreate
-  // the normal pointer/mouse ordering, then use click() for the element's native
-  // activation behavior (checkboxes, links, buttons, etc.). These events remain
-  // synthetic (isTrusted=false); true user-gesture security boundaries are not
-  // bypassed by this helper.
+  const before = readActivationState();
   dispatchPointer("pointerover", 0);
   dispatchMouse("mouseover", 0);
   dispatchPointer("pointermove", 0);
@@ -693,16 +708,40 @@ function pageClick(selector) {
   if (mouseDownAllowed && element instanceof HTMLElement) {
     try { element.focus({ preventScroll: true }); } catch {}
   }
+
+  // React/headless/custom comboboxes often do their real work on mousedown and
+  // call preventDefault() to manage focus. Give that discrete event one task to
+  // flush before deciding whether a second synthetic click is appropriate.
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  const afterMouseDown = readActivationState();
+  const semanticMouseDownControl = element.matches('[role="combobox"],[aria-haspopup]')
+    || element.closest('[role="combobox"],[aria-haspopup]') != null;
+  const activatedOnMouseDown = stateChanged(before, afterMouseDown)
+    || (mouseDownAllowed === false && semanticMouseDownControl);
+
   dispatchPointer("pointerup", 0);
   dispatchMouse("mouseup", 0);
-  events.push("click");
-  element.click();
+  let activation = "mousedown";
+  if (!activatedOnMouseDown) {
+    events.push("click");
+    element.click();
+    activation = "click";
+  }
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  const after = readActivationState();
 
   return {
     clicked: true,
     selector,
-    strategy: "pointer-mouse-sequence",
+    strategy: "adaptive-pointer-mouse-sequence",
+    activation,
     trusted: false,
+    mouseDownAllowed,
+    semanticMouseDownControl,
+    stateChangedOnMouseDown: stateChanged(before, afterMouseDown),
+    before,
+    afterMouseDown,
+    after,
     clientX,
     clientY,
     events,
