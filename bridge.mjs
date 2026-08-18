@@ -724,6 +724,13 @@ const TOOLS = [
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   },
   {
+    name: "chatgpt_extension_status",
+    title: "ChatGPT Chrome extension status",
+    description: "Inspect the installed ChatGPT Chrome extension, its OpenAI native-host registration, and the live read-only chatgpt.com page-bridge status when a ChatGPT tab is open. This does not modify the OpenAI extension or invoke its private native-host RPC protocol.",
+    inputSchema: { type: "object", additionalProperties: false },
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  },
+  {
     name: "chrome_workspace_setup",
     title: "Set up MDB Chrome workspace",
     description: "Create or expand the extension-owned MDB Chrome tab group and its reusable background-tab pool. This is a one-time/local setup action and does not access authenticated websites. On macOS, setup refuses to create tabs unless a normal Chrome window is already focused, because Chrome may otherwise steal focus even for active:false tab creation.",
@@ -734,8 +741,8 @@ const TOOLS = [
           type: "integer",
           minimum: 1,
           maximum: 8,
-          default: 4,
-          description: "Number of reusable extension-owned tabs to keep in the MDB group.",
+          default: 8,
+          description: "Number of reusable extension-owned tabs to keep in the MDB group. Eight is the default so concurrent automations do not exhaust a four-tab pool.",
         },
       },
       additionalProperties: false,
@@ -1508,6 +1515,10 @@ const BACKGROUND_CHROME_GRANT_DIR = process.env.MAC_DEV_BRIDGE_BACKGROUND_CHROME
   || path.join(APP_SUPPORT_DIR, "chrome-background-grants");
 const BACKGROUND_CHROME_MAX_TTL_MS = 15 * 60 * 1000;
 const BACKGROUND_CHROME_MAX_GRANT_FILES = 256;
+const BACKGROUND_CHROME_DEFAULT_POOL_SIZE = 8;
+const BACKGROUND_CHROME_MAX_POOL_SIZE = 8;
+const CHATGPT_CHROME_EXTENSION_ID = "hehggadaopoacecdllhhajmbjkdcmajg";
+const CHATGPT_NATIVE_HOST_NAME = "com.openai.codexextension";
 
 function backgroundChromeApprovalError(reason) {
   const error = new Error(`Background Chrome is not approved for this website: ${reason}. Run scripts/approve-personal-browser.sh --provider chrome-background with the required URL patterns. Approvals are shared across all ChatGPT sessions on this bridge until their individual expiry times.`);
@@ -2178,7 +2189,7 @@ const federationReady = federation.start().then(() => {
 // one of the two would be unreachable in one direction and unguarded in the other.
 function advertisedTools() {
   let base = ptyAvailable ? TOOLS : TOOLS.filter((tool) => !tool.name.startsWith("pty_"));
-  if (process.platform !== "darwin") base = base.filter((tool) => !tool.name.startsWith("chrome_"));
+  if (process.platform !== "darwin") base = base.filter((tool) => !tool.name.startsWith("chrome_") && tool.name !== "chatgpt_extension_status");
   const federated = federation.listTools();
   return federated.length === 0 ? base : base.concat(federated);
 }
@@ -3026,8 +3037,37 @@ async function dispatchTool(name, args) {
       return await callBackgroundChromeLocal(name, "workspace.status", {});
     }
 
+    case "chatgpt_extension_status": {
+      let livePageBridge;
+      try {
+        const connection = await backgroundChromeStatus({ dataDir: APP_SUPPORT_DIR, timeoutMs: 1_000 });
+        if (!connection?.extensionReady) {
+          const error = new Error(connection?.profileError?.message || connection?.error?.message || "The background Chrome extension is not connected.");
+          error.code = connection?.profileError?.code || connection?.error?.code || "CHROME_EXTENSION_OFFLINE";
+          throw error;
+        }
+        livePageBridge = await backgroundChromeCall("chatgpt.extensionStatus", {}, [], { dataDir: APP_SUPPORT_DIR });
+        await audit(name, args, { ok: true, chatgptExtensionStatus: true, localExtensionRead: true });
+      } catch (error) {
+        livePageBridge = { available: false, error: { code: error?.code || "CHROME_EXTENSION_OFFLINE", message: error?.message || String(error) } };
+        await audit(name, args, { chatgptExtensionStatus: true, localExtensionRead: true }, error);
+      }
+      return {
+        installation: await chatgptChromeExtensionInstallationStatus(),
+        nativeHost: await chatgptNativeHostInstallationStatus(),
+        livePageBridge,
+        interoperability: {
+          crossExtensionMessagingExposed: false,
+          liveStatusViaChatgptPageBridge: true,
+          programmaticSidePanelOpenExposed: false,
+          privateNativeHostProtocolInvoked: false,
+          note: "MDB intentionally reads the supported page bridge and local installation metadata only; it does not patch the OpenAI extension or expose arbitrary private native-host RPC calls.",
+        },
+      };
+    }
+
     case "chrome_workspace_setup": {
-      const poolSize = optionalInteger(args, "pool_size", 4, 1, 8);
+      const poolSize = optionalInteger(args, "pool_size", BACKGROUND_CHROME_DEFAULT_POOL_SIZE, 1, BACKGROUND_CHROME_MAX_POOL_SIZE);
       return await callBackgroundChromeLocal(name, "workspace.init", { poolSize });
     }
 
@@ -3078,6 +3118,8 @@ async function dispatchTool(name, args) {
     case "chrome_close": {
       const tabId = requireInteger(args, "tab_id", 0, 2_147_483_647);
       const allowActive = optionalBoolean(args, "allow_active", false);
+      const localRelease = await callBackgroundChromeLocal(name, "workspace.release", { tabId });
+      if (localRelease?.released === true) return localRelease;
       return await callBackgroundChrome(name, "tabs.close", { tabId, allowActive });
     }
 

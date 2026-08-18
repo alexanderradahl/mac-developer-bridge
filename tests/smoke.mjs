@@ -113,10 +113,12 @@ try {
   const byName = new Map(tools.result.tools.map((tool) => [tool.name, tool]));
   assert.ok(byName.has("shell_exec"));
   if (process.platform === "darwin") {
-    for (const tool of ["chrome_workspace_status", "chrome_workspace_setup", "chrome_tabs", "chrome_open", "chrome_navigate", "chrome_snapshot", "chrome_click", "chrome_fill", "chrome_close"]) {
+    for (const tool of ["chrome_workspace_status", "chatgpt_extension_status", "chrome_workspace_setup", "chrome_tabs", "chrome_open", "chrome_navigate", "chrome_snapshot", "chrome_click", "chrome_fill", "chrome_close"]) {
       assert.ok(byName.has(tool), `expected ${tool} on macOS`);
     }
     assert.equal(byName.get("chrome_workspace_status").annotations.readOnlyHint, true);
+    assert.equal(byName.get("chatgpt_extension_status").annotations.readOnlyHint, true);
+    assert.equal(byName.get("chrome_workspace_setup").inputSchema.properties.pool_size.default, 8);
     assert.equal(byName.get("chrome_tabs").annotations.readOnlyHint, true);
     assert.equal(byName.get("chrome_click").annotations.destructiveHint, true);
   }

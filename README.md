@@ -90,8 +90,9 @@ Git, package managers, Vercel CLI, database CLIs, AppleScript, browser CLIs, bui
 | Tool | Purpose |
 |---|---|
 | `bridge_status` | Runtime identity, paths, permissions context, shell, audit mode, Codex binary, focus policy, and background-Chrome status |
-| `chrome_workspace_status` | Inspect the extension-owned `MDB` Chrome group and reusable background-tab pool; no website grant required |
-| `chrome_workspace_setup` | Create or expand the `MDB` pool once while Chrome is already foreground |
+| `chrome_workspace_status` | Inspect the extension-owned `MDB` Chrome group, lease activity, and reusable background-tab pool; no website grant required |
+| `chatgpt_extension_status` | Inspect the installed ChatGPT Chrome extension, OpenAI native-host registration, and live read-only page-bridge status without patching the OpenAI extension |
+| `chrome_workspace_setup` | Create or expand the `MDB` pool while Chrome is already foreground; default target is eight reusable tabs |
 | `chrome_tabs` | List tabs in the real signed-in Chrome profile without activating Chrome; scoped only when Strict approvals is on |
 | `chrome_open` | Lease an idle tab from the persistent `MDB` group and open a URL without creating a new tab |
 | `chrome_navigate` | Navigate an approved tab without selecting it |
@@ -127,11 +128,11 @@ This is intentionally opt-in because authenticated browser control is powerful. 
 
 Then in Chrome open `chrome://extensions`, enable **Developer mode**, choose **Load unpacked**, and select this repository's `chrome-extension/` directory. The expected extension id is `pcebfblnmcappinbenkmddjdapaoajgm`.
 
-The extension keeps a Chrome-native tab group named **`MDB`**. By default it contains four extension-owned idle tabs. They are created only while Chrome is already foreground, then leased and reused for routine work. The group is collapsed when idle and expands while one or more tabs are leased. This mirrors the managed-group approach used by browser-agent extensions while avoiding a macOS/Chrome quirk measured on this project: even `chrome.tabs.create({ active:false })` can bring Chrome to the foreground.
+The extension keeps a Chrome-native tab group named **`MDB`**. By default it targets eight extension-owned idle tabs. They are created only while Chrome is already foreground, then leased and reused for routine work. The group is collapsed when idle and expands while one or more tabs are leased. This mirrors the managed-group approach used by browser-agent extensions while avoiding a macOS/Chrome quirk measured on this project: even `chrome.tabs.create({ active:false })` can bring Chrome to the foreground.
 
-The pool now self-heals. If Chrome or the extension restarts and the `MDB` group is missing, the extension recreates the default four-tab pool the next time you **naturally focus Chrome**. It never activates Chrome just to repair itself. You can also force setup while Chrome is already foreground by calling `chrome_workspace_setup` (default pool size: 4).
+The pool now self-heals and self-expands. If Chrome or the extension restarts, or an older four-tab pool is still present, the extension grows the managed pool to the default eight tabs the next time you **naturally focus Chrome**. It never activates Chrome just to repair or expand itself. You can also force setup while Chrome is already foreground by calling `chrome_workspace_setup` (default pool size: 8).
 
-`chrome_workspace_status` is grantless because it only reads extension-owned local workspace state. `chrome_workspace_setup` is also grantless because it creates only extension-owned idle pages; it refuses to create or expand the pool unless Chrome is already focused rather than stealing focus itself. Legacy/internal `tabs.open` callers are routed to the same `workspace.open` lease path, so they cannot create loose tabs outside `MDB`; if the pool is unavailable while Chrome is background, the open fails closed until the group can be repaired.
+`chrome_workspace_status` is grantless because it only reads extension-owned local workspace state. It now includes lease age/idle metadata, the 10-minute idle-reclaim timeout, and the 20-second lease-wait budget. `chrome_workspace_setup` is also grantless because it creates only extension-owned idle pages; it refuses to create or expand the pool unless Chrome is already focused rather than stealing focus itself. Legacy/internal `tabs.open` callers are routed to the same `workspace.open` lease path, so they cannot create loose tabs outside `MDB`. When all tabs are busy, `chrome_open` waits briefly for a release instead of failing immediately; abandoned leases are reclaimed after 10 minutes without browser activity, while every navigate/snapshot/click/fill renews an active lease.
 
 **Relaxed access is the default.** Normal HTTP/HTTPS work through the signed-in `MDB` Chrome profile does not require a terminal approval command or per-site allowlist. This is intentional: Mac Developer Bridge already exposes unrestricted shell/file authority as the logged-in macOS user, and the useful default is for browser execution to match that operator-chosen trust level while remaining background-first.
 
@@ -152,9 +153,12 @@ A normal workflow is:
 1. `chrome_open` an approved URL into an idle tab leased from the `MDB` group.
 2. `chrome_snapshot` to read the page and get stable-enough selectors for visible controls.
 3. `chrome_fill` / `chrome_click` / `chrome_navigate` as needed.
-4. `chrome_close` to return the workspace tab to its idle extension page and release the lease.
+4. `chrome_close` to return the workspace tab to its idle extension page and release the lease. Workspace release is local/grantless cleanup, so Strict-mode URL grants cannot strand a finished lease.
 
 Profile binding is always enforced. In relaxed mode the extension permits normal HTTP/HTTPS sites without a per-site grant. In Strict mode, each `chrome-background` approval is stored as its own mode-0600 file under `$DATA_DIR/chrome-background-grants/`, expires after at most 15 minutes, and is merged with other still-live approvals. Expired files are pruned automatically and URL patterns are enforced inside Chrome. Federated personal-browser providers keep their separate single-use behavior.
+
+
+`chatgpt_extension_status` is deliberately read-only. It reports the installed ChatGPT Chrome extension version, the local `com.openai.codexextension` native-host registration, and—when a `chatgpt.com` tab is already open—the live status returned by OpenAI's own page bridge. MDB does **not** patch the OpenAI extension, add itself to the OpenAI native-host allowlist, expose arbitrary private OpenAI RPC calls, or programmatically open the ChatGPT side panel. The current ChatGPT extension does not declare `externally_connectable`; its side-panel open path also requires a trusted user gesture.
 
 What background mode does **not** promise: CAPTCHAs, native browser/OS permission dialogs, file pickers, downloads requiring a trusted user gesture, passkeys, and other browser security UI may require a foreground/manual step. The bridge reports that limitation rather than silently activating Chrome. This is also deliberately narrower than arbitrary page JavaScript or network-header capture; see [SECURITY.md](SECURITY.md).
 
