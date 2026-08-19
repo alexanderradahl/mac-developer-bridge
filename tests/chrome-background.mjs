@@ -97,7 +97,11 @@ function startFakeExtensionHost() {
           ok: true,
           result: message.method === "tabs.list"
             ? { tabs: [{ tabId: 42, windowId: 7, active: false, title: "Allowed", url: "https://www.producthunt.com/test", status: "complete" }], count: 1 }
-            : { echoedMethod: message.method, echoedArgs: message.args },
+            : message.method === "workspace.release"
+              ? { released: true, workspace: true, tabId: message.args?.tabId ?? null }
+              : message.method === "chatgpt.extensionStatus"
+                ? { available: true, pageBridgeAvailable: true, extensionId: "hehggadaopoacecdllhhajmbjkdcmajg", state: { nativeHostStatus: "connected" } }
+                : { echoedMethod: message.method, echoedArgs: message.args },
         }));
       }
     }
@@ -184,6 +188,8 @@ try {
   assert.ok(manifest.permissions.includes("tabGroups"));
   assert.ok(manifest.permissions.includes("storage"));
   assert.ok(manifest.icons?.["16"] && manifest.icons?.["128"]);
+  assert.equal(manifest.version, "0.2.7");
+  assert.equal(manifest.permissions.includes("debugger"), false, "realistic click support must not require Chrome debugger permission");
   await Promise.all([16, 32, 48, 128].map(async (size) => {
     const stat = await fs.stat(path.join(root, "chrome-extension", "icons", `icon-${size}.png`));
     assert.ok(stat.size > 0, `expected non-empty ${size}px extension icon`);
@@ -196,7 +202,7 @@ try {
   assert.match(workerSource, /case "tabs\.open"/);
   assert.match(workerSource, /initializeWorkspaceIfChromeFocused/);
   assert.match(workerSource, /chrome\.windows\.onFocusChanged/);
-  const legacyOpenCase = workerSource.match(/case "workspace\.open":[\s\S]*?case "workspace\.release":/)?.[0] || "";
+  const legacyOpenCase = workerSource.match(/case "workspace\.open":[\s\S]*?case "tabs\.list":/)?.[0] || "";
   assert.match(legacyOpenCase, /case "tabs\.open"/);
   assert.match(legacyOpenCase, /return await leaseWorkspaceTab/);
   assert.doesNotMatch(legacyOpenCase, /await chrome\.tabs\.create/);
@@ -204,6 +210,31 @@ try {
   assert.match(workerSource, /targetWindow\.focused !== true/);
   assert.match(workerSource, /waitForApprovedNavigation/);
   assert.match(workerSource, /CHROME_NAVIGATION_TIMEOUT/);
+  assert.match(workerSource, /DEFAULT_WORKSPACE_POOL_SIZE = 8/);
+  assert.match(workerSource, /WORKSPACE_LEASE_IDLE_TIMEOUT_MS = 10 \* 60 \* 1000/);
+  assert.match(workerSource, /WORKSPACE_LEASE_WAIT_TIMEOUT_MS = 20_000/);
+  assert.match(workerSource, /reserveIdleWorkspaceTab/);
+  assert.match(workerSource, /touchWorkspaceLease/);
+  assert.match(workerSource, /chatgptExtensionStatus/);
+  assert.match(workerSource, /chatgpt-extension-request-status/);
+  assert.match(workerSource, /dispatchPointer\("pointerdown", 1\)/);
+  assert.match(workerSource, /dispatchMouse\("mousedown", 1\)/);
+  assert.match(workerSource, /dispatchMouse\("mouseup", 0\)/);
+  assert.match(workerSource, /strategy: "adaptive-pointer-mouse-sequence"/);
+  assert.match(workerSource, /trusted: false/);
+  assert.match(workerSource, /semanticMouseDownControl/);
+  assert.match(workerSource, /activatedOnMouseDown/);
+  assert.match(workerSource, /mouseDownAllowed === false/);
+  assert.match(workerSource, /ariaExpanded: element\.getAttribute\("aria-expanded"\)/);
+  assert.match(workerSource, /ariaHasPopup: element\.getAttribute\("aria-haspopup"\)/);
+  assert.match(workerSource, /dataState: element\.getAttribute\("data-state"\)/);
+  assert.match(workerSource, /executeInTab\(tab\.id, pageClick, \[String\(args\.selector \|\| ""\)\], "MAIN"\)/);
+  assert.match(workerSource, /keyboardFallbackUsed/);
+  assert.match(workerSource, /keydown:ArrowDown/);
+  assert.match(workerSource, /activation = "keyboard-arrowdown"/);
+  assert.match(workerSource, /message\.method === "extension\.reload"/);
+  assert.match(workerSource, /chrome\.runtime\.reload\(\)/);
+  assert.equal((workerSource.match(/async function executeInTab\(/g) || []).length, 1, "executeInTab should have one definition");
   const publicKey = Buffer.from(manifest.key, "base64");
   const digest = crypto.createHash("sha256").update(publicKey).digest().subarray(0, 16);
   const extensionId = [...digest].flatMap((byte) => [byte >> 4, byte & 0x0f]).map((n) => String.fromCharCode(97 + n)).join("");
@@ -279,18 +310,49 @@ try {
 
   // Workspace setup/status are local extension state. They must not require or
   // consume an authenticated-site URL grant.
+  const reloadLocal = await backgroundChromeCall("extension.reload", {}, [], { socketPath });
+  assert.equal(reloadLocal.echoedMethod, "extension.reload");
+  assert.deepEqual(host.seen.at(-1).allowedUrlPatterns, []);
   const localStatus = await backgroundChromeCall("workspace.status", {}, [], { socketPath });
   assert.equal(localStatus.echoedMethod, "workspace.status");
+  assert.deepEqual(host.seen.at(-1).allowedUrlPatterns, []);
+  const chatgptStatus = await backgroundChromeCall("chatgpt.extensionStatus", {}, [], { socketPath });
+  assert.equal(chatgptStatus.available, true);
+  assert.equal(host.seen.at(-1).method, "chatgpt.extensionStatus");
+  assert.deepEqual(host.seen.at(-1).allowedUrlPatterns, []);
+  const directRelease = await backgroundChromeCall("workspace.release", { tabId: 42 }, [], { socketPath });
+  assert.equal(directRelease.released, true);
+  assert.equal(host.seen.at(-1).method, "workspace.release");
   assert.deepEqual(host.seen.at(-1).allowedUrlPatterns, []);
   const bridgeWorkspace = await bridgeTool(bridge, "chrome_workspace_status", {});
   assert.equal(bridgeWorkspace.result.isError, false, bridgeWorkspace.result.content[0].text);
   assert.equal(host.seen.at(-1).method, "workspace.status");
+  await fs.stat(approvalFile);
+  const bridgeSetupDefault = await bridgeTool(bridge, "chrome_workspace_setup", {});
+  assert.equal(bridgeSetupDefault.result.isError, false, bridgeSetupDefault.result.content[0].text);
+  assert.equal(host.seen.at(-1).method, "workspace.init");
+  assert.equal(host.seen.at(-1).args.poolSize, 8);
   await fs.stat(approvalFile);
   const bridgeSetup = await bridgeTool(bridge, "chrome_workspace_setup", { pool_size: 6 });
   assert.equal(bridgeSetup.result.isError, false, bridgeSetup.result.content[0].text);
   assert.equal(host.seen.at(-1).method, "workspace.init");
   assert.equal(host.seen.at(-1).args.poolSize, 6);
   await fs.stat(approvalFile);
+
+  // Workspace cleanup is grantless even in Strict mode. Removing the only
+  // unconsumed approval must not prevent chrome_close from releasing MDB state.
+  await fs.rm(approvalFile, { force: true });
+  const bridgeRelease = await bridgeTool(bridge, "chrome_close", { tab_id: 42 });
+  assert.equal(bridgeRelease.result.isError, false, bridgeRelease.result.content[0].text);
+  assert.equal(bridgeRelease.result.structuredContent.released, true);
+  assert.equal(host.seen.at(-1).method, "workspace.release");
+  assert.deepEqual(host.seen.at(-1).allowedUrlPatterns, []);
+  await fs.writeFile(approvalFile, JSON.stringify({
+    nonce: "0123456789abcdef0123456789abcdef",
+    expiresAt: new Date(Date.now() + 5 * 60_000).toISOString(),
+    provider: "chrome-background",
+    allowedUrlPatterns: ["https://www.producthunt.com/*"],
+  }), { mode: 0o600 });
   await assert.rejects(
     backgroundChromeCall("tabs.list", { maxTabs: 3 }, [], { socketPath }),
     (error) => error?.code === "CHROME_NO_URL_GRANT",

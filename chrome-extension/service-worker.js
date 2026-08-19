@@ -1,19 +1,38 @@
 const NATIVE_HOST = "io.github.alexanderradahl.mac_developer_bridge";
-const VERSION = "0.2.3";
+const VERSION = "0.2.7";
 const WORKSPACE_KEY = "macDeveloperBridgeWorkspace";
 const WORKSPACE_GROUP_TITLE = "MDB";
 const WORKSPACE_GROUP_COLOR = "blue";
-const WORKSPACE_LEASE_STALE_MS = 30 * 60 * 1000;
+const WORKSPACE_LEASE_IDLE_TIMEOUT_MS = 10 * 60 * 1000;
+const WORKSPACE_LEASE_WAIT_TIMEOUT_MS = 20_000;
+const WORKSPACE_LEASE_WAIT_POLL_MS = 250;
 const WORKSPACE_NAVIGATION_TIMEOUT_MS = 15_000;
-const DEFAULT_WORKSPACE_POOL_SIZE = 4;
+const DEFAULT_WORKSPACE_POOL_SIZE = 8;
+const MAX_WORKSPACE_POOL_SIZE = 8;
+const CHATGPT_EXTENSION_ID = "hehggadaopoacecdllhhajmbjkdcmajg";
+const CHATGPT_STATUS_REQUEST_EVENT = "chatgpt-extension-request-status";
+const CHATGPT_STATUS_RESPONSE_EVENT = "chatgpt-extension-status";
+const CHATGPT_STATUS_ATTRIBUTE = "data-chatgpt-extension-status";
+const CHATGPT_SIDE_PANEL_ATTRIBUTE = "data-chatgpt-extension-side-panel";
 let port = null;
 let reconnectTimer = null;
+let workspaceMutationQueue = Promise.resolve();
 
 function errorPayload(error, code = "CHROME_EXTENSION_ERROR") {
   return {
     code: error?.code || code,
     message: String(error?.message || error),
   };
+}
+
+function mutateWorkspaceState(operation) {
+  const run = workspaceMutationQueue.then(operation, operation);
+  workspaceMutationQueue = run.then(() => {}, () => {});
+  return run;
+}
+
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function compilePatterns(patterns) {
@@ -101,7 +120,7 @@ async function discoverWorkspaceState() {
   return null;
 }
 
-async function reconcileWorkspaceState({ releaseStale = true } = {}) {
+async function reconcileWorkspaceStateUnlocked({ releaseStale = true } = {}) {
   let state = await loadWorkspaceState();
   if (!state) return await discoverWorkspaceState();
   let group = await readGroup(state.groupId);
@@ -122,17 +141,35 @@ async function reconcileWorkspaceState({ releaseStale = true } = {}) {
 
   const now = Date.now();
   const leases = {};
+  const staleTabIds = [];
   for (const tab of tabs) {
     const lease = state.leases?.[String(tab.id)];
     if (!lease || typeof lease !== "object") continue;
     const leasedAt = Number(lease.leasedAt || 0);
-    if (releaseStale && (!Number.isFinite(leasedAt) || now - leasedAt > WORKSPACE_LEASE_STALE_MS)) continue;
-    leases[String(tab.id)] = { leasedAt };
+    const hasActivityTimestamp = Number.isFinite(Number(lease.lastActivityAt)) && Number(lease.lastActivityAt) > 0;
+    // v0.2.3 stored only leasedAt. On first v0.2.4 reconciliation, migrate
+    // those live leases with a fresh heartbeat instead of interpreting their
+    // original creation time as 10 minutes of inactivity.
+    const lastActivityAt = hasActivityTimestamp ? Number(lease.lastActivityAt) : now;
+    const invalid = !Number.isFinite(leasedAt) || !Number.isFinite(lastActivityAt) || leasedAt <= 0 || lastActivityAt <= 0;
+    const idleExpired = now - lastActivityAt > WORKSPACE_LEASE_IDLE_TIMEOUT_MS;
+    if (releaseStale && (invalid || idleExpired)) {
+      staleTabIds.push(tab.id);
+      continue;
+    }
+    leases[String(tab.id)] = { leasedAt, lastActivityAt };
   }
 
   const next = { groupId: state.groupId, tabIds: tabs.map((tab) => tab.id), leases };
   await saveWorkspaceState(next);
-  return { ...next, group, tabs };
+  for (const tabId of staleTabIds) {
+    try { await chrome.tabs.update(tabId, { url: workspaceIdleUrl(), active: false }); } catch {}
+  }
+  return { ...next, group, tabs, staleReleasedTabIds: staleTabIds };
+}
+
+async function reconcileWorkspaceState(options = {}) {
+  return await mutateWorkspaceState(() => reconcileWorkspaceStateUnlocked(options));
 }
 
 async function setWorkspaceGroupActivity(state) {
@@ -147,79 +184,82 @@ async function setWorkspaceGroupActivity(state) {
 }
 
 async function initializeWorkspace(poolSize) {
-  const desired = Math.max(1, Math.min(8, Number(poolSize || 4)));
-  let state = await reconcileWorkspaceState();
-  if (state && state.tabIds.length >= desired) {
-    await setWorkspaceGroupActivity(state);
-    return {
-      initialized: true,
-      created: false,
-      groupId: state.groupId,
-      tabIds: state.tabIds,
-      poolSize: state.tabIds.length,
+  return await mutateWorkspaceState(async () => {
+    const desired = Math.max(1, Math.min(MAX_WORKSPACE_POOL_SIZE, Number(poolSize || DEFAULT_WORKSPACE_POOL_SIZE)));
+    let state = await reconcileWorkspaceStateUnlocked();
+    if (state && state.tabIds.length >= desired) {
+      await setWorkspaceGroupActivity(state);
+      return {
+        initialized: true,
+        created: false,
+        groupId: state.groupId,
+        tabIds: state.tabIds,
+        poolSize: state.tabIds.length,
+        targetPoolSize: desired,
+        title: WORKSPACE_GROUP_TITLE,
+        color: WORKSPACE_GROUP_COLOR,
+      };
+    }
+
+    let windowId = state?.tabs?.[0]?.windowId;
+    let targetWindow = null;
+    if (Number.isInteger(windowId)) {
+      try { targetWindow = await chrome.windows.get(windowId); } catch {}
+    } else {
+      const windows = await chrome.windows.getAll({ windowTypes: ["normal"] });
+      targetWindow = windows.find((win) => win.focused) || null;
+      windowId = targetWindow?.id;
+    }
+
+    // Measured on Chrome/macOS: even tabs.create({active:false}) can bring Chrome
+    // to the foreground. Creation/expansion is allowed only while Chrome is
+    // already naturally focused; MDB never activates Chrome on the user's behalf.
+    if (!targetWindow || !Number.isInteger(windowId)) {
+      const error = new Error("No focused normal Chrome window is available. Bring Chrome to the front once, then run MDB workspace setup again.");
+      error.code = "CHROME_WORKSPACE_SETUP_FOREGROUND_REQUIRED";
+      throw error;
+    }
+    if (targetWindow.focused !== true) {
+      const error = new Error("MDB workspace setup would need to create background tabs, but Chrome is not currently focused. Bring Chrome to the front once and retry; routine browser work will stay background-only afterwards.");
+      error.code = "CHROME_WORKSPACE_SETUP_FOREGROUND_REQUIRED";
+      throw error;
+    }
+
+    const existingTabIds = state?.tabIds || [];
+    const tabIds = [...existingTabIds];
+    while (tabIds.length < desired) {
+      const tab = await chrome.tabs.create({ windowId, url: workspaceIdleUrl(), active: false });
+      if (!Number.isInteger(tab.id)) throw new Error("Chrome did not return a tab id during workspace setup.");
+      tabIds.push(tab.id);
+    }
+
+    let groupId = state?.groupId;
+    if (!Number.isInteger(groupId)) {
+      groupId = await chrome.tabs.group({ tabIds, createProperties: { windowId } });
+    } else {
+      const newlyCreated = tabIds.filter((id) => !existingTabIds.includes(id));
+      if (newlyCreated.length) await chrome.tabs.group({ tabIds: newlyCreated, groupId });
+    }
+
+    const next = { groupId, tabIds, leases: state?.leases || {} };
+    await saveWorkspaceState(next);
+    await chrome.tabGroups.update(groupId, {
       title: WORKSPACE_GROUP_TITLE,
       color: WORKSPACE_GROUP_COLOR,
+      collapsed: Object.keys(next.leases).length === 0,
+    });
+    return {
+      initialized: true,
+      created: tabIds.length > existingTabIds.length,
+      groupId,
+      tabIds,
+      poolSize: tabIds.length,
+      targetPoolSize: desired,
+      title: WORKSPACE_GROUP_TITLE,
+      color: WORKSPACE_GROUP_COLOR,
+      foregroundSetupMayBeRequired: true,
     };
-  }
-
-  let windowId = state?.tabs?.[0]?.windowId;
-  let targetWindow = null;
-  if (Number.isInteger(windowId)) {
-    try { targetWindow = await chrome.windows.get(windowId); } catch {}
-  } else {
-    const windows = await chrome.windows.getAll({ windowTypes: ["normal"] });
-    targetWindow = windows.find((win) => win.focused) || null;
-    windowId = targetWindow?.id;
-  }
-
-  // Measured on Chrome 151/macOS: even tabs.create({active:false}) can bring
-  // Chrome to the foreground. Workspace creation/expansion is therefore an
-  // explicit one-time foreground setup and NEVER performs that focus change on
-  // the operator's behalf.
-  if (!targetWindow || !Number.isInteger(windowId)) {
-    const error = new Error("No focused normal Chrome window is available. Bring Chrome to the front once, then run MDB workspace setup again.");
-    error.code = "CHROME_WORKSPACE_SETUP_FOREGROUND_REQUIRED";
-    throw error;
-  }
-  if (targetWindow.focused !== true) {
-    const error = new Error("MDB workspace setup would need to create background tabs, but Chrome is not currently focused. Bring Chrome to the front once and retry; routine browser work will stay background-only afterwards.");
-    error.code = "CHROME_WORKSPACE_SETUP_FOREGROUND_REQUIRED";
-    throw error;
-  }
-
-  const existingTabIds = state?.tabIds || [];
-  const tabIds = [...existingTabIds];
-  while (tabIds.length < desired) {
-    const tab = await chrome.tabs.create({ windowId, url: workspaceIdleUrl(), active: false });
-    if (!Number.isInteger(tab.id)) throw new Error("Chrome did not return a tab id during workspace setup.");
-    tabIds.push(tab.id);
-  }
-
-  let groupId = state?.groupId;
-  if (!Number.isInteger(groupId)) {
-    groupId = await chrome.tabs.group({ tabIds, createProperties: { windowId } });
-  } else {
-    const newlyCreated = tabIds.filter((id) => !existingTabIds.includes(id));
-    if (newlyCreated.length) await chrome.tabs.group({ tabIds: newlyCreated, groupId });
-  }
-
-  const next = { groupId, tabIds, leases: state?.leases || {} };
-  await saveWorkspaceState(next);
-  await chrome.tabGroups.update(groupId, {
-    title: WORKSPACE_GROUP_TITLE,
-    color: WORKSPACE_GROUP_COLOR,
-    collapsed: Object.keys(next.leases).length === 0,
   });
-  return {
-    initialized: true,
-    created: tabIds.length > existingTabIds.length,
-    groupId,
-    tabIds,
-    poolSize: tabIds.length,
-    title: WORKSPACE_GROUP_TITLE,
-    color: WORKSPACE_GROUP_COLOR,
-    foregroundSetupMayBeRequired: true,
-  };
 }
 
 async function waitForApprovedNavigation(tabId, compiled, {
@@ -263,45 +303,90 @@ async function waitForApprovedNavigation(tabId, compiled, {
 }
 
 async function initializeWorkspaceIfChromeFocused() {
-  const state = await reconcileWorkspaceState();
-  if (state) return state;
+  let state = await reconcileWorkspaceState();
   const windows = await chrome.windows.getAll({ windowTypes: ["normal"] });
   const focused = windows.find((win) => win.focused === true);
-  if (!focused) return null;
-  try {
-    await initializeWorkspace(DEFAULT_WORKSPACE_POOL_SIZE);
-  } catch (error) {
-    if (error?.code !== "CHROME_WORKSPACE_SETUP_FOREGROUND_REQUIRED") throw error;
-    return null;
+  if (!focused) return state;
+  if (!state || state.tabIds.length < DEFAULT_WORKSPACE_POOL_SIZE) {
+    try {
+      await initializeWorkspace(DEFAULT_WORKSPACE_POOL_SIZE);
+    } catch (error) {
+      if (error?.code !== "CHROME_WORKSPACE_SETUP_FOREGROUND_REQUIRED") throw error;
+      return state;
+    }
+    state = await reconcileWorkspaceState();
   }
-  return await reconcileWorkspaceState();
+  return state;
+}
+
+async function touchWorkspaceLease(tabId) {
+  const wanted = numericTabId(tabId);
+  return await mutateWorkspaceState(async () => {
+    const state = await reconcileWorkspaceStateUnlocked({ releaseStale: false });
+    if (!state) return false;
+    const lease = state.leases?.[String(wanted)];
+    if (!lease) return false;
+    state.leases[String(wanted)] = {
+      leasedAt: Number(lease.leasedAt || Date.now()),
+      lastActivityAt: Date.now(),
+    };
+    await saveWorkspaceState({ groupId: state.groupId, tabIds: state.tabIds, leases: state.leases });
+    return true;
+  });
+}
+
+async function reserveIdleWorkspaceTab() {
+  return await mutateWorkspaceState(async () => {
+    const state = await reconcileWorkspaceStateUnlocked({ releaseStale: true });
+    if (!state) return { state: null, tab: null };
+    const leasedIds = new Set(Object.keys(state.leases).map(Number));
+    const tab = state.tabs.find((candidate) => !leasedIds.has(candidate.id)) || null;
+    if (!tab) return { state, tab: null };
+    const now = Date.now();
+    state.leases[String(tab.id)] = { leasedAt: now, lastActivityAt: now };
+    await saveWorkspaceState({ groupId: state.groupId, tabIds: state.tabIds, leases: state.leases });
+    return { state, tab };
+  });
 }
 
 async function leaseWorkspaceTab(url, compiled) {
   assertUrlAllowed(url, compiled);
   let state = await reconcileWorkspaceState();
-  if (!state) state = await initializeWorkspaceIfChromeFocused();
+  if (!state || state.tabIds.length < DEFAULT_WORKSPACE_POOL_SIZE) {
+    state = await initializeWorkspaceIfChromeFocused();
+  }
   if (!state) {
     const error = new Error("The Mac Developer Bridge Chrome tab group is missing. MDB will recreate it automatically the next time Chrome is naturally foreground; browser work refuses to create a loose fallback tab in the meantime.");
     error.code = "CHROME_WORKSPACE_MISSING";
     throw error;
   }
 
-  const leasedIds = new Set(Object.keys(state.leases).map(Number));
-  const tab = state.tabs.find((candidate) => !leasedIds.has(candidate.id));
-  if (!tab) {
-    const error = new Error(`All ${state.tabs.length} Mac Developer Bridge background tabs are currently in use. Release one or rerun workspace setup with a larger pool.`);
-    error.code = "CHROME_WORKSPACE_EXHAUSTED";
-    throw error;
+  const waitStartedAt = Date.now();
+  const deadline = waitStartedAt + WORKSPACE_LEASE_WAIT_TIMEOUT_MS;
+  let reservation = null;
+  for (;;) {
+    reservation = await reserveIdleWorkspaceTab();
+    if (reservation.tab) break;
+    if (Date.now() >= deadline) {
+      const current = reservation.state || await reconcileWorkspaceState();
+      const leased = Object.keys(current?.leases || {}).length;
+      const poolSize = current?.tabIds?.length || 0;
+      const error = new Error(`All ${poolSize} Mac Developer Bridge background tabs remained in use for ${WORKSPACE_LEASE_WAIT_TIMEOUT_MS}ms. MDB waited for a release instead of failing immediately. The pool will expand to ${DEFAULT_WORKSPACE_POOL_SIZE} the next time Chrome is naturally focused.`);
+      error.code = "CHROME_WORKSPACE_EXHAUSTED";
+      error.details = { poolSize, leased, waitTimeoutMs: WORKSPACE_LEASE_WAIT_TIMEOUT_MS, targetPoolSize: DEFAULT_WORKSPACE_POOL_SIZE };
+      throw error;
+    }
+    await delay(WORKSPACE_LEASE_WAIT_POLL_MS);
   }
 
-  state.leases[String(tab.id)] = { leasedAt: Date.now() };
-  await saveWorkspaceState({ groupId: state.groupId, tabIds: state.tabIds, leases: state.leases });
+  state = reservation.state;
+  const tab = reservation.tab;
   await setWorkspaceGroupActivity(state);
   try {
     const previousUrl = String(tab.url || "");
     await chrome.tabs.update(tab.id, { url, active: false });
     const settled = await waitForApprovedNavigation(tab.id, compiled, { previousUrl, requestedUrl: url });
+    await touchWorkspaceLease(tab.id);
     return {
       workspace: true,
       groupId: state.groupId,
@@ -310,49 +395,76 @@ async function leaseWorkspaceTab(url, compiled) {
       active: Boolean(settled.active),
       title: settled.title || "",
       url: settled.url || url,
+      poolSize: state.tabIds.length,
+      waitedForSlotMs: Math.max(0, Date.now() - waitStartedAt),
     };
   } catch (error) {
-    // Failed/blocked navigation must not strand a leased pool slot or leave an
-    // unapproved destination sitting in the reusable workspace.
     try { await chrome.tabs.update(tab.id, { url: workspaceIdleUrl(), active: false }); } catch {}
-    delete state.leases[String(tab.id)];
-    await saveWorkspaceState({ groupId: state.groupId, tabIds: state.tabIds, leases: state.leases });
-    await setWorkspaceGroupActivity(state);
+    await releaseWorkspaceTab(tab.id, { resetUrl: false }).catch(() => {});
     throw error;
   }
 }
 
-async function releaseWorkspaceTab(tabId) {
+async function releaseWorkspaceTab(tabId, { resetUrl = true } = {}) {
   const wanted = numericTabId(tabId);
-  const state = await reconcileWorkspaceState({ releaseStale: false });
-  if (!state || !state.tabIds.includes(wanted)) return null;
-  delete state.leases[String(wanted)];
-  await saveWorkspaceState({ groupId: state.groupId, tabIds: state.tabIds, leases: state.leases });
-  let updated = await readTab(wanted);
-  if (updated) {
-    try { updated = await chrome.tabs.update(wanted, { url: workspaceIdleUrl(), active: false }); } catch {}
-  }
-  await setWorkspaceGroupActivity(state);
+  const result = await mutateWorkspaceState(async () => {
+    const state = await reconcileWorkspaceStateUnlocked({ releaseStale: false });
+    if (!state || !state.tabIds.includes(wanted)) return null;
+    const lease = state.leases[String(wanted)] || null;
+    let updated = await readTab(wanted);
+    // Reset while the lease is still reserved. Only after chrome.tabs.update
+    // resolves do we remove the lease, so a waiting opener cannot reserve this
+    // tab and then have its navigation overwritten by a late cleanup update.
+    if (resetUrl && updated) {
+      try { updated = await chrome.tabs.update(wanted, { url: workspaceIdleUrl(), active: false }); } catch {}
+    }
+    delete state.leases[String(wanted)];
+    await saveWorkspaceState({ groupId: state.groupId, tabIds: state.tabIds, leases: state.leases });
+    return { state, lease, updated };
+  });
+  if (!result) return null;
+  await setWorkspaceGroupActivity(result.state);
   return {
     workspace: true,
     released: true,
     closed: false,
-    groupId: state.groupId,
+    groupId: result.state.groupId,
     tabId: wanted,
-    wasActive: Boolean(updated?.active),
+    wasActive: Boolean(result.updated?.active),
   };
 }
 
 async function workspaceStatus() {
   const state = await reconcileWorkspaceState();
-  if (!state) return { initialized: false, title: WORKSPACE_GROUP_TITLE, color: WORKSPACE_GROUP_COLOR };
+  if (!state) return {
+    initialized: false,
+    title: WORKSPACE_GROUP_TITLE,
+    color: WORKSPACE_GROUP_COLOR,
+    targetPoolSize: DEFAULT_WORKSPACE_POOL_SIZE,
+    maxPoolSize: MAX_WORKSPACE_POOL_SIZE,
+    leaseIdleTimeoutMs: WORKSPACE_LEASE_IDLE_TIMEOUT_MS,
+    leaseWaitTimeoutMs: WORKSPACE_LEASE_WAIT_TIMEOUT_MS,
+  };
+  const now = Date.now();
+  const leaseDetails = Object.entries(state.leases).map(([tabId, lease]) => ({
+    tabId: Number(tabId),
+    leasedAt: Number(lease.leasedAt || 0),
+    lastActivityAt: Number(lease.lastActivityAt || lease.leasedAt || 0),
+    ageMs: Math.max(0, now - Number(lease.leasedAt || now)),
+    idleForMs: Math.max(0, now - Number(lease.lastActivityAt || lease.leasedAt || now)),
+  }));
   return {
     initialized: true,
     groupId: state.groupId,
     tabIds: state.tabIds,
     poolSize: state.tabIds.length,
+    targetPoolSize: DEFAULT_WORKSPACE_POOL_SIZE,
+    maxPoolSize: MAX_WORKSPACE_POOL_SIZE,
     leasedTabIds: Object.keys(state.leases).map(Number),
     idleTabIds: state.tabIds.filter((id) => !state.leases[String(id)]),
+    leaseDetails,
+    leaseIdleTimeoutMs: WORKSPACE_LEASE_IDLE_TIMEOUT_MS,
+    leaseWaitTimeoutMs: WORKSPACE_LEASE_WAIT_TIMEOUT_MS,
     title: WORKSPACE_GROUP_TITLE,
     color: WORKSPACE_GROUP_COLOR,
     collapsed: Boolean(state.group?.collapsed),
@@ -370,9 +482,74 @@ function numericTabId(value) {
 }
 
 async function getApprovedTab(tabId, compiled) {
-  const tab = await chrome.tabs.get(numericTabId(tabId));
+  const id = numericTabId(tabId);
+  const tab = await chrome.tabs.get(id);
   assertUrlAllowed(tab.url, compiled);
+  await touchWorkspaceLease(id);
   return tab;
+}
+
+async function chatgptExtensionStatus() {
+  const tabs = await chrome.tabs.query({ url: ["https://chatgpt.com/*"] });
+  if (tabs.length === 0) {
+    return {
+      available: false,
+      extensionId: CHATGPT_EXTENSION_ID,
+      reason: "no-chatgpt-tab",
+      pageBridgeAvailable: false,
+    };
+  }
+  for (const tab of tabs) {
+    if (!Number.isInteger(tab.id)) continue;
+    try {
+      const result = await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        world: "MAIN",
+        func: async (requestEvent, responseEvent, statusAttribute, sidePanelAttribute) => {
+          const root = document.documentElement;
+          const pageBridgeAvailable = root.getAttribute(sidePanelAttribute) === "available";
+          return await new Promise((resolve) => {
+            let settled = false;
+            const finish = (payload) => {
+              if (settled) return;
+              settled = true;
+              window.removeEventListener(responseEvent, onResponse);
+              resolve(payload);
+            };
+            const readState = () => {
+              const raw = root.getAttribute(statusAttribute);
+              if (!raw) return null;
+              try { return JSON.parse(raw); } catch { return { raw }; }
+            };
+            const onResponse = () => finish({ available: true, pageBridgeAvailable, state: readState() });
+            window.addEventListener(responseEvent, onResponse, { once: true });
+            window.dispatchEvent(new Event(requestEvent));
+            setTimeout(() => finish({ available: pageBridgeAvailable, pageBridgeAvailable, state: readState(), timedOut: true }), 1200);
+          });
+        },
+        args: [CHATGPT_STATUS_REQUEST_EVENT, CHATGPT_STATUS_RESPONSE_EVENT, CHATGPT_STATUS_ATTRIBUTE, CHATGPT_SIDE_PANEL_ATTRIBUTE],
+      });
+      const value = result?.[0]?.result;
+      if (value?.available || value?.pageBridgeAvailable) {
+        return {
+          ...value,
+          extensionId: CHATGPT_EXTENSION_ID,
+          tabId: tab.id,
+          windowId: tab.windowId,
+          tabActive: Boolean(tab.active),
+          tabGroupId: Number.isInteger(tab.groupId) && tab.groupId >= 0 ? tab.groupId : null,
+          url: tab.url || "",
+        };
+      }
+    } catch {}
+  }
+  return {
+    available: false,
+    extensionId: CHATGPT_EXTENSION_ID,
+    reason: "page-bridge-unavailable",
+    pageBridgeAvailable: false,
+    candidateTabs: tabs.length,
+  };
 }
 
 function pageSnapshot(maxTextChars, maxElements) {
@@ -426,6 +603,10 @@ function pageSnapshot(maxTextChars, maxElements) {
       role: element.getAttribute("role"),
       text: String(element.innerText || element.textContent || "").trim().slice(0, 500),
       ariaLabel: element.getAttribute("aria-label"),
+      ariaExpanded: element.getAttribute("aria-expanded"),
+      ariaHasPopup: element.getAttribute("aria-haspopup"),
+      ariaControls: element.getAttribute("aria-controls"),
+      dataState: element.getAttribute("data-state"),
       name: element.getAttribute("name"),
       placeholder: element.getAttribute("placeholder"),
       href: element instanceof HTMLAnchorElement ? element.href : null,
@@ -444,16 +625,152 @@ function pageSnapshot(maxTextChars, maxElements) {
   };
 }
 
-function pageClick(selector) {
+async function pageClick(selector) {
   const element = document.querySelector(selector);
-  if (!element) throw new Error(`No element matches selector: ${selector}`);
+  if (!(element instanceof Element)) {
+    const error = new Error(`No element matches selector: ${selector}`);
+    error.code = "CHROME_ELEMENT_NOT_FOUND";
+    throw error;
+  }
   if (element instanceof HTMLInputElement && element.type === "file") {
     const error = new Error("File pickers require foreground/user interaction; background mode will not open one.");
     error.code = "CHROME_FOREGROUND_REQUIRED";
     throw error;
   }
-  element.click();
-  return { clicked: true, selector, title: document.title, url: location.href };
+  if (("disabled" in element && Boolean(element.disabled)) || element.getAttribute("aria-disabled") === "true") {
+    const error = new Error(`Element is disabled: ${selector}`);
+    error.code = "CHROME_ELEMENT_DISABLED";
+    throw error;
+  }
+
+  element.scrollIntoView({ block: "center", inline: "center", behavior: "instant" });
+  const rect = element.getBoundingClientRect();
+  const style = getComputedStyle(element);
+  if (rect.width <= 0 || rect.height <= 0 || style.visibility === "hidden" || style.display === "none") {
+    const error = new Error(`Element is not visible: ${selector}`);
+    error.code = "CHROME_ELEMENT_NOT_VISIBLE";
+    throw error;
+  }
+
+  const clientX = Math.max(0, Math.min(Math.max(0, window.innerWidth - 1), rect.left + rect.width / 2));
+  const clientY = Math.max(0, Math.min(Math.max(0, window.innerHeight - 1), rect.top + rect.height / 2));
+  const common = {
+    bubbles: true,
+    cancelable: true,
+    composed: true,
+    clientX,
+    clientY,
+    screenX: Number(window.screenX || 0) + clientX,
+    screenY: Number(window.screenY || 0) + clientY,
+    button: 0,
+  };
+  const events = [];
+  const dispatchPointer = (type, buttons) => {
+    if (typeof PointerEvent !== "function") return true;
+    events.push(type);
+    return element.dispatchEvent(new PointerEvent(type, {
+      ...common,
+      buttons,
+      pointerId: 1,
+      pointerType: "mouse",
+      isPrimary: true,
+      pressure: buttons ? 0.5 : 0,
+    }));
+  };
+  const dispatchMouse = (type, buttons) => {
+    events.push(type);
+    return element.dispatchEvent(new MouseEvent(type, { ...common, buttons, detail: type === "mousedown" ? 1 : 0 }));
+  };
+  const visiblePopupCount = () => [...document.querySelectorAll('[role="listbox"],[role="menu"],[role="dialog"],[data-state="open"]')]
+    .filter((node) => {
+      if (!(node instanceof Element)) return false;
+      const box = node.getBoundingClientRect();
+      const computed = getComputedStyle(node);
+      return box.width > 0 && box.height > 0 && computed.display !== "none" && computed.visibility !== "hidden";
+    }).length;
+  const readActivationState = () => ({
+    ariaExpanded: element.getAttribute("aria-expanded"),
+    ariaHasPopup: element.getAttribute("aria-haspopup"),
+    dataState: element.getAttribute("data-state"),
+    visiblePopupCount: visiblePopupCount(),
+  });
+  const stateChanged = (before, after) => before.ariaExpanded !== after.ariaExpanded
+    || before.dataState !== after.dataState
+    || before.visiblePopupCount !== after.visiblePopupCount;
+
+  const before = readActivationState();
+  dispatchPointer("pointerover", 0);
+  dispatchMouse("mouseover", 0);
+  dispatchPointer("pointermove", 0);
+  dispatchMouse("mousemove", 0);
+  dispatchPointer("pointerdown", 1);
+  const mouseDownAllowed = dispatchMouse("mousedown", 1);
+  if (mouseDownAllowed && element instanceof HTMLElement) {
+    try { element.focus({ preventScroll: true }); } catch {}
+  }
+
+  // React/headless/custom comboboxes often do their real work on mousedown and
+  // call preventDefault() to manage focus. Give that discrete event one task to
+  // flush before deciding whether a second synthetic click is appropriate.
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  const afterMouseDown = readActivationState();
+  const semanticMouseDownControl = element.matches('[role="combobox"],[aria-haspopup]')
+    || element.closest('[role="combobox"],[aria-haspopup]') != null;
+  const activatedOnMouseDown = stateChanged(before, afterMouseDown)
+    || (mouseDownAllowed === false && semanticMouseDownControl);
+
+  dispatchPointer("pointerup", 0);
+  dispatchMouse("mouseup", 0);
+  let activation = "mousedown";
+  if (!activatedOnMouseDown) {
+    events.push("click");
+    element.click();
+    activation = "click";
+  }
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  let after = readActivationState();
+
+  // Accessible comboboxes are expected to open on ArrowDown. Some React/headless
+  // controls ignore synthetic pointer/mouse activation but still honor keyboard
+  // semantics. Use that as a narrow fallback only when the semantic combobox is
+  // still closed after the mouse path.
+  let keyboardFallbackUsed = false;
+  if (semanticMouseDownControl && after.ariaExpanded !== "true" && after.dataState !== "open" && after.visiblePopupCount === 0) {
+    if (element instanceof HTMLElement) {
+      try { element.focus({ preventScroll: true }); } catch {}
+    }
+    const keyCommon = { bubbles: true, cancelable: true, composed: true, key: "ArrowDown", code: "ArrowDown" };
+    events.push("keydown:ArrowDown");
+    element.dispatchEvent(new KeyboardEvent("keydown", keyCommon));
+    events.push("keyup:ArrowDown");
+    element.dispatchEvent(new KeyboardEvent("keyup", keyCommon));
+    keyboardFallbackUsed = true;
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    after = readActivationState();
+    if (after.ariaExpanded === "true" || after.dataState === "open" || after.visiblePopupCount > 0) {
+      activation = "keyboard-arrowdown";
+    }
+  }
+
+  return {
+    clicked: true,
+    selector,
+    strategy: "adaptive-pointer-mouse-sequence",
+    activation,
+    trusted: false,
+    mouseDownAllowed,
+    semanticMouseDownControl,
+    keyboardFallbackUsed,
+    stateChangedOnMouseDown: stateChanged(before, afterMouseDown),
+    before,
+    afterMouseDown,
+    after,
+    clientX,
+    clientY,
+    events,
+    title: document.title,
+    url: location.href,
+  };
 }
 
 function pageFill(selector, value, submit) {
@@ -496,10 +813,10 @@ function pageFill(selector, value, submit) {
   return { filled: true, submitted: Boolean(submit), selector, title: document.title, url: location.href };
 }
 
-async function executeInTab(tabId, func, args) {
+async function executeInTab(tabId, func, args, world = "ISOLATED") {
   const result = await chrome.scripting.executeScript({
     target: { tabId },
-    world: "ISOLATED",
+    world,
     func,
     args,
   });
@@ -514,8 +831,16 @@ async function dispatch(message) {
   if (message.method === "status") {
     return { version: VERSION, extensionId: chrome.runtime.id, connected: true };
   }
+  if (message.method === "extension.reload") {
+    // Internal maintenance hook for this unpacked extension. Respond first so the
+    // native host/client sees success, then let Chrome restart the service worker.
+    setTimeout(() => chrome.runtime.reload(), 100);
+    return { reloading: true, version: VERSION, extensionId: chrome.runtime.id };
+  }
   if (message.method === "workspace.status") return await workspaceStatus();
   if (message.method === "workspace.init") return await initializeWorkspace(args.poolSize);
+  if (message.method === "workspace.release") return await releaseWorkspaceTab(args.tabId) || { released: false, workspace: false, tabId: numericTabId(args.tabId) };
+  if (message.method === "chatgpt.extensionStatus") return await chatgptExtensionStatus();
 
   const compiled = compilePatterns(message.allowedUrlPatterns);
   switch (message.method) {
@@ -527,9 +852,6 @@ async function dispatch(message) {
       const url = String(args.url || "");
       return await leaseWorkspaceTab(url, compiled);
     }
-
-    case "workspace.release":
-      return await releaseWorkspaceTab(args.tabId) || { released: false, workspace: false, tabId: numericTabId(args.tabId) };
 
     case "tabs.list": {
       const urlContains = String(args.urlContains || "").toLowerCase();
@@ -564,6 +886,7 @@ async function dispatch(message) {
       const previousUrl = String(tab.url || "");
       await chrome.tabs.update(tab.id, { url, active: false });
       const settled = await waitForApprovedNavigation(tab.id, compiled, { previousUrl, requestedUrl: url });
+      await touchWorkspaceLease(tab.id);
       return { tabId: settled.id, windowId: settled.windowId, active: Boolean(settled.active), url: settled.url || url };
     }
 
@@ -589,7 +912,7 @@ async function dispatch(message) {
 
     case "tabs.click": {
       const tab = await getApprovedTab(args.tabId, compiled);
-      return await executeInTab(tab.id, pageClick, [String(args.selector || "")]);
+      return await executeInTab(tab.id, pageClick, [String(args.selector || "")], "MAIN");
     }
 
     case "tabs.fill": {
