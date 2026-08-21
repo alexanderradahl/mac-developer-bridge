@@ -1,0 +1,325 @@
+name: threatcrush security scan
+
+on:
+  pull_request:
+
+# Read-only. The job summary and the SARIF artifact are the only outputs, and
+# both work on fork pull requests, where GitHub downgrades GITHUB_TOKEN to
+# read-only. There is no pull request comment and no Security tab upload, so
+# `pull-requests: write` and `security-events: write` are not disabled here,
+# they are absent.
+permissions:
+  contents: read
+
+jobs:
+  scan:
+    name: Scan for credentials and vulnerable patterns
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    env:
+      # Everything the job trusts lives outside the checkout: the CLI it
+      # installs, the lockfile it installs from, and the SARIF the scan
+      # produces. The checkout is scan input and nothing else.
+      TC_HOME: ${{ runner.temp }}/threatcrush
+      TC_SARIF: ${{ runner.temp }}/threatcrush/threatcrush.sarif
+      TC_CHANGED: ${{ runner.temp }}/threatcrush/changed.bin
+
+    steps:
+      # persist-credentials: false because nothing here pushes, and the rest of
+      # this job runs a scanner installed from the network over the contents of
+      # a pull request. A token no step needs should not be sitting in
+      # .git/config while that happens.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+          # Two commits, so the merge ref's own parents are present and the
+          # report can tell this pull request's files from the rest of the tree.
+          fetch-depth: 2
+
+      # Which findings belong to this review?
+      #
+      # The scan covers the whole tree, and it should: a credential three
+      # directories away is still committed. But a report is a review artifact,
+      # and a review is about the change under review. `refs/pull/N/merge` has
+      # the base branch as its first parent and the head as its second, so
+      # `HEAD^1..HEAD` is exactly this pull request's diff — no API call, no
+      # token.
+      #
+      # That identity only holds for a real merge ref. On a conflicted pull
+      # request GitHub cannot produce one, checkout falls back to the head
+      # commit, and `HEAD^1` silently becomes "the previous commit on the
+      # branch". So the shape is verified before it is trusted, and a failure
+      # reports everything unscoped rather than scoping to the wrong set.
+      #
+      # -z, because the delimiter has to be a byte a filename cannot contain.
+      # Newline-delimited output splits `path with space.js` into three names,
+      # and every one of them fails to match the SARIF URI — so a finding in a
+      # file this pull request changed gets filed under "pre-existing
+      # elsewhere". A space in a filename is not an attack, it is Tuesday, and
+      # the classification should survive it either way.
+      - name: Determine which files this pull request touches
+        id: changed
+        run: |
+          set -euo pipefail
+          mkdir -p "${TC_HOME}"
+          if [ "$(git rev-list --parents --max-count=1 HEAD | wc -w)" -eq 3 ]; then
+            git diff --name-only -z HEAD^1 HEAD > "${TC_CHANGED}"
+            echo "scoped=true" >> "$GITHUB_OUTPUT"
+            echo "Scoping the report to $(tr -cd '\0' < "${TC_CHANGED}" | wc -c) changed file(s)."
+          else
+            : > "${TC_CHANGED}"
+            echo "scoped=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::No merge ref (conflicted pull request?) — reporting every finding, unscoped."
+          fi
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "20"
+
+      # What actually executes is the whole tree, not the top-level tarball.
+      #
+      # A version pin plus a tarball hash pins one package. `@profullstack/
+      # threatcrush@0.11.2` declares eleven semver-ranged runtime dependencies
+      # and publishes no npm-shrinkwrap.json, so installing it resolves a
+      # mutable transitive tree afterwards — and when the CLI runs, that tree is
+      # the code doing the scanning. `--ignore-scripts` stops install-time
+      # execution; it says nothing about run time.
+      #
+      # So the tree is pinned in this repository instead:
+      # `.github/threatcrush/package-lock.json` names every one of the 209
+      # packages with an exact version and an integrity hash, `npm ci` installs
+      # that and only that, and npm verifies each tarball against the hash it
+      # was pinned with. Nothing is resolved at run time.
+      #
+      # TREE_DIGEST is the same fact in one line a human can check: sorted
+      # `name@version integrity`, one per line, sha256 over the lot. It is what
+      # makes a change to the lockfile impossible to land quietly — a pull
+      # request that edits a single integrity hash fails this step until it also
+      # edits this constant, and that edit is one high-contrast line in the
+      # diff. Regenerate both with:
+      #
+      #   npm --prefix .github/threatcrush install --ignore-scripts --package-lock-only
+      #   node .github/threatcrush/tree-digest.mjs .github/threatcrush/package-lock.json
+      #
+      # CLI_INTEGRITY is the top-level tarball hash, kept as a named constant
+      # because it is the one value a reviewer can check against the registry
+      # directly (`npm view @profullstack/threatcrush@0.11.2 dist.integrity`).
+      - name: Verify the pinned ThreatCrush runtime tree
+        env:
+          CLI_SPEC: "@profullstack/threatcrush@0.11.2"
+          CLI_INTEGRITY: "sha512-8N3jqCQixK0Onc+/bvuJaNCSvGZlJYZcSAGsd1nEfRZ4kOu1Ifom7Bd1t2muYJAmAxBTPmz1iseWSay/0gg3Gw=="
+          TREE_DIGEST: "sha256-7b55f6548a7873e29330a1fea2225ca6235c642b7c875982fd99a70c5a3fa91d"
+        run: |
+          set -euo pipefail
+          mkdir -p "${TC_HOME}/cli"
+          cp .github/threatcrush/package.json .github/threatcrush/package-lock.json "${TC_HOME}/cli/"
+          LOCKFILE="${TC_HOME}/cli/package-lock.json" node .github/threatcrush/tree-digest.mjs --verify
+
+      # Into RUNNER_TEMP, not the checkout: 209 packages dropped into the tree
+      # under review would be scanned as part of it.
+      #
+      # Not retried. `npm ci` already retries the network itself, and the
+      # failure this step exists to produce — an integrity mismatch — is not a
+      # transient one. Asking the registry again until it answers differently is
+      # the opposite of what a hash is for.
+      - name: Install ThreatCrush
+        run: |
+          set -euo pipefail
+          cd "${TC_HOME}/cli"
+          npm ci --ignore-scripts --no-audit --no-fund
+          echo "${TC_HOME}/cli/node_modules/.bin" >> "$GITHUB_PATH"
+
+      - name: Record the installed version
+        run: threatcrush --version
+
+      # 0.11.2 emits SARIF itself, so this asks for it and nothing converts
+      # anything.
+      #
+      # --output goes to RUNNER_TEMP. `--output threatcrush.sarif` resolves
+      # inside the checkout, which is a directory this pull request controls: it
+      # can ship that path already present as a file, a directory, or a symlink
+      # pointing somewhere else entirely, and every step downstream reads back
+      # from the same controlled path. The scan's output is trusted data and it
+      # does not belong in untrusted storage.
+      - name: Scan
+        id: scan
+        run: |
+          set -euo pipefail
+          FAIL_ON=""
+          SCAN_PATH="."
+          code=0
+
+          ARGS=(scan "$SCAN_PATH" --format sarif --output "${TC_SARIF}")
+          if [ -n "$FAIL_ON" ]; then
+            ARGS+=(--fail-on "$FAIL_ON")
+          fi
+          threatcrush "${ARGS[@]}" || code=$?
+
+          # The SARIF file is the evidence that a scan happened, and it is the
+          # only evidence worth trusting. An exit code says what the process
+          # thought; the file says what it produced. Absent the file there is
+          # nothing to report, and reporting nothing as "no findings" is the
+          # failure this whole workflow is arranged to avoid.
+          if [ ! -s "${TC_SARIF}" ]; then
+            echo "status=error" >> "$GITHUB_OUTPUT"
+            echo "::error::ThreatCrush produced no SARIF (exit ${code}) — this diff was NOT scanned"
+            exit 1
+          fi
+
+          case "${code}" in
+            0) echo "status=clean" >> "$GITHUB_OUTPUT" ;;
+            # Exit 1 *with* a SARIF file is the documented "findings at or above
+            # --fail-on" result, and the CLI only returns it when --fail-on was
+            # passed. Propagate it: a gate that records the finding and then
+            # lets the job pass is not a gate.
+            1)
+              echo "status=findings" >> "$GITHUB_OUTPUT"
+              exit 1
+              ;;
+            *)
+              echo "status=error" >> "$GITHUB_OUTPUT"
+              echo "::error::ThreatCrush scan failed with exit code ${code} — results may be incomplete"
+              exit "${code}"
+              ;;
+          esac
+
+      - name: Build the report
+        if: always()
+        env:
+          SCAN_STATUS: ${{ steps.scan.outputs.status }}
+          # Empty when the changed-file step was skipped or found no merge ref,
+          # which reads as "not scoped" and reports everything.
+          SCAN_SCOPED: ${{ steps.changed.outputs.scoped }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' > "${TC_HOME}/report.md"
+          import json, os, sys
+
+          LABELS = {"error": "HIGH", "warning": "MEDIUM", "note": "LOW"}
+          # Most serious first. SARIF order is file order, so the row cap would
+          # otherwise be decided by where a finding happens to sit in the tree —
+          # a HIGH in the last file cut while fifty LOWs from the first print.
+          RANK = {"error": 0, "warning": 1, "note": 2}
+
+          def md(text):
+              # Every path in this report is a name the pull request chose. A
+              # backtick closes the code span it is printed in, a pipe opens a
+              # column, and a newline starts a row — so a file could be named
+              # such that the rendered summary shows findings that were never
+              # reported, or hides ones that were. Escaped as entities rather
+              # than dropped: the point is to show the real name harmlessly, and
+              # a name that has been silently mangled is its own reporting bug.
+              out = []
+              for ch in text:
+                  code = ord(ch)
+                  if ch == "&":
+                      out.append("&amp;")
+                  elif ch == "`":
+                      out.append("&#96;")
+                  elif ch == "|":
+                      out.append("&#124;")
+                  elif ch == "<":
+                      out.append("&lt;")
+                  elif code < 0x20 or code == 0x7F:
+                      out.append(f"\\x{code:02x}")
+                  else:
+                      out.append(ch)
+              return "".join(out)
+
+          def locate(result):
+              # SARIF permits a result with no locations; indexing [0] unguarded
+              # threw, and the run reported "could not be read" instead of the
+              # findings it actually had.
+              where = (result.get("locations") or [{}])[0].get("physicalLocation", {})
+              return (where.get("artifactLocation", {}).get("uri", ""),
+                      where.get("region", {}).get("startLine", 1))
+
+          def tally(rows):
+              seen = {k: sum(1 for r in rows if r.get("level", "warning") == k) for k in LABELS}
+              return " | ".join(f"**{LABELS[k]}**: {seen[k]}" for k in LABELS if seen[k])
+
+          def table(rows, limit):
+              out = ["| Severity | Rule | Location |", "|---|---|---|"]
+              for result in rows[:limit]:
+                  uri, line = locate(result)
+                  where = f"`{md(uri)}`:{line}" if uri else "_(no location)_"
+                  out.append(f"| {LABELS.get(result.get('level', 'warning'), 'INFO')} "
+                             f"| `{md(str(result.get('ruleId', '?')))}` | {where} |")
+              if len(rows) > limit:
+                  # Say so. A silent truncation reads as "that was everything".
+                  out += ["", f"_…and {len(rows) - limit} more; the full set is in the SARIF artifact._"]
+              return out
+
+          status = os.environ.get("SCAN_STATUS", "")
+          try:
+              with open(os.environ["TC_SARIF"], encoding="utf-8") as handle:
+                  results = json.load(handle)["runs"][0]["results"]
+          except Exception as err:
+              # stderr, not stdout: stdout is the report file.
+              print(f"::warning::could not read SARIF: {err}", file=sys.stderr)
+              results = None
+
+          out = ["## ThreatCrush Security Scan", ""]
+
+          # Fail closed. `status` is the empty string when an earlier step failed
+          # and the scan was *skipped*, and an earlier version read that as
+          # "no findings" — a clean report on a diff nothing had examined. Any
+          # state that is not a known-good outcome is NOT RUN.
+          if status not in ("clean", "findings") or results is None:
+              out += ["**NOT RUN** — the scan did not complete, so this diff was not examined.",
+                      "This is not a clean result. See the job log."]
+          elif not results:
+              out.append("No findings.")
+          else:
+              try:
+                  # NUL-delimited, matching `git diff --name-only -z`, and
+                  # decoded the way the filesystem hands paths back so a name
+                  # that is not valid UTF-8 still compares equal instead of
+                  # raising.
+                  with open(os.environ["TC_CHANGED"], "rb") as handle:
+                      changed = {os.fsdecode(name) for name in handle.read().split(b"\0") if name}
+              except Exception:
+                  changed = set()
+
+              scoped = os.environ.get("SCAN_SCOPED", "") == "true"
+              results.sort(key=lambda r: (RANK.get(r.get("level", "warning"), 3), locate(r)))
+              touched = [r for r in results if locate(r)[0] in changed] if scoped else results
+              backlog = [r for r in results if locate(r)[0] not in changed] if scoped else []
+
+              out += [f"**{len(touched)}** finding(s) in the {len(changed)} file(s) this pull request changes."
+                      if scoped else f"**{len(results)}** finding(s)", ""]
+
+              if touched:
+                  badges = tally(touched)
+                  out += ([badges, ""] if badges else []) + table(touched, 50)
+              elif scoped:
+                  out.append("Nothing in the files this pull request changes.")
+
+              # The rest of the repository is reported, but not *at* the author
+              # of an unrelated change. It is a standing backlog, it was there
+              # before this branch, and it belongs behind a fold.
+              if backlog:
+                  out += ["", "<details>",
+                          f"<summary>{len(backlog)} pre-existing finding(s) elsewhere in the repository"
+                          f" — {tally(backlog) or 'no severities'}</summary>", "",
+                          "Not introduced by this pull request.", ""]
+                  out += table(backlog, 20) + ["", "</details>"]
+
+              out += ["", "Snippets are redacted; ThreatCrush never prints matched credential material."]
+
+          print("\n".join(out))
+          PY
+          cat "${TC_HOME}/report.md" >> "$GITHUB_STEP_SUMMARY"
+
+      # if-no-files-found: ignore, because nothing synthesises the file. A run
+      # that never produced SARIF has no artifact to keep, and that is the
+      # honest outcome rather than a reason to invent one.
+      - name: Upload SARIF artifact
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: threatcrush-sarif
+          path: ${{ runner.temp }}/threatcrush/threatcrush.sarif
+          if-no-files-found: ignore
+          retention-days: 30
