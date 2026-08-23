@@ -138,6 +138,13 @@ try {
   assert.equal(discovery.result.resultType, "complete");
   assert.ok(discovery.result.supportedVersions.includes("2026-07-28"));
 
+  const tools = await client.request("tools/list", { _meta: modernMeta });
+  assert.equal(tools.result.resultType, "complete");
+  const shellExec = tools.result.tools.find((tool) => tool.name === "shell_exec");
+  assert.ok(shellExec, "shell_exec must be advertised");
+  assert.equal(shellExec.inputSchema.properties.timeout_ms.default, 600_000);
+  assert.equal(shellExec.inputSchema.properties.timeout_ms.maximum, 1_800_000);
+
   const status = await modernTool(client, "bridge_status");
   assert.equal(status.dataDir, dataDir);
   assert.equal(status.codexBin, fakeCodex);
@@ -150,6 +157,31 @@ try {
   });
   assert.equal(shell.exitCode, 0);
   assert.equal(shell.stdout, `${workDir}|environment-ok`);
+
+  const omittedTimeout = await modernTool(client, "shell_exec", {
+    command: "sleep 0.15; printf long-default",
+    cwd: workDir,
+  });
+  assert.equal(omittedTimeout.exitCode, 0);
+  assert.equal(omittedTimeout.timedOut, false);
+  assert.equal(omittedTimeout.stdout, "long-default");
+
+  const explicitTimeout = await modernTool(client, "shell_exec", {
+    command: "sleep 0.15; printf explicit-timeout",
+    cwd: workDir,
+    timeout_ms: 50,
+  });
+  assert.equal(explicitTimeout.timedOut, true);
+  assert.notEqual(explicitTimeout.stdout, "explicit-timeout");
+
+  const disabledTimeout = await modernTool(client, "shell_exec", {
+    command: "sleep 0.15; printf timeout-disabled",
+    cwd: workDir,
+    timeout_ms: 0,
+  });
+  assert.equal(disabledTimeout.exitCode, 0);
+  assert.equal(disabledTimeout.timedOut, false);
+  assert.equal(disabledTimeout.stdout, "timeout-disabled");
 
   const scrubbed = await modernTool(client, "shell_exec", {
     command: "test -z \"${CONTROL_PLANE_API_KEY:-}\" && printf scrubbed",

@@ -24,6 +24,7 @@ const LOG_DIR = process.env.MAC_DEV_BRIDGE_LOG_DIR || path.join(HOME, "Library",
 const AUDIT_LOG = process.env.MAC_DEV_BRIDGE_AUDIT_LOG || path.join(LOG_DIR, "audit.jsonl");
 const DEFAULT_OUTPUT_BYTES = clampInt(process.env.MAC_DEV_BRIDGE_DEFAULT_OUTPUT_BYTES, 1_000_000, 1_024, 8_000_000);
 const MAX_OUTPUT_BYTES = clampInt(process.env.MAC_DEV_BRIDGE_MAX_OUTPUT_BYTES, 8_000_000, 1_024, 64_000_000);
+const SHELL_EXEC_DEFAULT_TIMEOUT_MS = 600_000;
 const AUDIT_MODE = ["off", "metadata", "full"].includes(process.env.MAC_DEV_BRIDGE_AUDIT_MODE || "metadata")
   ? (process.env.MAC_DEV_BRIDGE_AUDIT_MODE || "metadata")
   : "metadata";
@@ -525,7 +526,7 @@ function boundedCollector(maxBytes) {
   };
 }
 
-async function runCommand({ command, cwd, env = {}, stdin = undefined, timeoutMs = 120_000, maxOutputBytes = DEFAULT_OUTPUT_BYTES }) {
+async function runCommand({ command, cwd, env = {}, stdin = undefined, timeoutMs = SHELL_EXEC_DEFAULT_TIMEOUT_MS, maxOutputBytes = DEFAULT_OUTPUT_BYTES }) {
   const effectiveCwd = resolvePath(cwd || HOME);
   const stdout = boundedCollector(Math.min(maxOutputBytes, MAX_OUTPUT_BYTES));
   const stderrOutput = boundedCollector(Math.min(maxOutputBytes, MAX_OUTPUT_BYTES));
@@ -896,7 +897,7 @@ const TOOLS = [
         cwd: { type: "string", description: "Working directory. Supports absolute paths, relative paths, and ~/ paths. Defaults to the user's home directory." },
         env: { type: "object", additionalProperties: { type: ["string", "number", "boolean", "null"] }, description: "Environment overrides. Set a value to null to remove it." },
         stdin: { type: "string", description: "Optional text to send to stdin." },
-        timeout_ms: { type: "integer", minimum: 0, maximum: 1_800_000, default: 120000, description: "0 disables the bridge timeout. Prefer shell_start for long-running services." },
+        timeout_ms: { type: "integer", minimum: 0, maximum: 1_800_000, default: SHELL_EXEC_DEFAULT_TIMEOUT_MS, description: "0 disables the bridge timeout. Prefer shell_start for long-running services." },
         max_output_bytes: { type: "integer", minimum: 1024, maximum: 64000000, description: "Maximum bytes captured separately from stdout and stderr." },
       },
       required: ["command"],
@@ -3256,7 +3257,7 @@ async function dispatchTool(name, args) {
       }
       const env = normalizeEnv(args?.env);
       const stdin = optionalString(args, "stdin", undefined);
-      const timeoutMs = optionalInteger(args, "timeout_ms", 120_000, 0, 1_800_000);
+      const timeoutMs = optionalInteger(args, "timeout_ms", SHELL_EXEC_DEFAULT_TIMEOUT_MS, 0, 1_800_000);
       const maxOutputBytes = optionalInteger(args, "max_output_bytes", DEFAULT_OUTPUT_BYTES, 1_024, MAX_OUTPUT_BYTES);
       try {
         const result = await runCommand({ command, cwd, env, stdin, timeoutMs, maxOutputBytes });
