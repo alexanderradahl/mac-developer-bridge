@@ -203,14 +203,14 @@ try {
   assert.ok(manifest.permissions.includes("tabGroups"));
   assert.ok(manifest.permissions.includes("storage"));
   assert.ok(manifest.icons?.["16"] && manifest.icons?.["128"]);
-  assert.equal(manifest.version, "0.2.8");
+  assert.equal(manifest.version, "0.2.9");
   assert.equal(manifest.permissions.includes("debugger"), false, "realistic click support must not require Chrome debugger permission");
   await Promise.all([16, 32, 48, 128].map(async (size) => {
     const stat = await fs.stat(path.join(root, "chrome-extension", "icons", `icon-${size}.png`));
     assert.ok(stat.size > 0, `expected non-empty ${size}px extension icon`);
   }));
   const workerSource = await fs.readFile(path.join(root, "chrome-extension", "service-worker.js"), "utf8");
-  assert.match(workerSource, /const VERSION = "0\.2\.8"/);
+  assert.match(workerSource, /const VERSION = "0\.2\.9"/);
   assert.match(workerSource, /WORKSPACE_GROUP_TITLE = "MDB"/);
   assert.match(workerSource, /chrome\.tabs\.group/);
   assert.match(workerSource, /chrome\.tabGroups\.query/);
@@ -267,6 +267,9 @@ try {
   assert.match(workerSource, /CHROME_FILL_NOT_STICKY/);
   assert.match(workerSource, /FRAMEWORK_COMMIT_FALLBACK_MS = 250/);
   assert.match(workerSource, /fallbackTimer = setTimeout\(finish, FRAMEWORK_COMMIT_FALLBACK_MS\)/);
+  assert.match(workerSource, /const matches = \[\.\.\.document\.querySelectorAll\(selector\)\]/);
+  assert.match(workerSource, /requestSubmit:visible-submitter/);
+  assert.match(workerSource, /if \(unique\(candidate\)\) return candidate/);
   assert.match(workerSource, /executeInTab\(tab\.id, pageFill, \[String\(args\.selector \|\| ""\), String\(args\.value \?\? ""\), Boolean\(args\.submit\)\], "MAIN"\)/);
   assert.equal((workerSource.match(/async function executeInTab\(/g) || []).length, 1, "executeInTab should have one definition");
   const publicKey = Buffer.from(manifest.key, "base64");

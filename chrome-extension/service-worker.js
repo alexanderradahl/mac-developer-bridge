@@ -1,5 +1,5 @@
 const NATIVE_HOST = "io.github.alexanderradahl.mac_developer_bridge";
-const VERSION = "0.2.8";
+const VERSION = "0.2.9";
 const WORKSPACE_KEY = "macDeveloperBridgeWorkspace";
 const WORKSPACE_GROUP_TITLE = "MDB";
 const WORKSPACE_GROUP_COLOR = "blue";
@@ -2664,15 +2664,23 @@ async function pageChatgptConversationStart(input) {
 function pageSnapshot(maxTextChars, maxElements) {
   function selectorFor(element) {
     if (!(element instanceof Element)) return null;
-    if (element.id) return `#${CSS.escape(element.id)}`;
+    const unique = (candidate) => {
+      try { return document.querySelectorAll(candidate).length === 1; } catch { return false; }
+    };
+    if (element.id) {
+      const candidate = `#${CSS.escape(element.id)}`;
+      if (unique(candidate)) return candidate;
+    }
     const attrs = ["data-testid", "data-test", "data-qa", "name", "aria-label"];
     for (const attr of attrs) {
       const value = element.getAttribute(attr);
-      if (value) return `${element.tagName.toLowerCase()}[${attr}=${JSON.stringify(value)}]`;
+      if (!value) continue;
+      const candidate = `${element.tagName.toLowerCase()}[${attr}=${JSON.stringify(value)}]`;
+      if (unique(candidate)) return candidate;
     }
     const parts = [];
     let current = element;
-    for (let depth = 0; current && current.nodeType === 1 && depth < 6; depth += 1) {
+    for (let depth = 0; current && current.nodeType === 1 && depth < 32; depth += 1) {
       let part = current.tagName.toLowerCase();
       const parent = current.parentElement;
       if (parent) {
@@ -2680,12 +2688,12 @@ function pageSnapshot(maxTextChars, maxElements) {
         if (siblings.length > 1) part += `:nth-of-type(${siblings.indexOf(current) + 1})`;
       }
       parts.unshift(part);
-      const candidate = parts.join(" > ");
-      try {
-        if (document.querySelectorAll(candidate).length === 1) return candidate;
-      } catch {}
+      if (current === document.documentElement) break;
       current = parent;
     }
+    // A root-anchored nth-of-type path is deterministic without running a
+    // full-document query for every visible interactive element. This keeps
+    // snapshots bounded on pages with very large navigation DOMs.
     return parts.join(" > ") || null;
   }
 
@@ -2889,8 +2897,45 @@ async function pageClick(selector) {
 }
 
 async function pageFill(selector, value, submit) {
-  const element = document.querySelector(selector);
-  if (!element) throw new Error(`No element matches selector: ${selector}`);
+  const matches = [...document.querySelectorAll(selector)];
+  if (matches.length === 0) throw new Error(`No element matches selector: ${selector}`);
+  const isFillable = (candidate) => candidate?.isContentEditable
+    || candidate instanceof HTMLInputElement
+    || candidate instanceof HTMLTextAreaElement
+    || candidate instanceof HTMLSelectElement;
+  const isDisabled = (candidate) => Boolean(candidate?.disabled)
+    || candidate?.getAttribute?.("aria-disabled") === "true";
+  const isVisible = (candidate) => {
+    if (!(candidate instanceof Element)) return false;
+    const rect = candidate.getBoundingClientRect();
+    const style = getComputedStyle(candidate);
+    return rect.width > 0
+      && rect.height > 0
+      && style.visibility !== "hidden"
+      && style.display !== "none"
+      && style.opacity !== "0";
+  };
+  const fillableMatches = matches.filter(isFillable);
+  if (fillableMatches.length === 0) {
+    const error = new Error(`Element ${selector} is not fillable.`);
+    error.code = "CHROME_ELEMENT_NOT_FILLABLE";
+    throw error;
+  }
+  const visibleMatches = fillableMatches.filter(isVisible);
+  if (visibleMatches.length === 0) {
+    const error = new Error(`No visible fillable element matches selector: ${selector}`);
+    error.code = "CHROME_ELEMENT_NOT_VISIBLE";
+    throw error;
+  }
+  const element = visibleMatches.find((candidate) => !isDisabled(candidate));
+  if (!element) {
+    const error = new Error(`Every visible matching element is disabled: ${selector}`);
+    error.code = "CHROME_ELEMENT_DISABLED";
+    throw error;
+  }
+  const selectedMatchIndex = matches.indexOf(element);
+  const selectedVisible = true;
+  const selectedDisabled = false;
   if (element instanceof HTMLInputElement && element.type === "file") {
     const error = new Error("File inputs require foreground/user interaction; background mode will not populate one.");
     error.code = "CHROME_FOREGROUND_REQUIRED";
@@ -2968,12 +3013,51 @@ async function pageFill(selector, value, submit) {
     error.code = "CHROME_ELEMENT_NOT_FILLABLE";
     throw error;
   }
+  let submitStrategy = null;
+  let submitterTag = null;
+  let submitterType = null;
+  const form = element.closest("form");
   if (submit) {
-    const form = element.closest("form");
-    if (form?.requestSubmit) form.requestSubmit();
-    else element.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", code: "Enter", bubbles: true }));
+    const submitter = form
+      ? [...form.querySelectorAll('button:not([type]),button[type="submit"],input[type="submit"]')]
+        .find((candidate) => isVisible(candidate) && !isDisabled(candidate))
+      : null;
+    submitterTag = submitter?.tagName?.toLowerCase?.() || null;
+    submitterType = submitter?.getAttribute?.("type") || (submitterTag === "button" ? "submit" : null);
+    if (form?.requestSubmit) {
+      if (submitter) {
+        form.requestSubmit(submitter);
+        submitStrategy = "requestSubmit:visible-submitter";
+      } else {
+        form.requestSubmit();
+        submitStrategy = "requestSubmit";
+      }
+    } else if (submitter?.click) {
+      submitter.click();
+      submitStrategy = "submitter.click";
+    } else {
+      element.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", code: "Enter", bubbles: true }));
+      submitStrategy = "keyboard-enter";
+    }
   }
-  return { filled: true, submitted: Boolean(submit), selector, title: document.title, url: location.href };
+  return {
+    filled: true,
+    submitted: Boolean(submit),
+    submitStrategy,
+    submitterTag,
+    submitterType,
+    selector,
+    matchCount: matches.length,
+    fillableMatchCount: fillableMatches.length,
+    selectedMatchIndex,
+    selectedVisible,
+    selectedDisabled,
+    selectedTag: element.tagName?.toLowerCase?.() || null,
+    formAction: form?.action || null,
+    formMethod: String(form?.method || "").toUpperCase() || null,
+    title: document.title,
+    url: location.href,
+  };
 }
 
 async function executeInTab(tabId, func, args, world = "ISOLATED") {
