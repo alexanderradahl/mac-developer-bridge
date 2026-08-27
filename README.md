@@ -92,6 +92,7 @@ Git, package managers, Vercel CLI, database CLIs, AppleScript, browser CLIs, bui
 | `bridge_status` | Runtime identity, paths, permissions context, shell, audit mode, Codex binary, focus policy, and background-Chrome status |
 | `chrome_workspace_status` | Inspect the extension-owned `MDB` Chrome group, lease activity, and reusable background-tab pool; no website grant required |
 | `chatgpt_extension_status` | Inspect the installed ChatGPT Chrome extension, OpenAI native-host registration, and live read-only page-bridge status without patching the OpenAI extension |
+| `chatgpt_conversation_start` | Experimentally start or continue one exact ChatGPT conversation through the signed-in page's first-party runtime action; no UI typing/clicking or credential export |
 | `chrome_workspace_setup` | Create or expand the `MDB` pool while Chrome is already foreground; default target is eight reusable tabs |
 | `chrome_tabs` | List tabs in the real signed-in Chrome profile without activating Chrome; scoped only when Strict approvals is on |
 | `chrome_open` | Lease an idle tab from the persistent `MDB` group and open a URL without creating a new tab |
@@ -134,7 +135,7 @@ The pool now self-heals and self-expands. If Chrome or the extension restarts, o
 
 `chrome_workspace_status` is grantless because it only reads extension-owned local workspace state. It now includes lease age/idle metadata, the 10-minute idle-reclaim timeout, and the 20-second lease-wait budget. `chrome_workspace_setup` is also grantless because it creates only extension-owned idle pages; it refuses to create or expand the pool unless Chrome is already focused rather than stealing focus itself. Legacy/internal `tabs.open` callers are routed to the same `workspace.open` lease path, so they cannot create loose tabs outside `MDB`. When all tabs are busy, `chrome_open` waits briefly for a release instead of failing immediately; abandoned leases are reclaimed after 10 minutes without browser activity, while every navigate/snapshot/click/fill renews an active lease.
 
-**Relaxed access is the default.** Normal HTTP/HTTPS work through the signed-in `MDB` Chrome profile does not require a terminal approval command or per-site allowlist. This is intentional: Mac Developer Bridge already exposes unrestricted shell/file authority as the logged-in macOS user, and the useful default is for browser execution to match that operator-chosen trust level while remaining background-first.
+**Relaxed access is the default.** Normal HTTP/HTTPS work, including localhost and non-default ports, through the signed-in `MDB` Chrome profile does not require a terminal approval command or per-site allowlist. This is intentional: Mac Developer Bridge already exposes unrestricted shell/file authority as the logged-in macOS user, and the useful default is for browser execution to match that operator-chosen trust level while remaining background-first.
 
 Relaxed approval does **not** relax Chrome routing. Direct Chrome control through `shell_exec`/`shell_start` — AppleScript, JXA, direct Chrome executable launches, or shell `open` of an HTTP/HTTPS URL (including `open -g`) — is always refused with `CHROME_BACKGROUND_REQUIRED`, in both Relaxed and Strict modes. Browser work must use the `chrome_*` tools and the managed `MDB` group. This keeps the no-focus-stealing behavior structural instead of depending on which approval mode is selected.
 
@@ -160,7 +161,63 @@ Profile binding is always enforced. In relaxed mode the extension permits normal
 
 `chatgpt_extension_status` is deliberately read-only. It reports the installed ChatGPT Chrome extension version, the local `com.openai.codexextension` native-host registration, and—when a `chatgpt.com` tab is already open—the live status returned by OpenAI's own page bridge. MDB does **not** patch the OpenAI extension, add itself to the OpenAI native-host allowlist, expose arbitrary private OpenAI RPC calls, or programmatically open the ChatGPT side panel. The current ChatGPT extension does not declare `externally_connectable`; its side-panel open path also requires a trusted user gesture.
 
-What background mode does **not** promise: CAPTCHAs, native browser/OS permission dialogs, file pickers, downloads requiring a trusted user gesture, passkeys, and other browser security UI may require a foreground/manual step. The bridge reports that limitation rather than silently activating Chrome. This is also deliberately narrower than arbitrary page JavaScript or network-header capture; see [SECURITY.md](SECURITY.md).
+#### Experimental ChatGPT conversation kickoff
+
+`chatgpt_conversation_start` is a deliberately narrow experiment for starting or continuing a consumer ChatGPT conversation from Codex/Work Mode. Its default `runtime` transport leases a fresh background `chatgpt.com` tab, resolves ChatGPT's mounted first-party `submitComposer` store action through a fixed semantic fingerprint, and submits the prompt as a `text_action`. It does not type into or click the composer. ChatGPT's own runtime constructs the private request and its browser-generated requirements/proof material. MDB observes the bounded initial stream/rendered handoff, reloads the exact returned conversation, and reads the exact persisted assistant message id before returning text. That reload is verification, not a second model submission. The tab is never activated and is released to the MDB pool afterward.
+
+The tool accepts `prompt`, optional `transport` (`runtime` by default or explicit diagnostic `raw`), optional `model` (default `gpt-5-6-pro`), optional `thinking_effort`, optional `max_runtime_seconds` (30–3600), optional `continue_in_work`, optional exact `conversation_id` for continuation, and an optional existing leased `tab_id`. The selected runtime model must retain the requested supported effort before submission; `continue_in_work` applies only to raw diagnostics. The raw transport retains the earlier direct private-request probe and can still fail with `CHATGPT_CONVERSATION_REQUIREMENTS_UNAVAILABLE`. Neither transport accepts copied authorization, cookie, device, Sentinel, Turnstile, Arkose, or proof fields, and neither returns or persists them. Prompt audit records retain only byte length and a short SHA-256 prefix.
+
+Local orchestrators can invoke the same operation through a separate route:
+
+```bash
+curl --fail-with-body \
+  --request POST \
+  --url http://127.0.0.1:8787/experimental/chatgpt/conversation \
+  --header "Authorization: Bearer $MAC_DEV_BRIDGE_HTTP_TOKEN" \
+  --header 'Content-Type: application/json' \
+  --data '{"prompt":"Start a new research conversation","transport":"runtime","model":"gpt-5-6-pro","thinking_effort":"standard"}'
+
+# Continue the exact returned conversation later:
+curl --fail-with-body \
+  --request POST \
+  --url http://127.0.0.1:8787/experimental/chatgpt/conversation \
+  --header "Authorization: Bearer $MAC_DEV_BRIDGE_HTTP_TOKEN" \
+  --header 'Content-Type: application/json' \
+  --data '{"prompt":"Continue the assigned work","conversation_id":"<returned-conversation-id>"}'
+```
+
+That route accepts only a direct loopback connection with the static MDB bearer. It rejects OAuth credentials and forwarded/tunnel requests, returns `Cache-Control: no-store`, and wraps the exact MCP operation rather than exposing the Chrome native-host socket.
+
+#### Experimental ChatGPT browser model
+
+MDB also exposes a separate static-bearer, direct-loopback `POST /v1/responses` adapter for the explicit OpenCodex models `chatgpt-runtime/chatgpt-browser` and `chatgpt-runtime/chatgpt-sol`. The first uses the fixed-standard browser runtime. The Sol entry activates ChatGPT's mounted `gpt-5-6-thinking` model and maps Codex effort levels as `low -> low`, `medium -> standard`, `high -> high`, `xhigh -> max`, `max -> max`, and `ultra -> max`. The adapter rebuilds each stateless turn from Responses instructions/input, presents supported `function` and `custom` tools to the ChatGPT runtime through a fixed JSON decision protocol, and converts a validated message or tool selection back into canonical Responses JSON/SSE output. Codex remains responsible for executing local tools and replaying their results on the next turn.
+
+Codex can represent free-form tools such as `exec` either as a custom tool or as a closed function with one required string `input`. The adapter accepts only the exact deterministic wrapper variation for those two equivalent shapes and rejects mixed or broader calls. Before parsing the JSON decision, MDB verifies the exact persisted assistant message from the returned ChatGPT conversation so transient render fragments cannot trigger transport retries.
+
+This model is intentionally separate and experimental. It is not added to the default model, combos, subagent defaults, or automatic fallback chains. Codex's API-hosted `web_search` declaration is omitted for this provider rather than blocking every Work-mode turn; ChatGPT may still use its own first-party browsing independently. Other hosted tools, images/audio, server-side response persistence, native reasoning traces, and reliable token accounting are not supported. Plain non-JSON text is returned as a final message and can never invoke a tool; malformed JSON-like/tool-like output, an unknown caller-owned tool selection, runtime drift, oversized prompt, or ambiguous submission fails closed without retry or UI automation.
+
+Example direct request:
+
+```bash
+curl --fail-with-body \
+  --request POST \
+  --url http://127.0.0.1:8787/v1/responses \
+  --header "Authorization: Bearer $MAC_DEV_BRIDGE_HTTP_TOKEN" \
+  --header 'Content-Type: application/json' \
+  --data '{"model":"chatgpt-browser","input":"Reply with exactly MDB_MODEL_OK","stream":false}'
+```
+
+The local OpenCodex registration uses a custom `openai-responses` provider pointed at `http://127.0.0.1:8787`, with `allowPrivateNetwork: true`, `statelessResponses: true`, the MDB static bearer as its provider API key, and custom model ids `chatgpt-browser` and `chatgpt-sol`. Their Codex-visible qualified ids are `chatgpt-runtime/chatgpt-browser` and `chatgpt-runtime/chatgpt-sol`. Both catalog rows use the 372k-token window and 334.8k auto-compaction threshold of `gpt-5.6-sol`; MDB permits up to 4,000,000 UTF-8 bytes for the serialized browser-runtime prompt so the larger catalog value is backed by a real transport limit.
+
+To keep these experimental turns out of the general ChatGPT history, put one Project id in a private runtime file:
+
+```json
+{"projectId":"g-p-..."}
+```
+
+Save it as `$DATA_DIR/chatgpt-runtime.json` with mode `0600`. When configured, every new `/v1/responses` browser-runtime conversation leases that Project's first-party page and submits only after the loaded route and mounted `conversationMode` both identify the exact Project. Captured cookies, authorization, Sentinel, device, session, and proof fields are neither needed nor accepted.
+
+What background mode does **not** promise: CAPTCHAs, native browser/OS permission dialogs, file pickers, downloads requiring a trusted user gesture, passkeys, and other browser security UI may require a foreground/manual step. The bridge reports that limitation rather than silently activating Chrome. This is also deliberately narrower than arbitrary page JavaScript or network-header capture: runtime resolution is fixed, caller-provided module paths/scripts/selectors are rejected, and a changed or ambiguous runtime fails without a second submission; see [SECURITY.md](SECURITY.md).
 
 To remove the integration:
 
@@ -292,6 +349,10 @@ Environment:
 | `MAC_DEV_BRIDGE_HTTP_TOKEN_FILE` | — | Read the token from a mode-0600 file instead, keeping it out of `ps eww`. Takes precedence. |
 | `MAC_DEV_BRIDGE_HTTP_PORT` | `8787` | Loopback port. |
 | `MAC_DEV_BRIDGE_HTTP_TIMEOUT_MS` | `600000` | Per-request ceiling, for long `shell_exec` calls. |
+| `MAC_DEV_BRIDGE_CHATGPT_RESPONSES_BROWSER_MODEL` | `gpt-5-6-pro` | Compatibility override for the fixed `chatgpt-browser` entry. The Sol entry always uses `gpt-5-6-thinking`. |
+| `MAC_DEV_BRIDGE_CHATGPT_RESPONSES_MAX_RUNTIME_SECONDS` | `600` | Per-turn browser-runtime ceiling for `/v1/responses`, clamped to 30–3600 seconds. |
+| `MAC_DEV_BRIDGE_CHATGPT_RUNTIME_CONFIG_FILE` | `$DATA_DIR/chatgpt-runtime.json` | Mode-0600 JSON configuration containing the optional ChatGPT `projectId`. |
+| `MAC_DEV_BRIDGE_CHATGPT_RESPONSES_PROJECT_ID` | — | Optional direct Project-id override. The private configuration file is preferred for persistent local setup. |
 | `MAC_DEV_BRIDGE_ENTRY` | `bridge.mjs` beside `mcp-http.mjs` | Test-only seam for substituting a stub bridge. Changing it means `scripts/disable.sh` will not recognise the child. |
 | `MAC_DEV_BRIDGE_PUBLIC_URL` | derived from `Host` | Pins the OAuth issuer. Pin it: `Host` is client-controllable, and the issuer must match what the client discovered. |
 | `MAC_DEV_BRIDGE_OAUTH_CLIENT_ID` | generated | The client id pasted into ChatGPT. Stable across restarts. |

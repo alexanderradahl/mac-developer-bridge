@@ -5,6 +5,7 @@ import path from "node:path";
 import os from "node:os";
 import fsp from "node:fs/promises";
 import { spawn } from "node:child_process";
+import net from "node:net";
 import { fileURLToPath } from "node:url";
 
 const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
@@ -54,6 +55,72 @@ console.log("  PASS  token file failures exit 78 with a message naming the file"
 
 const dataDir = await fsp.realpath(await fsp.mkdtemp(path.join(os.tmpdir(), "mac-developer-bridge-http-")));
 await fsp.writeFile(path.join(dataDir, "FULL_ACCESS_ENABLED"), "I_UNDERSTAND_THIS_GRANTS_FULL_ACCESS\n");
+const chatgptProjectId = "g-p-6a8dee0602b0819184fa43aae5a20ee9";
+await fsp.writeFile(
+  path.join(dataDir, "chatgpt-runtime.json"),
+  `${JSON.stringify({ projectId: chatgptProjectId })}\n`,
+  { mode: 0o600 },
+);
+const chromeSocketPath = path.join("/tmp", `mdb-http-${process.pid}.sock`);
+await fsp.rm(chromeSocketPath, { force: true });
+const browserCalls = [];
+const chromeServer = net.createServer((socket) => {
+  let buffer = "";
+  socket.setEncoding("utf8");
+  socket.on("data", (chunk) => {
+    buffer += chunk;
+    const newline = buffer.indexOf("\n");
+    if (newline === -1) return;
+    const request = JSON.parse(buffer.slice(0, newline));
+    browserCalls.push(request);
+    if (request.method === "tabs.chatgptConversationStart" && request.args?.prompt === "__runtime_model_mismatch__") {
+      socket.end(`${JSON.stringify({
+        id: request.id,
+        ok: false,
+        error: {
+          code: "CHATGPT_RUNTIME_MODEL_MISMATCH",
+          message: "The signed-in ChatGPT runtime did not activate the requested model.",
+        },
+      })}\n`);
+      return;
+    }
+    const responseLine = `${JSON.stringify({
+      id: request.id,
+      ok: true,
+      result: request.method === "host.status"
+        ? {
+          extensionConnected: true,
+          extensionReady: true,
+          extension: { profile: { signedIn: true, matchesBinding: true } },
+          profileError: null,
+        }
+        : {
+          ok: true,
+          complete: true,
+          conversation_id: request.args?.conversationId || "http-conversation-test",
+          assistant_message_id: "http-assistant-test",
+          assistant_text: String(request.args?.prompt || "").startsWith("You are the model backend for a Codex Responses turn.")
+            ? String(request.args.prompt).includes("USE_HTTP_TOOL")
+              ? '{"kind":"tool_calls","calls":[{"name":"echo","arguments":{"value":"ok"}}]}'
+              : '{"kind":"message","text":"HTTP Responses model reply"}'
+            : "HTTP bridge stub response",
+          model: request.args?.model,
+          thinking_effort: request.args?.thinkingEffort,
+          max_runtime_seconds: request.args?.maxRuntimeSeconds,
+          prompt_bytes: Buffer.byteLength(request.args?.prompt || "", "utf8"),
+        },
+    })}\n`;
+    if (String(request.args?.prompt || "").includes("DELAY_STREAM")) {
+      setTimeout(() => socket.end(responseLine), 600);
+      return;
+    }
+    socket.end(responseLine);
+  });
+});
+await new Promise((resolve, reject) => {
+  chromeServer.once("error", reject);
+  chromeServer.listen(chromeSocketPath, resolve);
+});
 
 const server = spawn(process.execPath, [TARGET], {
   stdio: ["ignore", "ignore", "pipe"],
@@ -64,6 +131,7 @@ const server = spawn(process.execPath, [TARGET], {
     MAC_DEV_BRIDGE_ENTRY: BRIDGE,
     MAC_DEV_BRIDGE_DATA_DIR: dataDir,
     MAC_DEV_BRIDGE_UNLOCK_FILE: path.join(dataDir, "FULL_ACCESS_ENABLED"),
+    MAC_DEV_BRIDGE_CHROME_SOCKET: chromeSocketPath,
     MAC_DEV_BRIDGE_AUDIT_MODE: "off",
   },
 });
@@ -106,6 +174,32 @@ function rpc(body, token = TOKEN) {
   });
 }
 
+function experimentalConversation(body, token = TOKEN, extraHeaders = {}) {
+  return fetch(`${BASE}/experimental/chatgpt/conversation`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      ...(token ? { authorization: `Bearer ${token}` } : {}),
+      ...extraHeaders,
+    },
+    body: typeof body === "string" ? body : JSON.stringify(body),
+    signal: AbortSignal.timeout(15_000),
+  });
+}
+
+function responsesRequest(body, token = TOKEN, extraHeaders = {}) {
+  return fetch(`${BASE}/v1/responses`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      ...(token ? { authorization: `Bearer ${token}` } : {}),
+      ...extraHeaders,
+    },
+    body: typeof body === "string" ? body : JSON.stringify(body),
+    signal: AbortSignal.timeout(15_000),
+  });
+}
+
 const results = [];
 const ok = (name) => {
   results.push(`  PASS  ${name}`);
@@ -118,6 +212,20 @@ try {
   assert.equal((await rpc({ jsonrpc: "2.0", id: 1, method: "ping" }, "")).status, 401);
   assert.equal((await rpc({ jsonrpc: "2.0", id: 1, method: "ping" }, "wrong-token-long-enough-here")).status, 401);
   ok("401 on missing and wrong bearer token");
+
+  assert.equal((await experimentalConversation({ prompt: "x" }, "")).status, 401);
+  assert.equal((await experimentalConversation({ prompt: "x" }, "wrong-token-long-enough-here")).status, 401);
+  assert.equal((await experimentalConversation({ prompt: "x" }, TOKEN, { "x-forwarded-for": "203.0.113.10" })).status, 403);
+  ok("experimental ChatGPT route requires direct loopback plus static bearer");
+
+  assert.equal((await responsesRequest({ model: "chatgpt-browser", input: "x" }, "")).status, 401);
+  assert.equal((await responsesRequest({ model: "chatgpt-browser", input: "x" }, "wrong-token-long-enough-here")).status, 401);
+  assert.equal((await responsesRequest(
+    { model: "chatgpt-browser", input: "x" },
+    TOKEN,
+    { "x-forwarded-for": "203.0.113.10" },
+  )).status, 403);
+  ok("Responses model route requires direct loopback plus static bearer");
 
   // --- handshake ------------------------------------------------------------
   const init = await (
@@ -132,6 +240,141 @@ try {
   assert.ok(init.result?.serverInfo?.name);
   assert.equal((await rpc({ jsonrpc: "2.0", method: "notifications/initialized" })).status, 202);
   ok("initialize + initialized notification");
+
+  assert.equal((await experimentalConversation("not-json")).status, 400);
+  assert.equal((await experimentalConversation([])).status, 400);
+  const beforeSecurityRefusal = browserCalls.length;
+  const refused = await experimentalConversation({ prompt: "safe", sentinel_token: "copied-proof" });
+  assert.equal(refused.status, 400);
+  assert.equal((await refused.json()).code, "CHATGPT_SECURITY_FIELDS_REFUSED");
+  assert.equal(browserCalls.length, beforeSecurityRefusal, "security fields must be refused before Chrome dispatch");
+
+  const started = await experimentalConversation({
+    prompt: "start through HTTP",
+    model: "gpt-5-6-pro",
+    thinking_effort: "standard",
+    max_runtime_seconds: 3300,
+  });
+  assert.equal(started.status, 200);
+  assert.equal(started.headers.get("cache-control"), "no-store");
+  const startedBody = await started.json();
+  assert.equal(startedBody.complete, true);
+  assert.equal(startedBody.conversation_id, "http-conversation-test");
+  assert.equal(startedBody.assistant_text, "HTTP bridge stub response");
+  assert.equal(browserCalls.at(-1).method, "tabs.chatgptConversationStart");
+  assert.equal(browserCalls.at(-1).args.prompt, "start through HTTP");
+  assert.equal(browserCalls.at(-1).args.transport, "runtime");
+  assert.equal(browserCalls.at(-1).args.continueInWork, true);
+  assert.equal(browserCalls.at(-1).args.maxRuntimeSeconds, 3300);
+  ok("experimental ChatGPT route normalizes the bridge result");
+
+  const beforeResponsesRefusal = browserCalls.length;
+  assert.equal((await responsesRequest({ model: "missing", input: "x" })).status, 404);
+  assert.equal((await responsesRequest({
+    model: "chatgpt-browser",
+    input: "x",
+    tools: [{ type: "computer_use_preview" }],
+  })).status, 400);
+  assert.equal(browserCalls.length, beforeResponsesRefusal, "invalid Responses requests must fail before Chrome dispatch");
+
+  const modelReply = await responsesRequest({
+    model: "chatgpt-browser",
+    instructions: "Reply once.",
+    input: [{ type: "message", role: "user", content: [{ type: "input_text", text: "hello" }] }],
+  });
+  assert.equal(modelReply.status, 200);
+  assert.equal(modelReply.headers.get("cache-control"), "no-store");
+  const modelReplyBody = await modelReply.json();
+  assert.equal(modelReplyBody.object, "response");
+  assert.equal(modelReplyBody.output[0].content[0].text, "HTTP Responses model reply");
+  assert.equal(browserCalls.at(-1).args.transport, "runtime");
+  assert.equal(browserCalls.at(-1).args.continueInWork, false);
+  assert.equal(browserCalls.at(-1).args.thinkingEffort, "standard");
+  assert.equal(browserCalls.at(-1).args.projectId, chatgptProjectId);
+  ok("Responses model route returns a non-streaming assistant response");
+
+  const solReply = await responsesRequest({
+    model: "chatgpt-sol",
+    reasoning: { effort: "xhigh" },
+    input: "Reply from the Sol runtime.",
+  });
+  assert.equal(solReply.status, 200);
+  assert.equal((await solReply.json()).model, "chatgpt-sol");
+  assert.equal(browserCalls.at(-1).args.model, "gpt-5-6-thinking");
+  assert.equal(browserCalls.at(-1).args.thinkingEffort, "max");
+  assert.equal(browserCalls.at(-1).args.projectId, chatgptProjectId);
+  ok("Responses Sol model maps reasoning effort and binds the configured Project");
+
+  const toolReply = await responsesRequest({
+    model: "chatgpt-browser",
+    stream: true,
+    input: "USE_HTTP_TOOL",
+    tools: [{
+      type: "function",
+      name: "echo",
+      description: "Echo a value",
+      parameters: { type: "object", properties: { value: { type: "string" } }, required: ["value"] },
+    }],
+  });
+  assert.equal(toolReply.status, 200);
+  assert.match(toolReply.headers.get("content-type") || "", /text\/event-stream/);
+  const toolSse = await toolReply.text();
+  assert.match(toolSse, /"type":"function_call"/);
+  assert.match(toolSse, /"name":"echo"/);
+  assert.match(toolSse, /data: \[DONE\]/);
+  ok("Responses model route emits a streaming function call");
+
+  const delayedStreamRequest = responsesRequest({
+    model: "chatgpt-browser",
+    stream: true,
+    input: "DELAY_STREAM",
+  });
+  const delayedStream = await Promise.race([
+    delayedStreamRequest,
+    new Promise((resolve) => setTimeout(() => resolve(null), 200)),
+  ]);
+  assert.ok(delayedStream, "streaming response headers waited for the browser model to finish");
+  assert.equal(delayedStream.status, 200);
+  const delayedReader = delayedStream.body.getReader();
+  const firstFrame = await Promise.race([
+    delayedReader.read(),
+    new Promise((resolve) => setTimeout(() => resolve(null), 200)),
+  ]);
+  assert.ok(firstFrame && !firstFrame.done, "response.created was not emitted while the browser model was still running");
+  assert.match(new TextDecoder().decode(firstFrame.value), /"type":"response.created"/);
+  let delayedTail = "";
+  for (;;) {
+    const { value, done } = await delayedReader.read();
+    if (done) break;
+    delayedTail += new TextDecoder().decode(value);
+  }
+  assert.match(delayedTail, /"type":"response.completed"/);
+  assert.match(delayedTail, /data: \[DONE\]/);
+  ok("Responses streaming opens before the browser model completes");
+
+  const continued = await experimentalConversation({
+    prompt: "continue through HTTP",
+    conversation_id: "http-conversation-test",
+  });
+  assert.equal(continued.status, 200);
+  const continuedBody = await continued.json();
+  assert.equal(continuedBody.conversation_id, "http-conversation-test");
+  assert.equal(browserCalls.at(-1).args.conversationId, "http-conversation-test");
+  ok("experimental ChatGPT route continues one exact conversation");
+
+  const rawStarted = await experimentalConversation({ prompt: "raw diagnostic", transport: "raw" });
+  assert.equal(rawStarted.status, 200);
+  assert.equal(browserCalls.at(-1).args.transport, "raw");
+  const beforeInvalidTransport = browserCalls.length;
+  const invalidTransport = await experimentalConversation({ prompt: "invalid", transport: "auto" });
+  assert.equal(invalidTransport.status, 400);
+  assert.equal(browserCalls.length, beforeInvalidTransport);
+  const modelMismatch = await experimentalConversation({
+    prompt: "__runtime_model_mismatch__",
+    transport: "runtime",
+  });
+  assert.equal(modelMismatch.status, 409);
+  ok("experimental ChatGPT route defaults to runtime and preserves explicit raw diagnostics");
 
   // --- DEFECT 1: concurrent identical client ids must not cross ------------
   // Two callers both use id:1. Each must get its own result back, with id:1.
@@ -278,5 +521,7 @@ try {
   process.exitCode = 1;
 } finally {
   server.kill("SIGTERM");
+  await new Promise((resolve) => chromeServer.close(resolve));
+  await fsp.rm(chromeSocketPath, { force: true });
   await fsp.rm(dataDir, { recursive: true, force: true });
 }

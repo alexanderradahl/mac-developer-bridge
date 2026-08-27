@@ -243,7 +243,7 @@ function requireInteger(args, key, min, max) {
 const GUI_FOCUS_POLICY = process.env.MAC_DEV_BRIDGE_GUI_FOCUS_POLICY || "background-first";
 const SETTINGS_FILE = process.env.MAC_DEV_BRIDGE_SETTINGS_FILE || path.join(APP_SUPPORT_DIR, "settings.json");
 const DEFAULT_OPERATOR_SETTINGS = Object.freeze({ strictApprovals: false });
-const RELAXED_BROWSER_PATTERNS = Object.freeze(["http://*/*", "https://*/*"]);
+const RELAXED_BROWSER_PATTERNS = Object.freeze(["http://*:*/*", "https://*:*/*"]);
 const FOREGROUND_GUI_APPROVAL_FILE = process.env.MAC_DEV_BRIDGE_FOREGROUND_GUI_APPROVAL_FILE
   || path.join(APP_SUPPORT_DIR, "FOREGROUND_GUI_APPROVED");
 const FOREGROUND_GUI_MAX_TTL_MS = 5 * 60 * 1000;
@@ -455,10 +455,17 @@ function redactString(input) {
 // hash prefix keep the record useful for correlating a session without keeping the
 // secret.
 function auditSafeArguments(tool, args) {
-  if (tool !== "pty_write" || typeof args?.data !== "string") return args;
-  const bytes = Buffer.byteLength(args.data, "utf8");
-  const digest = crypto.createHash("sha256").update(args.data, "utf8").digest("hex").slice(0, 16);
-  return { ...args, data: `[REDACTED ${bytes} bytes sha256:${digest}]` };
+  if (tool === "pty_write" && typeof args?.data === "string") {
+    const bytes = Buffer.byteLength(args.data, "utf8");
+    const digest = crypto.createHash("sha256").update(args.data, "utf8").digest("hex").slice(0, 16);
+    return { ...args, data: `[REDACTED ${bytes} bytes sha256:${digest}]` };
+  }
+  if (tool === "chatgpt_conversation_start" && typeof args?.prompt === "string") {
+    const bytes = Buffer.byteLength(args.prompt, "utf8");
+    const digest = crypto.createHash("sha256").update(args.prompt, "utf8").digest("hex").slice(0, 16);
+    return { ...args, prompt: `[REDACTED ${bytes} bytes sha256:${digest}]` };
+  }
+  return args;
 }
 
 async function audit(tool, argsInput, summary = {}, error = null) {
@@ -729,6 +736,28 @@ const TOOLS = [
     description: "Inspect the installed ChatGPT Chrome extension, its OpenAI native-host registration, and the live read-only chatgpt.com page-bridge status when a ChatGPT tab is open. This does not modify the OpenAI extension or invoke its private native-host RPC protocol.",
     inputSchema: { type: "object", additionalProperties: false },
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  },
+  {
+    name: "chatgpt_conversation_start",
+    title: "Start or continue an experimental ChatGPT browser conversation",
+    description: "Start a new ChatGPT conversation, or continue one exact existing conversation, through the signed-in page's first-party submitComposer runtime action without typing or clicking the UI and without foregrounding Chrome. Credentials and browser-generated proof material remain inside ChatGPT. The same bounded runtime also backs the separately selected experimental chatgpt-runtime browser models; it is never an automatic fallback.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        prompt: { type: "string", minLength: 1, maxLength: 4000000, description: "Prompt for the new ChatGPT conversation. Audit logs retain only byte length and a hash prefix." },
+        transport: { type: "string", enum: ["runtime", "raw"], default: "runtime", description: "Use ChatGPT's first-party runtime by default. raw retains the direct private-request path only for diagnostics." },
+        model: { type: "string", minLength: 1, maxLength: 128, default: "gpt-5-6-pro", description: "ChatGPT web model slug to activate in the leased background tab." },
+        thinking_effort: { type: "string", enum: ["minimal", "low", "standard", "high", "max"], default: "standard" },
+        max_runtime_seconds: { type: "integer", minimum: 30, maximum: 3600, default: 600, description: "Maximum time to wait for this ChatGPT turn, including MDB tool use. Long-running agents may request up to one hour." },
+        continue_in_work: { type: "boolean", default: true, description: "Raw diagnostic mode only: advertise ChatGPT's local.continue_in_work function to the private request." },
+        project_id: { type: "string", pattern: "^g-p-[A-Za-z0-9_-]{8,128}$", description: "Optional exact ChatGPT Project id. New runtime conversations are submitted only after the Project route and mounted composer state both match it." },
+        conversation_id: { type: "string", pattern: "^[A-Za-z0-9_-]{8,128}$", description: "Optional exact existing ChatGPT conversation id. When supplied in runtime mode, MDB opens that conversation in an allocated background tab and continues it once." },
+        tab_id: { type: "integer", minimum: 0, description: "Optional existing leased chatgpt.com Chrome tab id. When omitted, runtime mode leases and releases an MDB background tab automatically." },
+      },
+      required: ["prompt"],
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
   },
   {
     name: "chrome_workspace_setup",
@@ -1751,11 +1780,14 @@ async function ensureBackgroundChromeGrant() {
   return { ...pool, accessMode: "strict", strictApprovals: true };
 }
 
-async function callBackgroundChrome(toolName, method, args) {
+async function callBackgroundChrome(toolName, method, args, { timeoutMs } = {}) {
   let pool;
   try {
     pool = await ensureBackgroundChromeGrant();
-    const result = await backgroundChromeCall(method, args, pool.allowedUrlPatterns, { dataDir: APP_SUPPORT_DIR });
+    const result = await backgroundChromeCall(method, args, pool.allowedUrlPatterns, {
+      dataDir: APP_SUPPORT_DIR,
+      ...(timeoutMs === undefined ? {} : { timeoutMs }),
+    });
     const nonces = pool.grants.map((grant) => grant.nonce);
     await audit(toolName, args, {
       ok: true,
@@ -2189,7 +2221,7 @@ const federationReady = federation.start().then(() => {
 // one of the two would be unreachable in one direction and unguarded in the other.
 function advertisedTools() {
   let base = ptyAvailable ? TOOLS : TOOLS.filter((tool) => !tool.name.startsWith("pty_"));
-  if (process.platform !== "darwin") base = base.filter((tool) => !tool.name.startsWith("chrome_") && tool.name !== "chatgpt_extension_status");
+  if (process.platform !== "darwin") base = base.filter((tool) => !tool.name.startsWith("chrome_") && !tool.name.startsWith("chatgpt_"));
   const federated = federation.listTools();
   return federated.length === 0 ? base : base.concat(federated);
 }
@@ -3064,6 +3096,75 @@ async function dispatchTool(name, args) {
           note: "MDB intentionally reads the supported page bridge and local installation metadata only; it does not patch the OpenAI extension or expose arbitrary private native-host RPC calls.",
         },
       };
+    }
+
+    case "chatgpt_conversation_start": {
+      if (args === null || typeof args !== "object" || Array.isArray(args)) {
+        throw new Error("chatgpt_conversation_start arguments must be an object");
+      }
+      const keys = Object.keys(args);
+      const forbidden = keys.filter((key) => /authorization|cookie|sentinel|turnstile|arkose|proof|credential|access.?token|device.?id/i.test(key));
+      if (forbidden.length > 0) {
+        const error = new Error(`Copied ChatGPT credential or proof fields are not accepted: ${forbidden.join(", ")}`);
+        error.code = "CHATGPT_SECURITY_FIELDS_REFUSED";
+        throw error;
+      }
+      const allowed = new Set(["prompt", "transport", "model", "thinking_effort", "max_runtime_seconds", "continue_in_work", "project_id", "conversation_id", "tab_id"]);
+      const unknown = keys.filter((key) => !allowed.has(key));
+      if (unknown.length > 0) throw new Error(`Unknown chatgpt_conversation_start argument(s): ${unknown.join(", ")}`);
+
+      const prompt = requireString(args, "prompt");
+      const promptBytes = Buffer.byteLength(prompt, "utf8");
+      if (promptBytes > 4_000_000) throw new Error("'prompt' must be at most 4000000 UTF-8 bytes");
+      const transport = optionalString(args, "transport", "runtime");
+      if (!["runtime", "raw"].includes(transport)) {
+        const error = new Error("'transport' must be runtime or raw");
+        error.code = "CHATGPT_TRANSPORT_INVALID";
+        throw error;
+      }
+      const model = optionalString(args, "model", "gpt-5-6-pro");
+      if (!/^[A-Za-z0-9._:/-]{1,128}$/.test(model)) throw new Error("'model' contains unsupported characters");
+      const thinkingEffort = optionalString(args, "thinking_effort", "standard");
+      if (!["minimal", "low", "standard", "high", "max"].includes(thinkingEffort)) {
+        throw new Error("'thinking_effort' must be minimal, low, standard, high, or max");
+      }
+      const maxRuntimeSeconds = optionalInteger(args, "max_runtime_seconds", 600, 30, 3600);
+      const continueInWork = optionalBoolean(args, "continue_in_work", true);
+      const projectId = args.project_id === undefined || args.project_id === null
+        ? undefined
+        : requireString(args, "project_id");
+      if (projectId !== undefined && !/^g-p-[A-Za-z0-9_-]{8,128}$/.test(projectId)) {
+        const error = new Error("'project_id' must be a valid ChatGPT Project id");
+        error.code = "CHATGPT_PROJECT_ID_INVALID";
+        throw error;
+      }
+      const conversationId = args.conversation_id === undefined || args.conversation_id === null
+        ? undefined
+        : requireString(args, "conversation_id");
+      if (conversationId !== undefined && !/^[A-Za-z0-9_-]{8,128}$/.test(conversationId)) {
+        const error = new Error("'conversation_id' must be an 8-128 character ChatGPT conversation id");
+        error.code = "CHATGPT_CONVERSATION_ID_INVALID";
+        throw error;
+      }
+      if (transport === "raw" && conversationId !== undefined) {
+        const error = new Error("'conversation_id' is supported only by the runtime transport");
+        error.code = "CHATGPT_CONTINUATION_TRANSPORT_INVALID";
+        throw error;
+      }
+      const tabId = args.tab_id === undefined || args.tab_id === null
+        ? undefined
+        : requireInteger(args, "tab_id", 0, 2_147_483_647);
+      return await callBackgroundChrome(name, "tabs.chatgptConversationStart", {
+        prompt,
+        transport,
+        model,
+        thinkingEffort,
+        maxRuntimeSeconds,
+        continueInWork,
+        ...(projectId === undefined ? {} : { projectId }),
+        ...(conversationId === undefined ? {} : { conversationId }),
+        ...(tabId === undefined ? {} : { tabId }),
+      }, { timeoutMs: maxRuntimeSeconds * 1000 + 120_000 });
     }
 
     case "chrome_workspace_setup": {

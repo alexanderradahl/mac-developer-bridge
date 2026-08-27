@@ -17,11 +17,21 @@ import path from "node:path";
 import readline from "node:readline";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import {
+  ChatgptResponsesError,
+  buildChatgptResponsesPendingResponse,
+  buildChatgptResponsesResponse,
+  chatgptResponsesErrorBody,
+  parseChatgptResponsesEnvelope,
+  prepareChatgptResponsesRequest,
+} from "./lib/chatgpt-responses-adapter.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const BRIDGE = process.env.MAC_DEV_BRIDGE_ENTRY || path.join(HERE, "bridge.mjs");
 const HOST = "127.0.0.1"; // never bind wider; the only intended peer is cloudflared on loopback
 const MCP_PATH = "/mcp";
+const EXPERIMENTAL_CHATGPT_PATH = "/experimental/chatgpt/conversation";
+const CHATGPT_RESPONSES_PATH = "/v1/responses";
 const PORT = Number(process.env.MAC_DEV_BRIDGE_HTTP_PORT || 8787);
 // Prefer a 0600 file: an environment variable stays readable for the process
 // lifetime via `ps eww`, which reads the kernel's exec-time snapshot and is
@@ -165,6 +175,9 @@ const log = (m) => process.stderr.write(`[${new Date().toISOString()}] ${m}\n`);
 const DATA_DIR = process.env.MAC_DEV_BRIDGE_DATA_DIR || path.join(process.env.HOME || "", "Library/Application Support/MacDeveloperBridge");
 const PID_FILE = path.join(DATA_DIR, "mcp-http.pid");
 const OAUTH_STATE_FILE = path.join(DATA_DIR, "oauth-state.json");
+const CHATGPT_RUNTIME_CONFIG_FILE = process.env.MAC_DEV_BRIDGE_CHATGPT_RUNTIME_CONFIG_FILE
+  || path.join(DATA_DIR, "chatgpt-runtime.json");
+const CHATGPT_PROJECT_ID_PATTERN = /^g-p-[A-Za-z0-9_-]{8,128}$/;
 try {
   fs.mkdirSync(DATA_DIR, { recursive: true, mode: 0o700 });
   // A recursive mkdir applies `mode` only to directories it creates, so an
@@ -328,7 +341,7 @@ function ensureChild() {
   return starting;
 }
 
-async function callBridge(message) {
+async function callBridge(message, timeoutMs = REQUEST_TIMEOUT_MS) {
   // Remember the one piece of handshake state a replacement child needs.
   // bridge.mjs:1114 accepts the bare `initialized` alias as well, so a client
   // using that form would otherwise never be replayed and would get -32002 on
@@ -347,7 +360,7 @@ async function callBridge(message) {
   const serverId = nextId++;
   return new Promise((resolve, reject) => {
     // waiter.reject, not reject: only the waiter clears the timeout timer.
-    const waiter = register(serverId, message.id, resolve, reject, REQUEST_TIMEOUT_MS, "request");
+    const waiter = register(serverId, message.id, resolve, reject, timeoutMs, "request");
     try {
       writeRaw(proc, { ...message, id: serverId });
     } catch (e) {
@@ -355,6 +368,31 @@ async function callBridge(message) {
       waiter.reject(e);
     }
   });
+}
+
+let localBridgeInitialization = null;
+
+async function ensureLocalBridgeInitialized() {
+  if (sawInitialized) return;
+  if (!localBridgeInitialization) {
+    localBridgeInitialization = (async () => {
+      const initialized = await callBridge({
+        jsonrpc: "2.0",
+        id: `local-init-${crypto.randomUUID()}`,
+        method: "initialize",
+        params: {
+          protocolVersion: "2025-11-25",
+          capabilities: {},
+          clientInfo: { name: "mac-developer-bridge-local-http", version: "1" },
+        },
+      });
+      if (initialized?.error) throw new Error(initialized.error.message || "bridge initialization failed");
+      await callBridge({ jsonrpc: "2.0", method: "notifications/initialized" });
+    })().finally(() => {
+      localBridgeInitialization = null;
+    });
+  }
+  await localBridgeInitialization;
 }
 
 // ---------------------------------------------------------------------------
@@ -1298,6 +1336,323 @@ function readBody(req) {
   });
 }
 
+function isDirectLoopbackRequest(req) {
+  const remote = String(req.socket.remoteAddress || "").toLowerCase();
+  const loopbackPeer = remote === "127.0.0.1" || remote === "::1" || remote === "::ffff:127.0.0.1";
+  if (!loopbackPeer) return false;
+  const host = String(req.headers.host || "").trim();
+  if (!/^(?:localhost|127\.0\.0\.1|\[::1\])(?::\d{1,5})?$/i.test(host)) return false;
+  return ["forwarded", "x-forwarded-for", "x-forwarded-host", "x-forwarded-proto", "cf-connecting-ip", "cf-ray"]
+    .every((header) => req.headers[header] === undefined);
+}
+
+function experimentalToolStatus(result) {
+  if (!result?.isError) return 200;
+  const code = String(result?.structuredContent?.code || "");
+  if (/INVALID|REFUSED|UNKNOWN|SECURITY_FIELDS/i.test(code)) return 400;
+  if (/TAB_UNAVAILABLE|SESSION_UNAVAILABLE|PROFILE|EXTENSION_OFFLINE|MODEL_MISMATCH|NOT_READY|NOT_NEW_THREAD/i.test(code)) return 409;
+  if (/REQUIREMENTS_UNAVAILABLE|RUNTIME_CONTRACT_CHANGED/i.test(code)) return 424;
+  if (/TIMEOUT/i.test(code)) return 504;
+  return 502;
+}
+
+async function experimentalChatgptConversation(req, res) {
+  if (req.method !== "POST") return send(res, 405, { error: "method not allowed" });
+  if (!isDirectLoopbackRequest(req)) {
+    log(`403 on ${EXPERIMENTAL_CHATGPT_PATH}: direct loopback request required`);
+    return send(res, 403, { error: "direct loopback request required" }, { "cache-control": "no-store" });
+  }
+  if (credential(req) !== "bearer") {
+    log(`401 on ${EXPERIMENTAL_CHATGPT_PATH}: static bearer required`);
+    return send(res, 401, { error: "static bearer required" }, {
+      "cache-control": "no-store",
+      "www-authenticate": challengeFor(req),
+    });
+  }
+
+  let raw;
+  try {
+    raw = await readBody(req);
+  } catch (error) {
+    return send(res, error?.httpStatus || 400, { error: String(error?.message || error) }, { "cache-control": "no-store" });
+  }
+  let args;
+  try {
+    args = JSON.parse(raw);
+  } catch {
+    return send(res, 400, { error: "expected a JSON object" }, { "cache-control": "no-store" });
+  }
+  if (args === null || typeof args !== "object" || Array.isArray(args)) {
+    return send(res, 400, { error: "expected a JSON object" }, { "cache-control": "no-store" });
+  }
+
+  try {
+    await ensureLocalBridgeInitialized();
+    const requestedRuntimeSeconds = Number(args.max_runtime_seconds || 600);
+    const bridgeTimeoutMs = Math.max(30, Math.min(3600, Number.isFinite(requestedRuntimeSeconds) ? requestedRuntimeSeconds : 600)) * 1000 + 120_000;
+    const reply = await callBridge({
+      jsonrpc: "2.0",
+      id: `experimental-chatgpt-${crypto.randomUUID()}`,
+      method: "tools/call",
+      params: { name: "chatgpt_conversation_start", arguments: args },
+    }, bridgeTimeoutMs);
+    if (reply?.error) {
+      log(`${EXPERIMENTAL_CHATGPT_PATH} bridge error: ${reply.error.message || "unknown"}`);
+      return send(res, 502, { error: "bridge request failed" }, { "cache-control": "no-store" });
+    }
+    const result = reply?.result || {};
+    const body = result.structuredContent || (() => {
+      const text = result.content?.find((item) => item?.type === "text")?.text;
+      try { return JSON.parse(text || "{}"); } catch { return { error: "bridge returned an unreadable result" }; }
+    })();
+    const status = experimentalToolStatus(result);
+    log(`${EXPERIMENTAL_CHATGPT_PATH} completed status=${status} toolError=${Boolean(result.isError)}`);
+    return send(res, status, body, { "cache-control": "no-store" });
+  } catch (error) {
+    log(`${EXPERIMENTAL_CHATGPT_PATH} failed: ${error?.message || error}`);
+    return send(res, 503, { error: "bridge unavailable" }, { "cache-control": "no-store" });
+  }
+}
+
+function responsesEventFrame(frame) {
+  return `data: ${JSON.stringify(frame)}\n\n`;
+}
+
+function beginResponsesEventStream(res, pendingResponse) {
+  res.writeHead(200, {
+    "content-type": "text/event-stream; charset=utf-8",
+    "cache-control": "no-store",
+    "x-content-type-options": "nosniff",
+    "x-accel-buffering": "no",
+  });
+  res.flushHeaders?.();
+  res.write(responsesEventFrame({ type: "response.created", response: pendingResponse }));
+
+  let open = true;
+  const keepalive = setInterval(() => {
+    if (open && !res.writableEnded) res.write(": keep-alive\n\n");
+  }, 15_000);
+  keepalive.unref?.();
+  const close = () => {
+    if (!open) return;
+    open = false;
+    clearInterval(keepalive);
+  };
+  res.once("close", close);
+
+  return {
+    complete(response) {
+      if (!open || res.writableEnded) return;
+      for (const [outputIndex, item] of response.output.entries()) {
+        res.write(responsesEventFrame({ type: "response.output_item.done", output_index: outputIndex, item }));
+      }
+      res.write(responsesEventFrame({ type: "response.completed", response }));
+      res.end("data: [DONE]\n\n");
+      close();
+    },
+    fail(error) {
+      if (!open || res.writableEnded) return;
+      const failedResponse = {
+        ...pendingResponse,
+        status: "failed",
+        error: {
+          code: String(error?.code || "chatgpt_responses_error"),
+          message: String(error?.message || "ChatGPT runtime model request failed"),
+        },
+      };
+      res.write(responsesEventFrame({ type: "response.failed", response: failedResponse }));
+      res.end("data: [DONE]\n\n");
+      close();
+    },
+  };
+}
+
+function bridgeStructuredContent(result) {
+  if (result?.structuredContent && typeof result.structuredContent === "object") {
+    return result.structuredContent;
+  }
+  const text = result?.content?.find((item) => item?.type === "text")?.text;
+  try { return JSON.parse(text || "{}"); } catch { return {}; }
+}
+
+function configuredChatgptProjectId() {
+  const override = String(process.env.MAC_DEV_BRIDGE_CHATGPT_RESPONSES_PROJECT_ID || "").trim();
+  if (override) {
+    if (!CHATGPT_PROJECT_ID_PATTERN.test(override)) {
+      throw new ChatgptResponsesError("configured ChatGPT Project id is invalid", {
+        code: "chatgpt_responses_project_config_invalid",
+        httpStatus: 500,
+      });
+    }
+    return override;
+  }
+
+  let raw;
+  let mode;
+  try {
+    const stat = fs.statSync(CHATGPT_RUNTIME_CONFIG_FILE);
+    mode = stat.mode & 0o777;
+    raw = fs.readFileSync(CHATGPT_RUNTIME_CONFIG_FILE, "utf8");
+  } catch (error) {
+    if (error?.code === "ENOENT") return undefined;
+    throw new ChatgptResponsesError("ChatGPT runtime configuration could not be read", {
+      code: "chatgpt_responses_project_config_unavailable",
+      httpStatus: 500,
+    });
+  }
+  if ((mode & 0o077) !== 0) {
+    throw new ChatgptResponsesError("ChatGPT runtime configuration must not be group- or world-readable", {
+      code: "chatgpt_responses_project_config_permissions",
+      httpStatus: 500,
+    });
+  }
+  let parsed;
+  try { parsed = JSON.parse(raw); } catch {
+    throw new ChatgptResponsesError("ChatGPT runtime configuration is not valid JSON", {
+      code: "chatgpt_responses_project_config_invalid",
+      httpStatus: 500,
+    });
+  }
+  const projectId = parsed && typeof parsed === "object" && !Array.isArray(parsed)
+    ? String(parsed.projectId || "").trim()
+    : "";
+  if (!CHATGPT_PROJECT_ID_PATTERN.test(projectId)) {
+    throw new ChatgptResponsesError("ChatGPT runtime configuration must contain a valid projectId", {
+      code: "chatgpt_responses_project_config_invalid",
+      httpStatus: 500,
+    });
+  }
+  return projectId;
+}
+
+async function chatgptResponses(req, res) {
+  if (req.method !== "POST") return send(res, 405, { error: "method not allowed" }, { "cache-control": "no-store" });
+  if (!isDirectLoopbackRequest(req)) {
+    log(`403 on ${CHATGPT_RESPONSES_PATH}: direct loopback request required`);
+    return send(res, 403, { error: "direct loopback request required" }, { "cache-control": "no-store" });
+  }
+  if (credential(req) !== "bearer") {
+    log(`401 on ${CHATGPT_RESPONSES_PATH}: static bearer required`);
+    return send(res, 401, { error: "static bearer required" }, {
+      "cache-control": "no-store",
+      "www-authenticate": challengeFor(req),
+    });
+  }
+
+  let prepared;
+  try {
+    const raw = await readBody(req);
+    prepared = prepareChatgptResponsesRequest(JSON.parse(raw));
+  } catch (error) {
+    const normalized = error instanceof ChatgptResponsesError
+      ? error
+      : new ChatgptResponsesError(error instanceof SyntaxError ? "expected a JSON object" : String(error?.message || error));
+    log(`${CHATGPT_RESPONSES_PATH} rejected code=${normalized.code} status=${normalized.httpStatus}`);
+    return send(res, normalized.httpStatus, chatgptResponsesErrorBody(normalized), { "cache-control": "no-store" });
+  }
+
+  let projectId;
+  try {
+    projectId = configuredChatgptProjectId();
+  } catch (error) {
+    const normalized = error instanceof ChatgptResponsesError
+      ? error
+      : new ChatgptResponsesError("ChatGPT runtime configuration failed", { httpStatus: 500 });
+    log(`${CHATGPT_RESPONSES_PATH} rejected code=${normalized.code} status=${normalized.httpStatus}`);
+    return send(res, normalized.httpStatus, chatgptResponsesErrorBody(normalized), { "cache-control": "no-store" });
+  }
+
+  const maxRuntimeSeconds = Math.max(30, Math.min(
+    3600,
+    Number(process.env.MAC_DEV_BRIDGE_CHATGPT_RESPONSES_MAX_RUNTIME_SECONDS || 600) || 600,
+  ));
+  const browserModel = prepared.model === "chatgpt-browser"
+    ? String(process.env.MAC_DEV_BRIDGE_CHATGPT_RESPONSES_BROWSER_MODEL || prepared.browserModel)
+    : prepared.browserModel;
+  log(
+    `${CHATGPT_RESPONSES_PATH} start model=${prepared.model} stream=${prepared.stream} ` +
+      `tools=${prepared.tools.length} promptBytes=${prepared.promptBytes}`,
+  );
+
+  const pendingResponse = prepared.stream
+    ? buildChatgptResponsesPendingResponse(prepared)
+    : null;
+  const eventStream = pendingResponse
+    ? beginResponsesEventStream(res, pendingResponse)
+    : null;
+
+  try {
+    await ensureLocalBridgeInitialized();
+    const reply = await callBridge({
+      jsonrpc: "2.0",
+      id: `chatgpt-responses-${crypto.randomUUID()}`,
+      method: "tools/call",
+      params: {
+        name: "chatgpt_conversation_start",
+        arguments: {
+          prompt: prepared.prompt,
+          transport: "runtime",
+          model: browserModel,
+          thinking_effort: prepared.thinkingEffort,
+          max_runtime_seconds: maxRuntimeSeconds,
+          continue_in_work: false,
+          ...(projectId ? { project_id: projectId } : {}),
+        },
+      },
+    }, maxRuntimeSeconds * 1000 + 120_000);
+    if (reply?.error) {
+      const error = new ChatgptResponsesError("bridge request failed", {
+        code: "chatgpt_responses_bridge_error",
+        httpStatus: 502,
+      });
+      log(`${CHATGPT_RESPONSES_PATH} bridge error`);
+      if (eventStream) {
+        eventStream.fail(error);
+        return;
+      }
+      return send(res, error.httpStatus, chatgptResponsesErrorBody(error), { "cache-control": "no-store" });
+    }
+    const result = reply?.result || {};
+    const structured = bridgeStructuredContent(result);
+    if (result.isError || structured?.ok === false) {
+      const error = new ChatgptResponsesError(
+        String(structured?.message || structured?.error?.message || "ChatGPT runtime request failed"),
+        {
+          code: String(structured?.code || structured?.error?.code || "chatgpt_responses_runtime_error"),
+          httpStatus: experimentalToolStatus(result),
+        },
+      );
+      log(`${CHATGPT_RESPONSES_PATH} runtime error code=${error.code} status=${error.httpStatus}`);
+      if (eventStream) {
+        eventStream.fail(error);
+        return;
+      }
+      return send(res, error.httpStatus, chatgptResponsesErrorBody(error), { "cache-control": "no-store" });
+    }
+    const decision = parseChatgptResponsesEnvelope(structured.assistant_text, prepared);
+    const response = buildChatgptResponsesResponse(prepared, decision, pendingResponse || undefined);
+    log(`${CHATGPT_RESPONSES_PATH} completed kind=${decision.kind} outputItems=${response.output.length}`);
+    if (eventStream) {
+      eventStream.complete(response);
+      return;
+    }
+    return send(res, 200, response, { "cache-control": "no-store" });
+  } catch (error) {
+    const normalized = error instanceof ChatgptResponsesError
+      ? error
+      : new ChatgptResponsesError("bridge unavailable", {
+          code: "chatgpt_responses_bridge_unavailable",
+          httpStatus: 503,
+        });
+    log(`${CHATGPT_RESPONSES_PATH} failed code=${normalized.code} status=${normalized.httpStatus}`);
+    if (eventStream) {
+      eventStream.fail(normalized);
+      return;
+    }
+    return send(res, normalized.httpStatus, chatgptResponsesErrorBody(normalized), { "cache-control": "no-store" });
+  }
+}
+
 let loggedFirstRequest = false;
 
 // Node's HTTP parser accepts request targets that `new URL` rejects (`//[/mcp`,
@@ -1322,6 +1677,14 @@ async function handle(req, res) {
   // Must stay the first branch: the menubar polls this over loopback with no
   // Host guarantee, so it can never depend on publicOrigin().
   if (req.method === "GET" && pathname === "/healthz") return send(res, 200, { ok: true });
+
+  if (pathname === EXPERIMENTAL_CHATGPT_PATH) {
+    return experimentalChatgptConversation(req, res);
+  }
+
+  if (pathname === CHATGPT_RESPONSES_PATH) {
+    return chatgptResponses(req, res);
+  }
 
   // --- OAuth ---------------------------------------------------------------
   // Exact pathname equality throughout, never startsWith: a prefix match would

@@ -22,6 +22,7 @@ const approvalFile = path.join(dataDir, "PERSONAL_BROWSER_APPROVED");
 const profileBindingFile = path.join(dataDir, "chrome-background-profile.json");
 const sharedGrantDir = path.join(dataDir, "chrome-background-grants");
 const settingsFile = path.join(dataDir, "settings.json");
+const auditFile = path.join(logDir, "audit.jsonl");
 await fs.mkdir(dataDir, { recursive: true });
 await fs.mkdir(logDir, { recursive: true });
 
@@ -101,6 +102,18 @@ function startFakeExtensionHost() {
               ? { released: true, workspace: true, tabId: message.args?.tabId ?? null }
               : message.method === "chatgpt.extensionStatus"
                 ? { available: true, pageBridgeAvailable: true, extensionId: "hehggadaopoacecdllhhajmbjkdcmajg", state: { nativeHostStatus: "connected" } }
+                : message.method === "tabs.chatgptConversationStart"
+                  ? {
+                    ok: true,
+                    complete: true,
+                    conversation_id: message.args?.conversationId || "conversation-test",
+                    assistant_message_id: "assistant-test",
+                    assistant_text: "stub assistant response",
+                    model: message.args?.model,
+                    thinking_effort: message.args?.thinkingEffort,
+                    max_runtime_seconds: message.args?.maxRuntimeSeconds,
+                    prompt_bytes: Buffer.byteLength(message.args?.prompt || "", "utf8"),
+                  }
                 : { echoedMethod: message.method, echoedArgs: message.args },
         }));
       }
@@ -134,6 +147,8 @@ function startBridge() {
       MAC_DEV_BRIDGE_PERSONAL_APPROVAL_FILE: approvalFile,
       MAC_DEV_BRIDGE_CHROME_SOCKET: socketPath,
       MAC_DEV_BRIDGE_FULL_ACCESS_ACK: "I_UNDERSTAND_THIS_GRANTS_FULL_ACCESS",
+      MAC_DEV_BRIDGE_AUDIT_MODE: "full",
+      MAC_DEV_BRIDGE_AUDIT_LOG: auditFile,
     },
     stdio: ["pipe", "pipe", "pipe"],
   });
@@ -217,6 +232,19 @@ try {
   assert.match(workerSource, /touchWorkspaceLease/);
   assert.match(workerSource, /chatgptExtensionStatus/);
   assert.match(workerSource, /chatgpt-extension-request-status/);
+  assert.match(workerSource, /async function pageChatgptConversationStart/);
+  assert.match(workerSource, /async function pageChatgptRuntimeConversationStart/);
+  assert.match(workerSource, /submitComposer:text_action/);
+  assert.match(workerSource, /kind: "text_action", text: prompt/);
+  assert.match(workerSource, /UI automation was not attempted/);
+  assert.match(workerSource, /CHATGPT_CONVERSATION_REQUIREMENTS_UNAVAILABLE/);
+  assert.match(workerSource, /case "tabs\.chatgptConversationStart"/);
+  assert.match(workerSource, /transport === "runtime"[\s\S]*?pageChatgptRuntimeConversationStart[\s\S]*?pageChatgptConversationStart/);
+  assert.match(workerSource, /modelReadyDeadline = Date\.now\(\) \+ 20_000/);
+  assert.match(workerSource, /CHATGPT_RUNTIME_MODEL_MISMATCH/);
+  assert.match(workerSource, /CHATGPT_RUNTIME_NOT_READY/);
+  const nativeHostSource = await fs.readFile(path.join(root, "scripts", "chrome-native-host.mjs"), "utf8");
+  assert.match(nativeHostSource, /MAX_REQUEST_TIMEOUT_MS = 3_720_000/);
   assert.match(workerSource, /dispatchPointer\("pointerdown", 1\)/);
   assert.match(workerSource, /dispatchMouse\("mousedown", 1\)/);
   assert.match(workerSource, /dispatchMouse\("mouseup", 0\)/);
@@ -234,6 +262,9 @@ try {
   assert.match(workerSource, /activation = "keyboard-arrowdown"/);
   assert.match(workerSource, /message\.method === "extension\.reload"/);
   assert.match(workerSource, /chrome\.runtime\.reload\(\)/);
+  assert.match(workerSource, /async function pageFill\(/);
+  assert.match(workerSource, /CHROME_FILL_NOT_STICKY/);
+  assert.match(workerSource, /executeInTab\(tab\.id, pageFill, \[String\(args\.selector \|\| ""\), String\(args\.value \?\? ""\), Boolean\(args\.submit\)\], "MAIN"\)/);
   assert.equal((workerSource.match(/async function executeInTab\(/g) || []).length, 1, "executeInTab should have one definition");
   const publicKey = Buffer.from(manifest.key, "base64");
   const digest = crypto.createHash("sha256").update(publicKey).digest().subarray(0, 16);
@@ -297,7 +328,69 @@ try {
   assert.equal(relaxed.result.isError, false, relaxed.result.content[0].text);
   assert.equal(relaxed.result.structuredContent._background.accessMode, "relaxed");
   assert.equal(relaxed.result.structuredContent._background.strictApprovals, false);
-  assert.deepEqual(new Set(host.seen.at(-1).allowedUrlPatterns), new Set(["http://*/*", "https://*/*"]));
+  assert.deepEqual(new Set(host.seen.at(-1).allowedUrlPatterns), new Set(["http://*:*/*", "https://*:*/*"]));
+
+  const sensitivePrompt = "browser bridge prompt must never appear in the audit log";
+  const chatgptProjectId = "g-p-6a8dee0602b0819184fa43aae5a20ee9";
+  const conversation = await bridgeTool(bridge, "chatgpt_conversation_start", {
+    prompt: sensitivePrompt,
+    model: "gpt-5-6-pro",
+    thinking_effort: "standard",
+    project_id: chatgptProjectId,
+    max_runtime_seconds: 3300,
+  });
+  assert.equal(conversation.result.isError, false, conversation.result.content[0].text);
+  assert.equal(conversation.result.structuredContent.complete, true);
+  assert.equal(conversation.result.structuredContent.conversation_id, "conversation-test");
+  assert.equal(host.seen.at(-1).method, "tabs.chatgptConversationStart");
+  assert.equal(host.seen.at(-1).args.prompt, sensitivePrompt);
+  assert.equal(host.seen.at(-1).args.transport, "runtime");
+  assert.equal(host.seen.at(-1).args.maxRuntimeSeconds, 3300);
+  assert.equal(host.seen.at(-1).args.continueInWork, true);
+  assert.equal(host.seen.at(-1).args.projectId, chatgptProjectId);
+  assert.deepEqual(new Set(host.seen.at(-1).allowedUrlPatterns), new Set(["http://*:*/*", "https://*:*/*"]));
+
+  const continuation = await bridgeTool(bridge, "chatgpt_conversation_start", {
+    prompt: "continue existing conversation",
+    conversation_id: "conversation-test",
+  });
+  assert.equal(continuation.result.isError, false, continuation.result.content[0].text);
+  assert.equal(continuation.result.structuredContent.conversation_id, "conversation-test");
+  assert.equal(host.seen.at(-1).args.conversationId, "conversation-test");
+  const auditText = await fs.readFile(auditFile, "utf8");
+  assert.ok(!auditText.includes(sensitivePrompt), "conversation prompt leaked into the audit log");
+  assert.match(auditText, /REDACTED \d+ bytes sha256:[0-9a-f]{16}/);
+
+  const rawConversation = await bridgeTool(bridge, "chatgpt_conversation_start", {
+    prompt: "explicit raw diagnostic",
+    transport: "raw",
+  });
+  assert.equal(rawConversation.result.isError, false, rawConversation.result.content[0].text);
+  assert.equal(host.seen.at(-1).args.transport, "raw");
+
+  const beforeInvalidTransport = host.seen.length;
+  const invalidTransport = await bridgeTool(bridge, "chatgpt_conversation_start", {
+    prompt: "safe prompt",
+    transport: "auto",
+  });
+  assert.equal(invalidTransport.result.isError, true);
+  assert.match(invalidTransport.result.structuredContent.error, /runtime or raw/);
+  assert.equal(host.seen.length, beforeInvalidTransport, "invalid transport must fail before browser dispatch");
+
+  const beforeRefused = host.seen.length;
+  const refusedSecurityFields = await bridgeTool(bridge, "chatgpt_conversation_start", {
+    prompt: "safe prompt",
+    authorization: "Bearer copied-value",
+  });
+  assert.equal(refusedSecurityFields.result.isError, true);
+  assert.equal(refusedSecurityFields.result.structuredContent.code, "CHATGPT_SECURITY_FIELDS_REFUSED");
+  assert.equal(host.seen.length, beforeRefused, "security-field rejection must happen before browser dispatch");
+
+  const beforeOversize = host.seen.length;
+  const oversizePrompt = await bridgeTool(bridge, "chatgpt_conversation_start", { prompt: "x".repeat(4_000_001) });
+  assert.equal(oversizePrompt.result.isError, true);
+  assert.match(oversizePrompt.result.structuredContent.error, /4000000 UTF-8 bytes/);
+  assert.equal(host.seen.length, beforeOversize, "oversize prompt rejection must happen before browser dispatch");
 
   // Switch Strict approvals back on for the scoped-grant regression below.
   await fs.writeFile(settingsFile, JSON.stringify({ strictApprovals: true }), { mode: 0o600 });

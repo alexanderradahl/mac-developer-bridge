@@ -18,6 +18,7 @@ const PROFILE_BINDING_FILE = process.env.MAC_DEV_BRIDGE_CHROME_PROFILE_BINDING_F
 const MAX_NATIVE_MESSAGE_BYTES = 8 * 1024 * 1024;
 const MAX_SOCKET_LINE_BYTES = 2 * 1024 * 1024;
 const REQUEST_TIMEOUT_MS = 45_000;
+const MAX_REQUEST_TIMEOUT_MS = 3_720_000;
 const GRANTLESS_EXTENSION_METHODS = new Set(["status", "extension.reload", "workspace.status", "workspace.init", "workspace.release", "chatgpt.extensionStatus"]);
 
 function normalizeExtensionMethod(method) {
@@ -229,12 +230,16 @@ const server = net.createServer((socket) => {
       return;
     }
     const id = typeof request.id === "string" && request.id ? request.id : crypto.randomUUID();
+    const requestedTimeoutMs = Number(request.timeoutMs);
+    const requestTimeoutMs = Number.isFinite(requestedTimeoutMs) && requestedTimeoutMs > 0
+      ? Math.min(MAX_REQUEST_TIMEOUT_MS, Math.max(1_000, Math.floor(requestedTimeoutMs)))
+      : REQUEST_TIMEOUT_MS;
     const timer = setTimeout(() => {
       const entry = pending.get(id);
       if (!entry) return;
       pending.delete(id);
-      sendSocket(entry.socket, { id, ok: false, error: { code: "CHROME_EXTENSION_TIMEOUT", message: `Background browser extension did not answer within ${REQUEST_TIMEOUT_MS}ms.` } });
-    }, REQUEST_TIMEOUT_MS);
+      sendSocket(entry.socket, { id, ok: false, error: { code: "CHROME_EXTENSION_TIMEOUT", message: `Background browser extension did not answer within ${requestTimeoutMs}ms.` } });
+    }, requestTimeoutMs);
     timer.unref();
     pending.set(id, { socket, timer });
     try {
