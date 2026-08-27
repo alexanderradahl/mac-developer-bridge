@@ -1,5 +1,5 @@
 const NATIVE_HOST = "io.github.alexanderradahl.mac_developer_bridge";
-const VERSION = "0.2.7";
+const VERSION = "0.2.8";
 const WORKSPACE_KEY = "macDeveloperBridgeWorkspace";
 const WORKSPACE_GROUP_TITLE = "MDB";
 const WORKSPACE_GROUP_COLOR = "blue";
@@ -2916,8 +2916,25 @@ async function pageFill(selector, value, submit) {
       element.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: value }));
       element.dispatchEvent(new Event("change", { bubbles: true }));
     };
+    const FRAMEWORK_COMMIT_FALLBACK_MS = 250;
     const waitForFrameworkCommit = () => new Promise((resolve) => {
-      requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(resolve, 0)));
+      let settled = false;
+      let fallbackTimer = null;
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        if (fallbackTimer !== null) clearTimeout(fallbackTimer);
+        resolve();
+      };
+      // Inactive/background Chrome tabs may suspend requestAnimationFrame
+      // indefinitely. Retain the two-frame framework settle path when it is
+      // available, but never let a fill request wait on animation frames alone.
+      fallbackTimer = setTimeout(finish, FRAMEWORK_COMMIT_FALLBACK_MS);
+      try {
+        requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(finish, 0)));
+      } catch {
+        finish();
+      }
     });
     let inserted = false;
     try { inserted = Boolean(document.execCommand("insertText", false, value)); } catch {}
