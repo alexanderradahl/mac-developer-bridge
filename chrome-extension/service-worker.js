@@ -1,6 +1,7 @@
 const NATIVE_HOST = "io.github.alexanderradahl.mac_developer_bridge";
-const VERSION = "0.2.9";
+const VERSION = "0.2.10";
 const WORKSPACE_KEY = "macDeveloperBridgeWorkspace";
+const WORKSPACE_TARGET_KEY = "macDeveloperBridgeWorkspaceTarget";
 const WORKSPACE_GROUP_TITLE = "MDB";
 const WORKSPACE_GROUP_COLOR = "blue";
 const WORKSPACE_LEASE_IDLE_TIMEOUT_MS = 10 * 60 * 1000;
@@ -8,7 +9,8 @@ const WORKSPACE_LEASE_WAIT_TIMEOUT_MS = 20_000;
 const WORKSPACE_LEASE_WAIT_POLL_MS = 250;
 const WORKSPACE_NAVIGATION_TIMEOUT_MS = 15_000;
 const DEFAULT_WORKSPACE_POOL_SIZE = 8;
-const MAX_WORKSPACE_POOL_SIZE = 8;
+const MAX_WORKSPACE_POOL_SIZE = 32;
+const WORKSPACE_AUTO_GROW_STEP = 4;
 const CHATGPT_EXTENSION_ID = "hehggadaopoacecdllhhajmbjkdcmajg";
 const CHATGPT_STATUS_REQUEST_EVENT = "chatgpt-extension-request-status";
 const CHATGPT_STATUS_RESPONSE_EVENT = "chatgpt-extension-status";
@@ -18,13 +20,82 @@ let port = null;
 let reconnectTimer = null;
 let workspaceMutationQueue = Promise.resolve();
 
+function normalizeWorkspacePoolSize(value, fallback = DEFAULT_WORKSPACE_POOL_SIZE) {
+  const safeFallback = Number.isInteger(Number(fallback))
+    && Number(fallback) >= 1
+    && Number(fallback) <= MAX_WORKSPACE_POOL_SIZE
+    ? Number(fallback)
+    : DEFAULT_WORKSPACE_POOL_SIZE;
+  const numeric = Number(value);
+  if (!Number.isInteger(numeric) || numeric < 1) return safeFallback;
+  return Math.min(MAX_WORKSPACE_POOL_SIZE, numeric);
+}
+
+function normalizeCurrentWorkspacePoolSize(value) {
+  const numeric = Number(value);
+  if (!Number.isInteger(numeric) || numeric < 0) return 0;
+  return Math.min(MAX_WORKSPACE_POOL_SIZE, numeric);
+}
+
+function effectiveWorkspaceTargetSize(requested, storedTarget, currentPoolSize = 0) {
+  const current = normalizeCurrentWorkspacePoolSize(currentPoolSize);
+  const stored = normalizeWorkspacePoolSize(storedTarget, DEFAULT_WORKSPACE_POOL_SIZE);
+  const requestedTarget = requested === undefined || requested === null
+    ? stored
+    : normalizeWorkspacePoolSize(requested, stored);
+  return Math.max(current, stored, requestedTarget);
+}
+
+function nextWorkspaceAutoGrowTarget(currentPoolSize, targetPoolSize) {
+  const current = normalizeCurrentWorkspacePoolSize(currentPoolSize);
+  const target = Math.max(current, normalizeWorkspacePoolSize(targetPoolSize, DEFAULT_WORKSPACE_POOL_SIZE));
+  if (target > current || current >= MAX_WORKSPACE_POOL_SIZE) return target;
+  return Math.min(MAX_WORKSPACE_POOL_SIZE, current + WORKSPACE_AUTO_GROW_STEP);
+}
+
+function workspaceCapacityStatus(currentPoolSize, targetPoolSize) {
+  const poolSize = normalizeCurrentWorkspacePoolSize(currentPoolSize);
+  const targetPoolSizeSafe = Math.max(
+    poolSize,
+    normalizeWorkspacePoolSize(targetPoolSize, DEFAULT_WORKSPACE_POOL_SIZE),
+  );
+  const pendingTabCount = Math.max(0, targetPoolSizeSafe - poolSize);
+  return {
+    poolSize,
+    targetPoolSize: targetPoolSizeSafe,
+    maxPoolSize: MAX_WORKSPACE_POOL_SIZE,
+    autoGrowStep: WORKSPACE_AUTO_GROW_STEP,
+    pendingTabCount,
+    provisioningPending: pendingTabCount > 0,
+    canGrow: targetPoolSizeSafe < MAX_WORKSPACE_POOL_SIZE || poolSize < MAX_WORKSPACE_POOL_SIZE,
+  };
+}
+
 function errorPayload(error, code = "CHROME_EXTENSION_ERROR") {
   const sourceDetails = error?.details && typeof error.details === "object" && !Array.isArray(error.details)
     ? error.details
     : null;
   const details = sourceDetails
     ? Object.fromEntries(Object.entries(sourceDetails).filter(([key, value]) =>
-      ["status", "complete", "conversation_id", "event_count", "parse_failure_count", "action_error_name", "action_error_message", "action_error_stack"].includes(key)
+      [
+        "status",
+        "complete",
+        "conversation_id",
+        "event_count",
+        "parse_failure_count",
+        "action_error_name",
+        "action_error_message",
+        "action_error_stack",
+        "poolSize",
+        "leased",
+        "waitTimeoutMs",
+        "targetPoolSize",
+        "pendingTabCount",
+        "maxPoolSize",
+        "autoGrowStep",
+        "provisioningPending",
+        "canGrow",
+      ].includes(key)
       && (["string", "number", "boolean"].includes(typeof value) || value === null)))
     : null;
   return {
@@ -98,6 +169,39 @@ async function saveWorkspaceState(state) {
 
 async function clearWorkspaceState() {
   await chrome.storage.local.remove(WORKSPACE_KEY);
+}
+
+async function loadWorkspaceTargetSize() {
+  try {
+    const stored = (await chrome.storage.local.get(WORKSPACE_TARGET_KEY))?.[WORKSPACE_TARGET_KEY];
+    const raw = stored && typeof stored === "object" && !Array.isArray(stored)
+      ? stored.targetPoolSize
+      : stored;
+    return normalizeWorkspacePoolSize(raw, DEFAULT_WORKSPACE_POOL_SIZE);
+  } catch {
+    return DEFAULT_WORKSPACE_POOL_SIZE;
+  }
+}
+
+async function saveWorkspaceTargetSize(targetPoolSize) {
+  const normalized = normalizeWorkspacePoolSize(targetPoolSize, DEFAULT_WORKSPACE_POOL_SIZE);
+  await chrome.storage.local.set({
+    [WORKSPACE_TARGET_KEY]: {
+      targetPoolSize: normalized,
+    },
+  });
+  return normalized;
+}
+
+async function provisionWorkspaceTargetSize(requestedPoolSize, currentPoolSize = 0) {
+  const storedTarget = await loadWorkspaceTargetSize();
+  const targetPoolSize = effectiveWorkspaceTargetSize(
+    requestedPoolSize,
+    storedTarget,
+    currentPoolSize,
+  );
+  if (targetPoolSize !== storedTarget) await saveWorkspaceTargetSize(targetPoolSize);
+  return targetPoolSize;
 }
 
 async function readTab(tabId) {
@@ -192,22 +296,37 @@ async function setWorkspaceGroupActivity(state) {
   } catch {}
 }
 
+function workspaceProvisioningResult(state, targetPoolSize, {
+  created = false,
+  deferred = false,
+} = {}) {
+  const capacity = workspaceCapacityStatus(state?.tabIds?.length || 0, targetPoolSize);
+  return {
+    initialized: Boolean(state),
+    provisioned: true,
+    created,
+    deferred,
+    deferredReason: deferred ? "CHROME_WORKSPACE_SETUP_FOREGROUND_REQUIRED" : null,
+    pendingForegroundExpansion: deferred && capacity.provisioningPending,
+    groupId: state?.groupId ?? null,
+    tabIds: state?.tabIds || [],
+    ...capacity,
+    title: WORKSPACE_GROUP_TITLE,
+    color: WORKSPACE_GROUP_COLOR,
+    foregroundSetupMayBeRequired: capacity.provisioningPending,
+  };
+}
+
 async function initializeWorkspace(poolSize) {
   return await mutateWorkspaceState(async () => {
-    const desired = Math.max(1, Math.min(MAX_WORKSPACE_POOL_SIZE, Number(poolSize || DEFAULT_WORKSPACE_POOL_SIZE)));
     let state = await reconcileWorkspaceStateUnlocked();
-    if (state && state.tabIds.length >= desired) {
+    const targetPoolSize = await provisionWorkspaceTargetSize(
+      poolSize,
+      state?.tabIds?.length || 0,
+    );
+    if (state && state.tabIds.length >= targetPoolSize) {
       await setWorkspaceGroupActivity(state);
-      return {
-        initialized: true,
-        created: false,
-        groupId: state.groupId,
-        tabIds: state.tabIds,
-        poolSize: state.tabIds.length,
-        targetPoolSize: desired,
-        title: WORKSPACE_GROUP_TITLE,
-        color: WORKSPACE_GROUP_COLOR,
-      };
+      return workspaceProvisioningResult(state, targetPoolSize);
     }
 
     let windowId = state?.tabs?.[0]?.windowId;
@@ -221,22 +340,16 @@ async function initializeWorkspace(poolSize) {
     }
 
     // Measured on Chrome/macOS: even tabs.create({active:false}) can bring Chrome
-    // to the foreground. Creation/expansion is allowed only while Chrome is
-    // already naturally focused; MDB never activates Chrome on the user's behalf.
-    if (!targetWindow || !Number.isInteger(windowId)) {
-      const error = new Error("No focused normal Chrome window is available. Bring Chrome to the front once, then run MDB workspace setup again.");
-      error.code = "CHROME_WORKSPACE_SETUP_FOREGROUND_REQUIRED";
-      throw error;
-    }
-    if (targetWindow.focused !== true) {
-      const error = new Error("MDB workspace setup would need to create background tabs, but Chrome is not currently focused. Bring Chrome to the front once and retry; routine browser work will stay background-only afterwards.");
-      error.code = "CHROME_WORKSPACE_SETUP_FOREGROUND_REQUIRED";
-      throw error;
+    // to the foreground. Provisioning the desired capacity is always safe and is
+    // persisted above, but actual tab creation remains deferred until the target
+    // Chrome window is already naturally focused. MDB never activates Chrome.
+    if (!targetWindow || !Number.isInteger(windowId) || targetWindow.focused !== true) {
+      return workspaceProvisioningResult(state, targetPoolSize, { deferred: true });
     }
 
     const existingTabIds = state?.tabIds || [];
     const tabIds = [...existingTabIds];
-    while (tabIds.length < desired) {
+    while (tabIds.length < targetPoolSize) {
       const tab = await chrome.tabs.create({ windowId, url: workspaceIdleUrl(), active: false });
       if (!Number.isInteger(tab.id)) throw new Error("Chrome did not return a tab id during workspace setup.");
       tabIds.push(tab.id);
@@ -257,17 +370,10 @@ async function initializeWorkspace(poolSize) {
       color: WORKSPACE_GROUP_COLOR,
       collapsed: Object.keys(next.leases).length === 0,
     });
-    return {
-      initialized: true,
+    state = { ...next, tabs: await Promise.all(tabIds.map(readTab)) };
+    return workspaceProvisioningResult(state, targetPoolSize, {
       created: tabIds.length > existingTabIds.length,
-      groupId,
-      tabIds,
-      poolSize: tabIds.length,
-      targetPoolSize: desired,
-      title: WORKSPACE_GROUP_TITLE,
-      color: WORKSPACE_GROUP_COLOR,
-      foregroundSetupMayBeRequired: true,
-    };
+    });
   });
 }
 
@@ -313,19 +419,34 @@ async function waitForApprovedNavigation(tabId, compiled, {
 
 async function initializeWorkspaceIfChromeFocused() {
   let state = await reconcileWorkspaceState();
+  const targetPoolSize = effectiveWorkspaceTargetSize(
+    null,
+    await loadWorkspaceTargetSize(),
+    state?.tabIds?.length || 0,
+  );
   const windows = await chrome.windows.getAll({ windowTypes: ["normal"] });
   const focused = windows.find((win) => win.focused === true);
   if (!focused) return state;
-  if (!state || state.tabIds.length < DEFAULT_WORKSPACE_POOL_SIZE) {
-    try {
-      await initializeWorkspace(DEFAULT_WORKSPACE_POOL_SIZE);
-    } catch (error) {
-      if (error?.code !== "CHROME_WORKSPACE_SETUP_FOREGROUND_REQUIRED") throw error;
-      return state;
-    }
+  if (!state || state.tabIds.length < targetPoolSize) {
+    await initializeWorkspace(targetPoolSize);
     state = await reconcileWorkspaceState();
   }
   return state;
+}
+
+async function autoProvisionWorkspaceForPressure(state) {
+  const currentPoolSize = state?.tabIds?.length || 0;
+  const storedTarget = await loadWorkspaceTargetSize();
+  const targetPoolSize = nextWorkspaceAutoGrowTarget(currentPoolSize, storedTarget);
+  if (targetPoolSize > storedTarget) await saveWorkspaceTargetSize(targetPoolSize);
+  if (targetPoolSize > currentPoolSize) {
+    await initializeWorkspaceIfChromeFocused();
+  }
+  const refreshed = await reconcileWorkspaceState();
+  return {
+    state: refreshed,
+    ...workspaceCapacityStatus(refreshed?.tabIds?.length || currentPoolSize, targetPoolSize),
+  };
 }
 
 async function touchWorkspaceLease(tabId) {
@@ -361,28 +482,64 @@ async function reserveIdleWorkspaceTab() {
 async function leaseWorkspaceTab(url, compiled) {
   assertUrlAllowed(url, compiled);
   let state = await reconcileWorkspaceState();
-  if (!state || state.tabIds.length < DEFAULT_WORKSPACE_POOL_SIZE) {
+  const configuredTarget = effectiveWorkspaceTargetSize(
+    null,
+    await loadWorkspaceTargetSize(),
+    state?.tabIds?.length || 0,
+  );
+  if (!state || state.tabIds.length < configuredTarget) {
     state = await initializeWorkspaceIfChromeFocused();
   }
   if (!state) {
-    const error = new Error("The Mac Developer Bridge Chrome tab group is missing. MDB will recreate it automatically the next time Chrome is naturally foreground; browser work refuses to create a loose fallback tab in the meantime.");
+    const targetPoolSize = await loadWorkspaceTargetSize();
+    const capacity = workspaceCapacityStatus(0, targetPoolSize);
+    const error = new Error(`The Mac Developer Bridge Chrome tab group is missing. MDB has provisioned a ${capacity.targetPoolSize}-tab target and will create it the next time Chrome is naturally foreground; browser work refuses to create a loose fallback tab in the meantime.`);
     error.code = "CHROME_WORKSPACE_MISSING";
+    error.details = capacity;
     throw error;
   }
 
   const waitStartedAt = Date.now();
   const deadline = waitStartedAt + WORKSPACE_LEASE_WAIT_TIMEOUT_MS;
   let reservation = null;
+  let pressureProvisioned = false;
   for (;;) {
     reservation = await reserveIdleWorkspaceTab();
     if (reservation.tab) break;
+    if (!pressureProvisioned) {
+      const pressure = await autoProvisionWorkspaceForPressure(reservation.state || state);
+      pressureProvisioned = true;
+      state = pressure.state || state;
+      continue;
+    }
     if (Date.now() >= deadline) {
       const current = reservation.state || await reconcileWorkspaceState();
       const leased = Object.keys(current?.leases || {}).length;
       const poolSize = current?.tabIds?.length || 0;
-      const error = new Error(`All ${poolSize} Mac Developer Bridge background tabs remained in use for ${WORKSPACE_LEASE_WAIT_TIMEOUT_MS}ms. MDB waited for a release instead of failing immediately. The pool will expand to ${DEFAULT_WORKSPACE_POOL_SIZE} the next time Chrome is naturally focused.`);
+      const targetPoolSize = effectiveWorkspaceTargetSize(
+        null,
+        await loadWorkspaceTargetSize(),
+        poolSize,
+      );
+      const capacity = workspaceCapacityStatus(poolSize, targetPoolSize);
+      const expansion = capacity.provisioningPending
+        ? ` Another ${capacity.pendingTabCount} tabs are provisioned and will be created the next time the MDB Chrome window is naturally focused.`
+        : capacity.canGrow
+          ? ` MDB can provision another ${WORKSPACE_AUTO_GROW_STEP} tabs on the next pressure event, up to ${MAX_WORKSPACE_POOL_SIZE}.`
+          : " The pool is already at its configured maximum."
+      const error = new Error(`All ${poolSize} Mac Developer Bridge background tabs remained in use for ${WORKSPACE_LEASE_WAIT_TIMEOUT_MS}ms. MDB waited for a release instead of failing immediately.${expansion}`);
       error.code = "CHROME_WORKSPACE_EXHAUSTED";
-      error.details = { poolSize, leased, waitTimeoutMs: WORKSPACE_LEASE_WAIT_TIMEOUT_MS, targetPoolSize: DEFAULT_WORKSPACE_POOL_SIZE };
+      error.details = {
+        poolSize,
+        leased,
+        waitTimeoutMs: WORKSPACE_LEASE_WAIT_TIMEOUT_MS,
+        targetPoolSize: capacity.targetPoolSize,
+        pendingTabCount: capacity.pendingTabCount,
+        maxPoolSize: capacity.maxPoolSize,
+        autoGrowStep: capacity.autoGrowStep,
+        provisioningPending: capacity.provisioningPending,
+        canGrow: capacity.canGrow,
+      };
       throw error;
     }
     await delay(WORKSPACE_LEASE_WAIT_POLL_MS);
@@ -396,6 +553,11 @@ async function leaseWorkspaceTab(url, compiled) {
     await chrome.tabs.update(tab.id, { url, active: false });
     const settled = await waitForApprovedNavigation(tab.id, compiled, { previousUrl, requestedUrl: url });
     await touchWorkspaceLease(tab.id);
+    const targetPoolSize = effectiveWorkspaceTargetSize(
+      null,
+      await loadWorkspaceTargetSize(),
+      state.tabIds.length,
+    );
     return {
       workspace: true,
       groupId: state.groupId,
@@ -404,7 +566,7 @@ async function leaseWorkspaceTab(url, compiled) {
       active: Boolean(settled.active),
       title: settled.title || "",
       url: settled.url || url,
-      poolSize: state.tabIds.length,
+      ...workspaceCapacityStatus(state.tabIds.length, targetPoolSize),
       waitedForSlotMs: Math.max(0, Date.now() - waitStartedAt),
     };
   } catch (error) {
@@ -445,12 +607,17 @@ async function releaseWorkspaceTab(tabId, { resetUrl = true } = {}) {
 
 async function workspaceStatus() {
   const state = await reconcileWorkspaceState();
+  const targetPoolSize = effectiveWorkspaceTargetSize(
+    null,
+    await loadWorkspaceTargetSize(),
+    state?.tabIds?.length || 0,
+  );
+  const capacity = workspaceCapacityStatus(state?.tabIds?.length || 0, targetPoolSize);
   if (!state) return {
     initialized: false,
+    ...capacity,
     title: WORKSPACE_GROUP_TITLE,
     color: WORKSPACE_GROUP_COLOR,
-    targetPoolSize: DEFAULT_WORKSPACE_POOL_SIZE,
-    maxPoolSize: MAX_WORKSPACE_POOL_SIZE,
     leaseIdleTimeoutMs: WORKSPACE_LEASE_IDLE_TIMEOUT_MS,
     leaseWaitTimeoutMs: WORKSPACE_LEASE_WAIT_TIMEOUT_MS,
   };
@@ -466,9 +633,7 @@ async function workspaceStatus() {
     initialized: true,
     groupId: state.groupId,
     tabIds: state.tabIds,
-    poolSize: state.tabIds.length,
-    targetPoolSize: DEFAULT_WORKSPACE_POOL_SIZE,
-    maxPoolSize: MAX_WORKSPACE_POOL_SIZE,
+    ...capacity,
     leasedTabIds: Object.keys(state.leases).map(Number),
     idleTabIds: state.tabIds.filter((id) => !state.leases[String(id)]),
     leaseDetails,
@@ -3408,8 +3573,7 @@ async function connect() {
     return;
   }
   try {
-    let workspace = await reconcileWorkspaceState();
-    if (!workspace) workspace = await initializeWorkspaceIfChromeFocused();
+    const workspace = await initializeWorkspaceIfChromeFocused();
     if (workspace) await setWorkspaceGroupActivity(workspace);
   } catch {}
 

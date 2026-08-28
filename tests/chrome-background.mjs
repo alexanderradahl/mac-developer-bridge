@@ -203,14 +203,14 @@ try {
   assert.ok(manifest.permissions.includes("tabGroups"));
   assert.ok(manifest.permissions.includes("storage"));
   assert.ok(manifest.icons?.["16"] && manifest.icons?.["128"]);
-  assert.equal(manifest.version, "0.2.9");
+  assert.equal(manifest.version, "0.2.10");
   assert.equal(manifest.permissions.includes("debugger"), false, "realistic click support must not require Chrome debugger permission");
   await Promise.all([16, 32, 48, 128].map(async (size) => {
     const stat = await fs.stat(path.join(root, "chrome-extension", "icons", `icon-${size}.png`));
     assert.ok(stat.size > 0, `expected non-empty ${size}px extension icon`);
   }));
   const workerSource = await fs.readFile(path.join(root, "chrome-extension", "service-worker.js"), "utf8");
-  assert.match(workerSource, /const VERSION = "0\.2\.9"/);
+  assert.match(workerSource, /const VERSION = "0\.2\.10"/);
   assert.match(workerSource, /WORKSPACE_GROUP_TITLE = "MDB"/);
   assert.match(workerSource, /chrome\.tabs\.group/);
   assert.match(workerSource, /chrome\.tabGroups\.query/);
@@ -227,6 +227,14 @@ try {
   assert.match(workerSource, /waitForApprovedNavigation/);
   assert.match(workerSource, /CHROME_NAVIGATION_TIMEOUT/);
   assert.match(workerSource, /DEFAULT_WORKSPACE_POOL_SIZE = 8/);
+  assert.match(workerSource, /MAX_WORKSPACE_POOL_SIZE = 32/);
+  assert.match(workerSource, /WORKSPACE_AUTO_GROW_STEP = 4/);
+  assert.match(workerSource, /WORKSPACE_TARGET_KEY = "macDeveloperBridgeWorkspaceTarget"/);
+  assert.match(workerSource, /provisionWorkspaceTargetSize/);
+  assert.match(workerSource, /autoProvisionWorkspaceForPressure/);
+  assert.match(workerSource, /pendingForegroundExpansion/);
+  assert.match(workerSource, /targetWindow\.focused !== true/);
+  assert.match(workerSource, /return workspaceProvisioningResult\(state, targetPoolSize, \{ deferred: true \}\)/);
   assert.match(workerSource, /WORKSPACE_LEASE_IDLE_TIMEOUT_MS = 10 \* 60 \* 1000/);
   assert.match(workerSource, /WORKSPACE_LEASE_WAIT_TIMEOUT_MS = 20_000/);
   assert.match(workerSource, /reserveIdleWorkspaceTab/);
@@ -432,10 +440,20 @@ try {
   assert.equal(host.seen.at(-1).method, "workspace.init");
   assert.equal(host.seen.at(-1).args.poolSize, 8);
   await fs.stat(approvalFile);
-  const bridgeSetup = await bridgeTool(bridge, "chrome_workspace_setup", { pool_size: 6 });
+  const bridgeSetup = await bridgeTool(bridge, "chrome_workspace_setup", { pool_size: 16 });
   assert.equal(bridgeSetup.result.isError, false, bridgeSetup.result.content[0].text);
   assert.equal(host.seen.at(-1).method, "workspace.init");
-  assert.equal(host.seen.at(-1).args.poolSize, 6);
+  assert.equal(host.seen.at(-1).args.poolSize, 16);
+  await fs.stat(approvalFile);
+  const bridgeSetupMax = await bridgeTool(bridge, "chrome_workspace_setup", { pool_size: 32 });
+  assert.equal(bridgeSetupMax.result.isError, false, bridgeSetupMax.result.content[0].text);
+  assert.equal(host.seen.at(-1).method, "workspace.init");
+  assert.equal(host.seen.at(-1).args.poolSize, 32);
+  const beforeTooLargePool = host.seen.length;
+  const bridgeSetupTooLarge = await bridgeTool(bridge, "chrome_workspace_setup", { pool_size: 33 });
+  assert.equal(bridgeSetupTooLarge.result.isError, true);
+  assert.match(bridgeSetupTooLarge.result.content[0].text, /between 1 and 32/i);
+  assert.equal(host.seen.length, beforeTooLargePool, "pool sizes above 32 must fail before extension dispatch");
   await fs.stat(approvalFile);
 
   // Workspace cleanup is grantless even in Strict mode. Removing the only
