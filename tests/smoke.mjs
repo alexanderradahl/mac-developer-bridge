@@ -119,6 +119,7 @@ try {
     assert.equal(byName.get("chrome_workspace_status").annotations.readOnlyHint, true);
     assert.equal(byName.get("chatgpt_extension_status").annotations.readOnlyHint, true);
     assert.equal(byName.get("chrome_workspace_setup").inputSchema.properties.pool_size.default, 8);
+    assert.equal(byName.get("chrome_workspace_setup").inputSchema.properties.pool_size.maximum, 32);
     assert.equal(byName.get("chrome_tabs").annotations.readOnlyHint, true);
     assert.equal(byName.get("chrome_click").annotations.destructiveHint, true);
   }

@@ -763,16 +763,16 @@ const TOOLS = [
   {
     name: "chrome_workspace_setup",
     title: "Set up MDB Chrome workspace",
-    description: "Create or expand the extension-owned MDB Chrome tab group and its reusable background-tab pool. This is a one-time/local setup action and does not access authenticated websites. On macOS, setup refuses to create tabs unless a normal Chrome window is already focused, because Chrome may otherwise steal focus even for active:false tab creation.",
+    description: "Provision the desired capacity for the extension-owned MDB Chrome tab group and reusable background-tab pool. The target is persisted even when Chrome is not focused. Missing tabs are created immediately only while the existing MDB Chrome window is already naturally focused; otherwise expansion remains pending until the next natural focus, so MDB never steals focus.",
     inputSchema: {
       type: "object",
       properties: {
         pool_size: {
           type: "integer",
           minimum: 1,
-          maximum: 8,
+          maximum: 32,
           default: 8,
-          description: "Number of reusable extension-owned tabs to keep in the MDB group. Eight is the default so concurrent automations do not exhaust a four-tab pool.",
+          description: "Growth-only desired capacity for the reusable extension-owned MDB pool. Eight is the default and 32 is the hard maximum. Lower requests never close existing tabs.",
         },
       },
       additionalProperties: false,
@@ -1546,7 +1546,7 @@ const BACKGROUND_CHROME_GRANT_DIR = process.env.MAC_DEV_BRIDGE_BACKGROUND_CHROME
 const BACKGROUND_CHROME_MAX_TTL_MS = 15 * 60 * 1000;
 const BACKGROUND_CHROME_MAX_GRANT_FILES = 256;
 const BACKGROUND_CHROME_DEFAULT_POOL_SIZE = 8;
-const BACKGROUND_CHROME_MAX_POOL_SIZE = 8;
+const BACKGROUND_CHROME_MAX_POOL_SIZE = 32;
 const CHATGPT_CHROME_EXTENSION_ID = "hehggadaopoacecdllhhajmbjkdcmajg";
 const CHATGPT_NATIVE_HOST_NAME = "com.openai.codexextension";
 
