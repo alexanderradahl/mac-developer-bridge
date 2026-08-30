@@ -467,7 +467,7 @@ async function touchWorkspaceLease(tabId) {
 }
 
 async function startWorkspaceLeaseHeartbeat(tabId) {
-  if (!await touchWorkspaceLease(tabId)) return () => {};
+  if (!await touchWorkspaceLease(tabId).catch(() => false)) return () => {};
   let stopped = false;
   const timer = setInterval(() => {
     if (stopped) return;

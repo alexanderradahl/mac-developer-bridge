@@ -171,6 +171,19 @@ noopStopper();
 noopStopper();
 assert.equal(heartbeatClearCalls, 0);
 
+let chatgptExecuteCalls = 0;
+touchImplementation = async () => {
+  throw new Error("initial lease renewal failed");
+};
+const stopAfterInitialFailure = await startHeartbeat(73);
+try {
+  chatgptExecuteCalls += 1;
+} finally {
+  stopAfterInitialFailure();
+}
+assert.equal(chatgptExecuteCalls, 1, "a rejected initial renewal must not prevent ChatGPT execution");
+assert.equal(heartbeatTimers.length, 0, "a rejected initial renewal must not start a timer");
+
 let activeTouchCalls = 0;
 touchImplementation = async (tabId) => {
   touchedTabIds.push(tabId);
