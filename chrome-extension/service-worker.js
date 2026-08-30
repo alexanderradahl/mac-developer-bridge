@@ -1,10 +1,11 @@
 const NATIVE_HOST = "io.github.alexanderradahl.mac_developer_bridge";
-const VERSION = "0.2.10";
+const VERSION = "0.2.11";
 const WORKSPACE_KEY = "macDeveloperBridgeWorkspace";
 const WORKSPACE_TARGET_KEY = "macDeveloperBridgeWorkspaceTarget";
 const WORKSPACE_GROUP_TITLE = "MDB";
 const WORKSPACE_GROUP_COLOR = "blue";
 const WORKSPACE_LEASE_IDLE_TIMEOUT_MS = 10 * 60 * 1000;
+const WORKSPACE_LEASE_HEARTBEAT_INTERVAL_MS = 60_000;
 const WORKSPACE_LEASE_WAIT_TIMEOUT_MS = 20_000;
 const WORKSPACE_LEASE_WAIT_POLL_MS = 250;
 const WORKSPACE_NAVIGATION_TIMEOUT_MS = 15_000;
@@ -463,6 +464,20 @@ async function touchWorkspaceLease(tabId) {
     await saveWorkspaceState({ groupId: state.groupId, tabIds: state.tabIds, leases: state.leases });
     return true;
   });
+}
+
+async function startWorkspaceLeaseHeartbeat(tabId) {
+  if (!await touchWorkspaceLease(tabId).catch(() => false)) return () => {};
+  let stopped = false;
+  const timer = setInterval(() => {
+    if (stopped) return;
+    touchWorkspaceLease(tabId).catch(() => {});
+  }, WORKSPACE_LEASE_HEARTBEAT_INTERVAL_MS);
+  return () => {
+    if (stopped) return;
+    stopped = true;
+    clearInterval(timer);
+  };
 }
 
 async function reserveIdleWorkspaceTab() {
@@ -3413,12 +3428,14 @@ async function dispatch(message) {
         }
         await touchWorkspaceLease(tab.id);
       }
+      let stopWorkspaceLeaseHeartbeat = () => {};
       try {
         if (!tab || !String(tab.url || "").startsWith("https://chatgpt.com/")) {
           const error = new Error("The selected tab is not a chatgpt.com page.");
           error.code = "CHATGPT_TAB_UNAVAILABLE";
           throw error;
         }
+        stopWorkspaceLeaseHeartbeat = await startWorkspaceLeaseHeartbeat(tab.id);
         const pageFunction = transport === "runtime"
           ? pageChatgptRuntimeConversationStart
           : pageChatgptConversationStart;
@@ -3484,6 +3501,7 @@ async function dispatch(message) {
           tab_active: Boolean(settledTab?.active ?? tab.active),
         };
       } finally {
+        stopWorkspaceLeaseHeartbeat();
         if (autoLeased && tab?.id != null) await releaseWorkspaceTab(tab.id).catch(() => {});
       }
     }
