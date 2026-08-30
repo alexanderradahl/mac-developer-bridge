@@ -6,6 +6,10 @@ import vm from "node:vm";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const workerSource = await fs.readFile(path.join(root, "chrome-extension", "service-worker.js"), "utf8");
+const manifest = JSON.parse(await fs.readFile(path.join(root, "chrome-extension", "manifest.json"), "utf8"));
+const workerVersion = workerSource.match(/const VERSION = "([^"]+)";/)?.[1];
+assert.equal(workerVersion, manifest.version, "service worker and manifest versions should match");
+assert.equal(workerVersion, "0.2.11");
 const helperMatch = workerSource.match(
   /function normalizeWorkspacePoolSize[\s\S]*?\n}\n\n(?=function errorPayload)/,
 );
@@ -185,6 +189,122 @@ stopHeartbeat();
 stopHeartbeat();
 assert.equal(heartbeatClearCalls, 1, "the synchronous stopper should be idempotent");
 assert.equal(heartbeatTimers[0].cleared, true);
+
+const reconcileLeaseMatch = workerSource.match(
+  /async function reconcileWorkspaceStateUnlocked[\s\S]*?\n}\n\n(?=async function reconcileWorkspaceState)/,
+);
+const touchLeaseMatch = workerSource.match(
+  /async function touchWorkspaceLease[\s\S]*?\n}\n\n(?=async function startWorkspaceLeaseHeartbeat)/,
+);
+const reserveLeaseMatch = workerSource.match(
+  /async function reserveIdleWorkspaceTab[\s\S]*?\n}\n\n(?=async function leaseWorkspaceTab)/,
+);
+const releaseLeaseMatch = workerSource.match(
+  /async function releaseWorkspaceTab[\s\S]*?\n}\n\n(?=async function workspaceStatus)/,
+);
+assert.ok(reconcileLeaseMatch && touchLeaseMatch && reserveLeaseMatch && releaseLeaseMatch);
+
+const leasedTabId = 72;
+const idleUrl = "chrome-extension://test/workspace.html";
+let leaseNow = 1_000_000;
+let persistedLeaseState = {
+  groupId: 9,
+  tabIds: [leasedTabId],
+  leases: {
+    [leasedTabId]: { leasedAt: leaseNow, lastActivityAt: leaseNow },
+  },
+};
+let leasedTab = {
+  id: leasedTabId,
+  groupId: 9,
+  url: "https://chatgpt.com/c/active-conversation",
+  active: false,
+};
+let failNextLeaseSave = false;
+let leaseMutationQueue = Promise.resolve();
+const leaseUpdates = [];
+const leaseTimers = [];
+const leaseContext = vm.createContext({
+  WORKSPACE_LEASE_IDLE_TIMEOUT_MS: 10 * 60 * 1000,
+  WORKSPACE_LEASE_HEARTBEAT_INTERVAL_MS: heartbeatIntervalMs,
+  Date: { now: () => leaseNow },
+  numericTabId: (value) => Number(value),
+  workspaceIdleUrl: () => idleUrl,
+  mutateWorkspaceState(operation) {
+    const result = leaseMutationQueue.then(operation, operation);
+    leaseMutationQueue = result.catch(() => {});
+    return result;
+  },
+  loadWorkspaceState: async () => structuredClone(persistedLeaseState),
+  saveWorkspaceState: async (state) => {
+    if (failNextLeaseSave) {
+      failNextLeaseSave = false;
+      throw new Error("simulated heartbeat storage failure");
+    }
+    persistedLeaseState = structuredClone(state);
+  },
+  discoverWorkspaceState: async () => null,
+  clearWorkspaceState: async () => { persistedLeaseState = null; },
+  readGroup: async (groupId) => ({ id: groupId }),
+  readTab: async (tabId) => tabId === leasedTabId ? { ...leasedTab } : null,
+  setWorkspaceGroupActivity: async () => {},
+  setInterval(callback, delayMs) {
+    const timer = { callback, delayMs, cleared: false };
+    leaseTimers.push(timer);
+    return timer;
+  },
+  clearInterval(timer) { timer.cleared = true; },
+  chrome: {
+    tabs: {
+      async update(tabId, options) {
+        leaseUpdates.push({ tabId, options });
+        leasedTab = { ...leasedTab, ...options };
+        return { ...leasedTab };
+      },
+    },
+  },
+});
+vm.runInContext([
+  reconcileLeaseMatch[0],
+  touchLeaseMatch[0],
+  heartbeatHelperMatch[0],
+  reserveLeaseMatch[0],
+  releaseLeaseMatch[0],
+].join("\n\n"), leaseContext);
+const startStatefulHeartbeat = vm.runInContext("startWorkspaceLeaseHeartbeat", leaseContext);
+const reserveStatefulTab = vm.runInContext("reserveIdleWorkspaceTab", leaseContext);
+const releaseStatefulTab = vm.runInContext("releaseWorkspaceTab", leaseContext);
+const reconcileStatefulWorkspace = vm.runInContext("reconcileWorkspaceStateUnlocked", leaseContext);
+
+const stopStatefulHeartbeat = await startStatefulHeartbeat(leasedTabId);
+leaseNow += 10 * 60 * 1000 + 1;
+leaseTimers[0].callback();
+const competingReservation = await reserveStatefulTab();
+assert.equal(competingReservation.tab, null, "a renewed conversation lease must remain reserved");
+assert.ok(persistedLeaseState.leases[leasedTabId]);
+assert.equal(persistedLeaseState.leases[leasedTabId].lastActivityAt, leaseNow);
+assert.equal(leasedTab.url, "https://chatgpt.com/c/active-conversation");
+assert.equal(leaseUpdates.length, 0, "active conversation must not be reclaimed to workspace idle");
+
+// A rejected renewal remains background-only and must not prevent finally-style
+// stop/release cleanup from running afterward.
+failNextLeaseSave = true;
+leaseNow += heartbeatIntervalMs;
+leaseTimers[0].callback();
+stopStatefulHeartbeat();
+const releasedLease = await releaseStatefulTab(leasedTabId);
+assert.equal(releasedLease.released, true);
+assert.equal(leaseTimers[0].cleared, true);
+assert.deepEqual(persistedLeaseState.leases, {});
+assert.equal(leasedTab.url, idleUrl);
+
+const reclaimedReservation = await reserveStatefulTab();
+assert.equal(reclaimedReservation.tab.id, leasedTabId, "released tab should be reservable again");
+leaseNow += 10 * 60 * 1000 + 1;
+const staleReconciliation = await reconcileStatefulWorkspace({ releaseStale: true });
+assert.deepEqual(JSON.parse(JSON.stringify(staleReconciliation.staleReleasedTabIds)), [leasedTabId]);
+assert.deepEqual(persistedLeaseState.leases, {});
+assert.equal(leasedTab.url, idleUrl);
 
 const conversationCase = workerSource.match(
   /case "tabs\.chatgptConversationStart":[\s\S]*?(?=\n    case "tabs\.chatgptRuntimeInventory")/,

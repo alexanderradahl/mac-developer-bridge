@@ -1,5 +1,5 @@
 const NATIVE_HOST = "io.github.alexanderradahl.mac_developer_bridge";
-const VERSION = "0.2.10";
+const VERSION = "0.2.11";
 const WORKSPACE_KEY = "macDeveloperBridgeWorkspace";
 const WORKSPACE_TARGET_KEY = "macDeveloperBridgeWorkspaceTarget";
 const WORKSPACE_GROUP_TITLE = "MDB";
