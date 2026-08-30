@@ -117,6 +117,90 @@ assert.equal(storageWrites.length, 0, "a lower request must not shrink or rewrit
 assert.equal(await provisionTarget(20, 8), 20);
 assert.equal(storageWrites.at(-1).macDeveloperBridgeWorkspaceTarget.targetPoolSize, 20);
 
+// Long-running ChatGPT conversations must keep their workspace lease active
+// without letting a failed renewal replace the conversation result.
+const heartbeatIntervalMatch = workerSource.match(
+  /const WORKSPACE_LEASE_HEARTBEAT_INTERVAL_MS = ([^;]+);/,
+);
+assert.ok(heartbeatIntervalMatch, "workspace lease heartbeat interval should be declared");
+const heartbeatIntervalMs = vm.runInNewContext(heartbeatIntervalMatch[1]);
+assert.ok(heartbeatIntervalMs > 0);
+assert.ok(heartbeatIntervalMs < 10 * 60 * 1000);
+
+const heartbeatHelperMatch = workerSource.match(
+  /async function startWorkspaceLeaseHeartbeat[\s\S]*?\n}\n\n(?=async function reserveIdleWorkspaceTab)/,
+);
+assert.ok(heartbeatHelperMatch, "workspace lease heartbeat helper should be extractable");
+const heartbeatTimers = [];
+let heartbeatClearCalls = 0;
+let touchImplementation;
+const heartbeatContext = vm.createContext({
+  WORKSPACE_LEASE_HEARTBEAT_INTERVAL_MS: heartbeatIntervalMs,
+  touchWorkspaceLease: async (tabId) => await touchImplementation(tabId),
+  setInterval(callback, delayMs) {
+    const timer = { callback, delayMs, cleared: false };
+    heartbeatTimers.push(timer);
+    return timer;
+  },
+  clearInterval(timer) {
+    heartbeatClearCalls += 1;
+    timer.cleared = true;
+  },
+});
+vm.runInContext(heartbeatHelperMatch[0], heartbeatContext);
+const startHeartbeat = vm.runInContext("startWorkspaceLeaseHeartbeat", heartbeatContext);
+
+let resolveInitialTouch;
+const touchedTabIds = [];
+touchImplementation = async (tabId) => {
+  touchedTabIds.push(tabId);
+  return await new Promise((resolve) => { resolveInitialTouch = resolve; });
+};
+const pendingNoopStopper = startHeartbeat(71);
+assert.deepEqual(touchedTabIds, [71]);
+assert.equal(heartbeatTimers.length, 0, "timer must wait for the immediate lease touch");
+resolveInitialTouch(false);
+const noopStopper = await pendingNoopStopper;
+assert.equal(typeof noopStopper, "function");
+assert.equal(heartbeatTimers.length, 0, "an inactive lease must not start a timer");
+noopStopper();
+noopStopper();
+assert.equal(heartbeatClearCalls, 0);
+
+let activeTouchCalls = 0;
+touchImplementation = async (tabId) => {
+  touchedTabIds.push(tabId);
+  activeTouchCalls += 1;
+  if (activeTouchCalls === 1) return true;
+  throw new Error("heartbeat renewal failed");
+};
+const stopHeartbeat = await startHeartbeat(72);
+assert.equal(activeTouchCalls, 1);
+assert.equal(heartbeatTimers.length, 1);
+assert.equal(heartbeatTimers[0].delayMs, heartbeatIntervalMs);
+heartbeatTimers[0].callback();
+await new Promise((resolve) => setImmediate(resolve));
+assert.equal(activeTouchCalls, 2, "the timer should renew the active lease");
+stopHeartbeat();
+stopHeartbeat();
+assert.equal(heartbeatClearCalls, 1, "the synchronous stopper should be idempotent");
+assert.equal(heartbeatTimers[0].cleared, true);
+
+const conversationCase = workerSource.match(
+  /case "tabs\.chatgptConversationStart":[\s\S]*?(?=\n    case "tabs\.chatgptRuntimeInventory")/,
+)?.[0] || "";
+const urlValidationIndex = conversationCase.indexOf("startsWith(\"https://chatgpt.com/\")");
+const heartbeatStartIndex = conversationCase.indexOf("await startWorkspaceLeaseHeartbeat(tab.id)");
+const firstExecuteIndex = conversationCase.indexOf("await executeInTab(tab.id");
+assert.ok(urlValidationIndex >= 0);
+assert.ok(heartbeatStartIndex > urlValidationIndex, "heartbeat should start after ChatGPT URL validation");
+assert.ok(firstExecuteIndex > heartbeatStartIndex, "heartbeat should start before the first page execution");
+assert.match(
+  conversationCase,
+  /finally \{[\s\S]*?stopWorkspaceLeaseHeartbeat\(\);[\s\S]*?releaseWorkspaceTab\(tab\.id\)/,
+  "heartbeat should stop before the existing automatic release",
+);
+
 // Provisioning is accepted while Chrome is unfocused, but actual tab creation
 // remains structurally deferred until natural focus.
 const provisioningMatch = workerSource.match(
