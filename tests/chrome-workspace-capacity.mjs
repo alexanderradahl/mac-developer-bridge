@@ -164,12 +164,12 @@ const pendingNoopStopper = startHeartbeat(71);
 assert.deepEqual(touchedTabIds, [71]);
 assert.equal(heartbeatTimers.length, 0, "timer must wait for the immediate lease touch");
 resolveInitialTouch(false);
-const noopStopper = await pendingNoopStopper;
-assert.equal(typeof noopStopper, "function");
-assert.equal(heartbeatTimers.length, 0, "an inactive lease must not start a timer");
-noopStopper();
-noopStopper();
-assert.equal(heartbeatClearCalls, 0);
+await assert.rejects(
+  pendingNoopStopper,
+  (error) => error?.code === "CHROME_WORKSPACE_LEASE_LOST",
+  "a missing initial lease must fail before ChatGPT execution",
+);
+assert.equal(heartbeatTimers.length, 0, "a lost lease must not start a timer");
 
 let chatgptExecuteCalls = 0;
 touchImplementation = async () => {
@@ -181,8 +181,11 @@ try {
 } finally {
   stopAfterInitialFailure();
 }
-assert.equal(chatgptExecuteCalls, 1, "a rejected initial renewal must not prevent ChatGPT execution");
-assert.equal(heartbeatTimers.length, 0, "a rejected initial renewal must not start a timer");
+assert.equal(chatgptExecuteCalls, 1, "a transient initial renewal error must not prevent ChatGPT execution");
+assert.equal(heartbeatTimers.length, 1, "a transient initial renewal error must retain periodic heartbeat retries");
+assert.equal(heartbeatTimers[0].cleared, true, "finally cleanup should stop the retrying heartbeat");
+heartbeatTimers.length = 0;
+heartbeatClearCalls = 0;
 
 let activeTouchCalls = 0;
 touchImplementation = async (tabId) => {
@@ -203,6 +206,9 @@ stopHeartbeat();
 assert.equal(heartbeatClearCalls, 1, "the synchronous stopper should be idempotent");
 assert.equal(heartbeatTimers[0].cleared, true);
 
+const resetWaitMatch = workerSource.match(
+  /async function waitForWorkspaceIdleNavigation[\s\S]*?\n}\n\n(?=async function reconcileWorkspaceStateUnlocked)/,
+);
 const reconcileLeaseMatch = workerSource.match(
   /async function reconcileWorkspaceStateUnlocked[\s\S]*?\n}\n\n(?=async function reconcileWorkspaceState)/,
 );
@@ -215,7 +221,7 @@ const reserveLeaseMatch = workerSource.match(
 const releaseLeaseMatch = workerSource.match(
   /async function releaseWorkspaceTab[\s\S]*?\n}\n\n(?=async function workspaceStatus)/,
 );
-assert.ok(reconcileLeaseMatch && touchLeaseMatch && reserveLeaseMatch && releaseLeaseMatch);
+assert.ok(resetWaitMatch && reconcileLeaseMatch && touchLeaseMatch && reserveLeaseMatch && releaseLeaseMatch);
 
 const leasedTabId = 72;
 const idleUrl = "chrome-extension://test/workspace.html";
@@ -239,7 +245,10 @@ const leaseUpdates = [];
 const leaseTimers = [];
 const leaseContext = vm.createContext({
   WORKSPACE_LEASE_IDLE_TIMEOUT_MS: 10 * 60 * 1000,
+  WORKSPACE_LEASE_HARD_TIMEOUT_MS: 70 * 60 * 1000,
   WORKSPACE_LEASE_HEARTBEAT_INTERVAL_MS: heartbeatIntervalMs,
+  WORKSPACE_RESET_TIMEOUT_MS: 15_000,
+  delay: async () => {},
   Date: { now: () => leaseNow },
   numericTabId: (value) => Number(value),
   workspaceIdleUrl: () => idleUrl,
@@ -278,6 +287,7 @@ const leaseContext = vm.createContext({
   },
 });
 vm.runInContext([
+  resetWaitMatch[0],
   reconcileLeaseMatch[0],
   touchLeaseMatch[0],
   heartbeatHelperMatch[0],
@@ -311,6 +321,34 @@ assert.equal(leaseTimers[0].cleared, true);
 assert.deepEqual(persistedLeaseState.leases, {});
 assert.equal(leasedTab.url, idleUrl);
 
+// chrome.tabs.update resolving before the idle navigation commits must not
+// publish the tab as reusable. This is the exact race that reset an in-flight
+// ChatGPT tab to workspace.html after another caller had reserved it.
+persistedLeaseState.leases[leasedTabId] = { leasedAt: leaseNow, lastActivityAt: leaseNow };
+leasedTab = { ...leasedTab, url: "https://chatgpt.com/c/release-race", pendingUrl: "", status: "complete" };
+let pendingIdleCommit = false;
+leaseContext.chrome.tabs.update = async (tabId, options) => {
+  leaseUpdates.push({ tabId, options });
+  if (options.url === idleUrl) {
+    pendingIdleCommit = true;
+    leasedTab = { ...leasedTab, pendingUrl: idleUrl, active: false, status: "loading" };
+    return { ...leasedTab };
+  }
+  leasedTab = { ...leasedTab, ...options };
+  return { ...leasedTab };
+};
+leaseContext.delay = async () => {
+  if (pendingIdleCommit) {
+    pendingIdleCommit = false;
+    leasedTab = { ...leasedTab, url: idleUrl, pendingUrl: "", status: "complete" };
+  }
+};
+const raceRelease = await releaseStatefulTab(leasedTabId);
+assert.equal(raceRelease.released, true);
+assert.equal(raceRelease.resetConfirmed, undefined, "public release shape remains stable");
+assert.equal(leasedTab.url, idleUrl, "release must wait until workspace idle actually commits");
+assert.deepEqual(persistedLeaseState.leases, {}, "lease is removed only after the reset commit");
+
 const reclaimedReservation = await reserveStatefulTab();
 assert.equal(reclaimedReservation.tab.id, leasedTabId, "released tab should be reservable again");
 leaseNow += 10 * 60 * 1000 + 1;
@@ -328,6 +366,11 @@ const firstExecuteIndex = conversationCase.indexOf("await executeInTab(tab.id");
 assert.ok(urlValidationIndex >= 0);
 assert.ok(heartbeatStartIndex > urlValidationIndex, "heartbeat should start after ChatGPT URL validation");
 assert.ok(firstExecuteIndex > heartbeatStartIndex, "heartbeat should start before the first page execution");
+assert.match(
+  conversationCase,
+  /CHATGPT_PRE_ACTION_WORKSPACE_LEASE_FAILED[\s\S]*?pre_action_workspace_lease/,
+  "auto-lease navigation races must be explicitly classified as pre-action",
+);
 assert.match(
   conversationCase,
   /finally \{[\s\S]*?stopWorkspaceLeaseHeartbeat\(\);[\s\S]*?releaseWorkspaceTab\(tab\.id\)/,

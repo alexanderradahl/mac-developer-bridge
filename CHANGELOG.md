@@ -1,5 +1,6 @@
 # Changelog
 
+- Fixed MDB workspace lease reuse races: long ChatGPT turns keep retrying transient heartbeat failures, stale non-idle leases are retained until a hard bound, and release/reclaim waits for the extension idle navigation to actually commit before making a tab reusable.
 ## Unreleased
 
 ### Background Chrome without focus stealing

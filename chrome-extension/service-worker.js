@@ -5,7 +5,9 @@ const WORKSPACE_TARGET_KEY = "macDeveloperBridgeWorkspaceTarget";
 const WORKSPACE_GROUP_TITLE = "MDB";
 const WORKSPACE_GROUP_COLOR = "blue";
 const WORKSPACE_LEASE_IDLE_TIMEOUT_MS = 10 * 60 * 1000;
+const WORKSPACE_LEASE_HARD_TIMEOUT_MS = 70 * 60 * 1000;
 const WORKSPACE_LEASE_HEARTBEAT_INTERVAL_MS = 60_000;
+const WORKSPACE_RESET_TIMEOUT_MS = 15_000;
 const WORKSPACE_LEASE_WAIT_TIMEOUT_MS = 20_000;
 const WORKSPACE_LEASE_WAIT_POLL_MS = 250;
 const WORKSPACE_NAVIGATION_TIMEOUT_MS = 15_000;
@@ -234,6 +236,28 @@ async function discoverWorkspaceState() {
   return null;
 }
 
+async function waitForWorkspaceIdleNavigation(tabId, { timeoutMs = WORKSPACE_RESET_TIMEOUT_MS } = {}) {
+  const deadline = Date.now() + timeoutMs;
+  const wantedUrl = workspaceIdleUrl();
+  let lastUrl = "";
+  for (;;) {
+    const tab = await readTab(tabId);
+    if (!tab) {
+      const error = new Error(`Chrome tab ${tabId} disappeared while the workspace reset was committing.`);
+      error.code = "CHROME_TAB_GONE";
+      throw error;
+    }
+    lastUrl = String(tab.url || tab.pendingUrl || lastUrl || "");
+    if (tab.url === wantedUrl && (tab.status === "complete" || !tab.status)) return tab;
+    if (Date.now() >= deadline) {
+      const error = new Error(`Workspace tab ${tabId} did not settle on the extension idle page within ${timeoutMs}ms (last ${lastUrl || "<empty>"}).`);
+      error.code = "CHROME_WORKSPACE_RESET_TIMEOUT";
+      throw error;
+    }
+    await delay(50);
+  }
+}
+
 async function reconcileWorkspaceStateUnlocked({ releaseStale = true } = {}) {
   let state = await loadWorkspaceState();
   if (!state) return await discoverWorkspaceState();
@@ -256,6 +280,7 @@ async function reconcileWorkspaceStateUnlocked({ releaseStale = true } = {}) {
   const now = Date.now();
   const leases = {};
   const staleTabIds = [];
+  const resetFailedTabIds = [];
   for (const tab of tabs) {
     const lease = state.leases?.[String(tab.id)];
     if (!lease || typeof lease !== "object") continue;
@@ -267,19 +292,27 @@ async function reconcileWorkspaceStateUnlocked({ releaseStale = true } = {}) {
     const lastActivityAt = hasActivityTimestamp ? Number(lease.lastActivityAt) : now;
     const invalid = !Number.isFinite(leasedAt) || !Number.isFinite(lastActivityAt) || leasedAt <= 0 || lastActivityAt <= 0;
     const idleExpired = now - lastActivityAt > WORKSPACE_LEASE_IDLE_TIMEOUT_MS;
-    if (releaseStale && (invalid || idleExpired)) {
-      staleTabIds.push(tab.id);
-      continue;
+    const hardExpired = Number.isFinite(leasedAt) && leasedAt > 0 && now - leasedAt > WORKSPACE_LEASE_HARD_TIMEOUT_MS;
+    const alreadyIdle = tab.url === workspaceIdleUrl();
+    if (releaseStale && (invalid || hardExpired || (idleExpired && alreadyIdle))) {
+      try {
+        await chrome.tabs.update(tab.id, { url: workspaceIdleUrl(), active: false });
+        await waitForWorkspaceIdleNavigation(tab.id);
+        staleTabIds.push(tab.id);
+        continue;
+      } catch {
+        // Never publish this tab as reusable until the reset has actually
+        // committed. Keeping the lease is safer than handing the same tab to
+        // a second operation while Chrome is still navigating it.
+        resetFailedTabIds.push(tab.id);
+      }
     }
     leases[String(tab.id)] = { leasedAt, lastActivityAt };
   }
 
   const next = { groupId: state.groupId, tabIds: tabs.map((tab) => tab.id), leases };
   await saveWorkspaceState(next);
-  for (const tabId of staleTabIds) {
-    try { await chrome.tabs.update(tabId, { url: workspaceIdleUrl(), active: false }); } catch {}
-  }
-  return { ...next, group, tabs, staleReleasedTabIds: staleTabIds };
+  return { ...next, group, tabs, staleReleasedTabIds: staleTabIds, resetFailedTabIds };
 }
 
 async function reconcileWorkspaceState(options = {}) {
@@ -467,7 +500,20 @@ async function touchWorkspaceLease(tabId) {
 }
 
 async function startWorkspaceLeaseHeartbeat(tabId) {
-  if (!await touchWorkspaceLease(tabId).catch(() => false)) return () => {};
+  let initial;
+  try {
+    initial = await touchWorkspaceLease(tabId);
+  } catch {
+    // A transient storage/native error must not disable heartbeats for the
+    // whole long-running ChatGPT turn. The periodic renewal below keeps
+    // retrying and the hard lease timeout remains a final safety net.
+    initial = null;
+  }
+  if (initial === false) {
+    const error = new Error(`Workspace lease for tab ${tabId} was lost before ChatGPT execution began.`);
+    error.code = "CHROME_WORKSPACE_LEASE_LOST";
+    throw error;
+  }
   let stopped = false;
   const timer = setInterval(() => {
     if (stopped) return;
@@ -585,8 +631,7 @@ async function leaseWorkspaceTab(url, compiled) {
       waitedForSlotMs: Math.max(0, Date.now() - waitStartedAt),
     };
   } catch (error) {
-    try { await chrome.tabs.update(tab.id, { url: workspaceIdleUrl(), active: false }); } catch {}
-    await releaseWorkspaceTab(tab.id, { resetUrl: false }).catch(() => {});
+    await releaseWorkspaceTab(tab.id).catch(() => {});
     throw error;
   }
 }
@@ -598,15 +643,25 @@ async function releaseWorkspaceTab(tabId, { resetUrl = true } = {}) {
     if (!state || !state.tabIds.includes(wanted)) return null;
     const lease = state.leases[String(wanted)] || null;
     let updated = await readTab(wanted);
-    // Reset while the lease is still reserved. Only after chrome.tabs.update
-    // resolves do we remove the lease, so a waiting opener cannot reserve this
-    // tab and then have its navigation overwritten by a late cleanup update.
+    // Keep ownership until the extension idle navigation has actually committed.
+    // chrome.tabs.update() resolving only means the navigation was requested; a
+    // later opener could otherwise reserve this tab before workspace.html wins
+    // the race and have its ChatGPT navigation overwritten.
     if (resetUrl && updated) {
-      try { updated = await chrome.tabs.update(wanted, { url: workspaceIdleUrl(), active: false }); } catch {}
+      try {
+        await chrome.tabs.update(wanted, { url: workspaceIdleUrl(), active: false });
+        updated = await waitForWorkspaceIdleNavigation(wanted);
+      } catch {
+        // Retain the lease. Stale recovery can retry the reset later, but this
+        // tab must not be handed to another operation in an indeterminate state.
+        state.leases[String(wanted)] = lease || { leasedAt: Date.now(), lastActivityAt: Date.now() };
+        await saveWorkspaceState({ groupId: state.groupId, tabIds: state.tabIds, leases: state.leases });
+        return { state, lease, updated, resetConfirmed: false };
+      }
     }
     delete state.leases[String(wanted)];
     await saveWorkspaceState({ groupId: state.groupId, tabIds: state.tabIds, leases: state.leases });
-    return { state, lease, updated };
+    return { state, lease, updated, resetConfirmed: true };
   });
   if (!result) return null;
   await setWorkspaceGroupActivity(result.state);
@@ -3413,7 +3468,22 @@ async function dispatch(message) {
             : `/c/${encodeURIComponent(conversationId)}`;
         const query = new URLSearchParams({ model, thinking_effort: thinkingEffort });
         const targetUrl = `https://chatgpt.com${route}?${query}`;
-        const leased = await leaseWorkspaceTab(targetUrl, compiled);
+        let leased;
+        try {
+          leased = await leaseWorkspaceTab(targetUrl, compiled);
+        } catch (source) {
+          const message = String(source?.message || source || "");
+          if (
+            source?.code === "CHROME_URL_NOT_APPROVED" &&
+            message.includes(workspaceIdleUrl())
+          ) {
+            const error = new Error("The MDB workspace reset won the navigation race before ChatGPT execution began.");
+            error.code = "CHATGPT_PRE_ACTION_WORKSPACE_LEASE_FAILED";
+            error.details = { phase: "pre_action_workspace_lease" };
+            throw error;
+          }
+          throw source;
+        }
         tab = await readTab(leased.tabId);
         autoLeased = true;
       } else {
