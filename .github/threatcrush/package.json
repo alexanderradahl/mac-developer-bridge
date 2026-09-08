@@ -1,0 +1,9 @@
+{
+  "name": "threatcrush-pinned-runtime",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Pins the exact ThreatCrush runtime tree used by .github/workflows/threatcrush-scan.yml",
+  "dependencies": {
+    "@profullstack/threatcrush": "0.11.2"
+  }
+}
