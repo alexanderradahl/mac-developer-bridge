@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import fs from "node:fs/promises";
-import net from "node:net";
 import path from "node:path";
 import readline from "node:readline";
 import { fileURLToPath } from "node:url";
@@ -16,7 +15,8 @@ const logDir = path.join(tempRoot, "logs");
 const socketPath = path.join(dataDir, "chrome-background.sock");
 const profileBindingFile = path.join(dataDir, "chrome-background-profile.json");
 const auditFile = path.join(logDir, "audit.jsonl");
-const runFile = path.join(dataDir, "chatgpt-conversation-runs.json");
+const runDir = path.join(dataDir, "chatgpt-runs");
+const runFile = (runId) => path.join(runDir, `${runId}.json`);
 
 await fs.mkdir(dataDir, { recursive: true });
 await fs.mkdir(logDir, { recursive: true });
@@ -40,6 +40,8 @@ async function waitForPath(target, timeoutMs = 3_000) {
   }
 }
 
+const HOST_DELAY_MS = 1_000;
+
 function startFakeExtensionHost() {
   const child = spawn(process.execPath, [hostPath], {
     env: {
@@ -60,6 +62,9 @@ function startFakeExtensionHost() {
       const message = JSON.parse(buffer.subarray(4, 4 + length).toString("utf8"));
       buffer = buffer.subarray(4 + length);
       if (message.type !== "request") continue;
+      const failure = message.method === "tabs.chatgptConversationStart" && message.args?.prompt?.startsWith("fail:")
+        ? { code: message.args.prompt.slice(5), message: "stubbed failure", conversation_id: "conversation-partial" }
+        : null;
       const result = message.method === "tabs.chatgptConversationStart"
         ? {
           ok: true,
@@ -70,13 +75,10 @@ function startFakeExtensionHost() {
           usage: { total_tokens: 7 },
         }
         : { echoedMethod: message.method, echoedArgs: message.args };
-      const respond = () => child.stdin.write(frameNative({
-        type: "response",
-        id: message.id,
-        ok: true,
-        result,
-      }));
-      if (message.method === "tabs.chatgptConversationStart") setTimeout(respond, 400);
+      const respond = () => child.stdin.write(frameNative(failure
+        ? { type: "response", id: message.id, ok: false, error: failure }
+        : { type: "response", id: message.id, ok: true, result }));
+      if (message.method === "tabs.chatgptConversationStart") setTimeout(respond, HOST_DELAY_MS);
       else respond();
     }
   });
@@ -174,8 +176,7 @@ async function waitForPersistedRun(runId, status = "completed") {
   const deadline = Date.now() + 3_000;
   for (;;) {
     try {
-      const parsed = JSON.parse(await fs.readFile(runFile, "utf8"));
-      const run = parsed.runs?.find((entry) => entry.run_id === runId);
+      const run = JSON.parse(await fs.readFile(runFile(runId), "utf8"));
       if (run?.status === status) return run;
     } catch {}
     if (Date.now() >= deadline) throw new Error(`timed out waiting for persisted run ${runId}`);
@@ -208,7 +209,7 @@ try {
     prompt: distinctivePrompt,
     wait: false,
   }));
-  assert.ok(Date.now() - startedAt < 300, "wait:false should return before the delayed host response");
+  assert.ok(Date.now() - startedAt < HOST_DELAY_MS / 2, "wait:false should return before the delayed host response");
   assert.match(started.run_id, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
   assert.equal(started.conversation_id, null);
   assert.equal(started.status, "running");
@@ -226,7 +227,10 @@ try {
     status: "running",
     conversation_id: null,
     started_at: started.started_at,
+    finished_at: null,
+    error: null,
   });
+  assert.deepEqual(started, runningResult, "wait:false start and a running result share one shape");
   assert.equal("assistant_text" in runningResult, false);
 
   const completedStatus = await waitForCompletedRun(bridge, started.run_id);
@@ -243,7 +247,8 @@ try {
 
   const persistedRun = await waitForPersistedRun(started.run_id);
   assert.equal(persistedRun.status, "completed");
-  assert.equal((await fs.stat(runFile)).mode & 0o777, 0o600);
+  assert.equal((await fs.stat(runFile(started.run_id))).mode & 0o777, 0o600);
+  assert.equal((await fs.stat(runDir)).mode & 0o777, 0o700);
 
   const unknown = await bridgeTool(bridge, "chatgpt_conversation_status", {
     run_id: "00000000-0000-4000-8000-000000000000",
@@ -260,6 +265,30 @@ try {
   const blocking = toolResult(await bridgeTool(bridge, "chatgpt_conversation_start", { prompt: "blocking" }));
   assert.equal(blocking.assistant_text, "async stub response");
   assert.equal("run_id" in blocking, false);
+
+  // Extension failures arrive as rejections: timeout codes classify as timed_out, others
+  // as failed, and the conversation id the extension reports in the error is kept.
+  async function waitForFinishedRun(runId) {
+    const deadline = Date.now() + HOST_DELAY_MS + 3_000;
+    for (;;) {
+      const status = toolResult(await bridgeTool(bridge, "chatgpt_conversation_status", { run_id: runId }));
+      if (status.status !== "running") return status;
+      if (Date.now() >= deadline) throw new Error(`timed out waiting for run ${runId} to finish`);
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+  }
+  const timedOut = toolResult(await bridgeTool(bridge, "chatgpt_conversation_start", { prompt: "fail:CHATGPT_CONVERSATION_TIMEOUT", wait: false }));
+  const failed = toolResult(await bridgeTool(bridge, "chatgpt_conversation_start", { prompt: "fail:CHATGPT_CONVERSATION_FAILED", wait: false }));
+  const timedOutStatus = await waitForFinishedRun(timedOut.run_id);
+  assert.equal(timedOutStatus.status, "timed_out");
+  assert.equal(timedOutStatus.error.code, "CHATGPT_CONVERSATION_TIMEOUT");
+  assert.equal(timedOutStatus.conversation_id, "conversation-partial");
+  const failedStatus = await waitForFinishedRun(failed.run_id);
+  assert.equal(failedStatus.status, "failed");
+  assert.equal(failedStatus.error.code, "CHATGPT_CONVERSATION_FAILED");
+  const failedResult = toolResult(await bridgeTool(bridge, "chatgpt_conversation_result", { run_id: failed.run_id }));
+  assert.equal(failedResult.status, "failed");
+  assert.equal("assistant_text" in failedResult, false);
 
   // A run whose bridge exits mid-turn can never finish; the next bridge reports it lost.
   const lost = toolResult(await bridgeTool(bridge, "chatgpt_conversation_start", { prompt: "restart mid-turn", wait: false }));

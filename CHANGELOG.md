@@ -5,7 +5,7 @@
 
 ### Asynchronous ChatGPT conversation runs
 
-- Added `wait: false` to `chatgpt_conversation_start` plus the new `chatgpt_conversation_status` and `chatgpt_conversation_result` tools. A blocking turn can run for up to an hour, longer than the HTTP front holds one request open, so a caller that cannot wait now receives a `run_id` immediately and polls for the status and the same payload the blocking call returns. Runs are kept in memory and in `chatgpt-conversation-runs.json` under the bridge data directory, so finished runs remain readable after a bridge restart; a run whose bridge process died mid-turn is reported as `failed` with `CHATGPT_RUN_LOST`. The default blocking behaviour is unchanged.
+- Added `wait: false` to `chatgpt_conversation_start` plus the new `chatgpt_conversation_status` and `chatgpt_conversation_result` tools. A blocking turn can run for up to an hour, longer than the HTTP front holds one request open, so a caller that cannot wait now receives a `run_id` immediately and polls for the status and the same payload the blocking call returns. Runs are kept in memory and as one mode-0600 file per run under `chatgpt-runs/` in the bridge data directory (newest 100 kept), so finished runs remain readable after a bridge restart; a run whose bridge process died mid-turn, or that is older than any turn can last, is reported as `failed` with `CHATGPT_RUN_LOST`. Timeouts classify as `timed_out` and keep the conversation id the extension reported. The default blocking behaviour is unchanged.
 
 ### Background Chrome without focus stealing
 

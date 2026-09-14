@@ -764,11 +764,11 @@ const TOOLS = [
   {
     name: "chatgpt_conversation_status",
     title: "Poll an asynchronous ChatGPT conversation run",
-    description: "Report the status of a ChatGPT turn started by chatgpt_conversation_start with wait:false. Runs are kept in memory and in a small JSON file in the bridge data directory, so finished runs remain readable after a bridge restart.",
+    description: "Report the status of a ChatGPT turn started by chatgpt_conversation_start with wait:false. Runs are kept in memory and as one JSON file per run in the bridge data directory, so finished runs remain readable after a bridge restart.",
     inputSchema: {
       type: "object",
       properties: {
-        run_id: { type: "string", minLength: 8, maxLength: 64, description: "run_id returned by chatgpt_conversation_start with wait:false." },
+        run_id: { type: "string", pattern: "^[A-Za-z0-9-]{8,64}$", description: "run_id returned by chatgpt_conversation_start with wait:false." },
       },
       required: ["run_id"],
       additionalProperties: false,
@@ -782,7 +782,7 @@ const TOOLS = [
     inputSchema: {
       type: "object",
       properties: {
-        run_id: { type: "string", minLength: 8, maxLength: 64, description: "run_id returned by chatgpt_conversation_start with wait:false." },
+        run_id: { type: "string", pattern: "^[A-Za-z0-9-]{8,64}$", description: "run_id returned by chatgpt_conversation_start with wait:false." },
       },
       required: ["run_id"],
       additionalProperties: false,
@@ -1858,38 +1858,59 @@ async function callBackgroundChrome(toolName, method, args, { timeoutMs } = {}) 
 //
 // A blocking chatgpt_conversation_start can legitimately take up to an hour, longer
 // than mcp-http.mjs holds one request open, so wait:false hands back a run_id and the
-// caller polls. Runs live in memory and in one JSON file under the data directory so
-// a restarted bridge, or a sibling bridge process, can still answer for finished runs.
-const CHATGPT_RUN_FILE = path.join(APP_SUPPORT_DIR, "chatgpt-conversation-runs.json");
-const CHATGPT_RUN_KEEP = 100; // ponytail: newest 100 runs kept; move to per-run files if this ever matters
+// caller polls. Runs live in memory and, like jobs/*.json, in one mode-0600 file per
+// run under the data directory. Each file is written only by the process that owns
+// the run, so a restarted bridge or a sibling bridge process can still answer for
+// finished runs and no two processes ever merge the same file.
+const CHATGPT_RUN_DIR = path.join(APP_SUPPORT_DIR, "chatgpt-runs");
+const CHATGPT_RUN_KEEP = 100;
+// No turn outlives max_runtime_seconds' ceiling plus the transport grace, so a running
+// record older than this is lost even when its pid number has been reused.
+const CHATGPT_RUN_MAX_AGE_MS = 3600 * 1000 + 120_000;
 const chatgptRuns = new Map();
 
-async function readChatgptRunFile() {
+// The id becomes a filename, hence the same character class findChatgptRun enforces.
+function chatgptRunPath(runId) {
+  return path.join(CHATGPT_RUN_DIR, `${runId}.json`);
+}
+
+async function readChatgptRunFile(runId) {
   try {
-    const parsed = JSON.parse(await fsp.readFile(CHATGPT_RUN_FILE, "utf8"));
-    return Array.isArray(parsed?.runs) ? parsed.runs : [];
+    return JSON.parse(await fsp.readFile(chatgptRunPath(runId), "utf8"));
   } catch (error) {
     if (error?.code !== "ENOENT") stderr(`chatgpt run file unreadable: ${error?.message || error}`);
-    return [];
+    return null;
   }
 }
 
-// Serialised read-merge-write: another bridge process may own other runs in the same
-// file, so only this process's run ids are overwritten. Write then rename, like
-// writeJobMetadata, so the file is never partially visible.
-// ponytail: no cross-process lock; two bridges persisting in the same millisecond can
-// drop one update from disk (memory stays right). Add an O_EXCL lock file if that bites.
+// Snapshot synchronously, so a run evicted from memory before its write runs is still
+// written as it was when it finished. Write then rename, like writeJobMetadata, so the
+// file is never partially visible.
 let chatgptRunWriteChain = Promise.resolve();
-function persistChatgptRuns() {
+function persistChatgptRun(run) {
+  const snapshot = `${JSON.stringify(run, null, 2)}\n`;
   chatgptRunWriteChain = chatgptRunWriteChain.then(async () => {
-    const merged = new Map((await readChatgptRunFile()).map((run) => [run.run_id, run]));
-    for (const run of chatgptRuns.values()) merged.set(run.run_id, run);
-    const runs = [...merged.values()].sort((a, b) => String(a.started_at).localeCompare(String(b.started_at))).slice(-CHATGPT_RUN_KEEP);
-    const tmpPath = `${CHATGPT_RUN_FILE}.tmp-${process.pid}`;
-    await fsp.writeFile(tmpPath, `${JSON.stringify({ runs }, null, 2)}\n`, { mode: 0o600 });
-    await fsp.rename(tmpPath, CHATGPT_RUN_FILE);
+    await fsp.mkdir(CHATGPT_RUN_DIR, { recursive: true, mode: 0o700 });
+    const target = chatgptRunPath(run.run_id);
+    const tmpPath = `${target}.tmp-${process.pid}`;
+    await fsp.writeFile(tmpPath, snapshot, { mode: 0o600 });
+    await fsp.rename(tmpPath, target);
+    await pruneChatgptRunFiles();
   }).catch((error) => stderr(`chatgpt run persistence failed: ${error?.message || error}`));
   return chatgptRunWriteChain;
+}
+
+// ponytail: prunes by mtime without reading contents, so a sibling's hour-long run can
+// lose its file while 100 newer runs finish; its owner rewrites it on completion.
+async function pruneChatgptRunFiles() {
+  const names = (await fsp.readdir(CHATGPT_RUN_DIR)).filter((name) => name.endsWith(".json"));
+  if (names.length <= CHATGPT_RUN_KEEP) return;
+  const entries = await Promise.all(names.map(async (name) => {
+    const target = path.join(CHATGPT_RUN_DIR, name);
+    return { target, mtimeMs: (await fsp.stat(target)).mtimeMs };
+  }));
+  entries.sort((a, b) => a.mtimeMs - b.mtimeMs);
+  for (const entry of entries.slice(0, entries.length - CHATGPT_RUN_KEEP)) await fsp.rm(entry.target, { force: true });
 }
 
 // Same taxonomy mcp-http.mjs maps to 504: the client socket (CHROME_HOST_TIMEOUT),
@@ -1898,7 +1919,7 @@ function chatgptRunFailureStatus(code) {
   return /TIMEOUT/i.test(String(code || "")) ? "timed_out" : "failed";
 }
 
-function startChatgptRun(toolName, request, timeoutMs) {
+async function startChatgptRun(toolName, request, timeoutMs) {
   const run = {
     run_id: crypto.randomUUID(),
     status: "running",
@@ -1912,28 +1933,47 @@ function startChatgptRun(toolName, request, timeoutMs) {
   chatgptRuns.set(run.run_id, run);
   const finish = (patch) => {
     Object.assign(run, patch, { finished_at: nowIso() });
+    persistChatgptRun(run);
     for (const [id, other] of chatgptRuns) {
       if (chatgptRuns.size <= CHATGPT_RUN_KEEP) break;
-      if (other.status !== "running") chatgptRuns.delete(id);
+      if (id !== run.run_id && other.status !== "running") chatgptRuns.delete(id);
     }
-    persistChatgptRuns();
   };
+  // The current extension throws on a failed turn (service-worker
+  // tabs.chatgptConversationStart), so failure normally arrives as a rejection. The
+  // ok:false guard mirrors mcp-http.mjs's structured?.ok === false check for an older
+  // unpacked extension that still resolved with a failure payload.
   callBackgroundChrome(toolName, "tabs.chatgptConversationStart", request, { timeoutMs }).then(
     (result) => finish({
       result,
       conversation_id: result?.conversation_id ?? run.conversation_id,
-      status: result?.ok === false ? chatgptRunFailureStatus(result?.error?.code ?? result?.code) : "completed",
-      error: result?.ok === false
-        ? { code: result?.error?.code ?? result?.code ?? null, message: String(result?.error?.message ?? result?.message ?? "ChatGPT runtime reported a failed turn") }
-        : null,
+      status: result?.ok === false ? chatgptRunFailureStatus(result?.error?.code) : "completed",
+      error: result?.ok === false ? { code: result?.error?.code ?? null, message: String(result?.error?.message || "ChatGPT runtime reported a failed turn") } : null,
     }),
     (error) => finish({
+      // Timeout and handoff failures carry the conversation the extension did create
+      // in error.details, so the caller can continue it instead of resubmitting.
+      conversation_id: error?.details?.conversation_id ?? run.conversation_id,
       status: chatgptRunFailureStatus(error?.code),
       error: { code: error?.code ?? null, message: String(error?.message || error) },
     }),
   );
-  persistChatgptRuns();
-  return { run_id: run.run_id, conversation_id: run.conversation_id, status: run.status, started_at: run.started_at };
+  persistChatgptRun(run);
+  // Submission is audited here because callBackgroundChrome only audits when the
+  // turn settles, possibly an hour later; the prompt is redacted by tool name.
+  await audit(toolName, request, { ok: true, asyncRun: true, runId: run.run_id });
+  return chatgptRunStatus(run);
+}
+
+// A running record whose owner process is gone, or older than any turn can last, can
+// never finish: the bridge restarted mid-turn. A live owner pid is a sibling bridge
+// still holding the promise, so its record stands until the age bound.
+function chatgptRunLost(run) {
+  if (run.status !== "running") return false;
+  const pid = Number(run.pid);
+  const ownerAlive = Number.isInteger(pid) && pid > 0 && processRunning(pid);
+  const withinAge = Date.parse(run.started_at) + CHATGPT_RUN_MAX_AGE_MS > Date.now();
+  return !ownerAlive || !withinAge;
 }
 
 async function findChatgptRun(args) {
@@ -1941,24 +1981,20 @@ async function findChatgptRun(args) {
   if (!/^[A-Za-z0-9-]{8,64}$/.test(runId)) throw new Error("Invalid run_id");
   const live = chatgptRuns.get(runId);
   if (live) return live;
-  const stored = (await readChatgptRunFile()).find((run) => run.run_id === runId);
+  const stored = await readChatgptRunFile(runId);
   if (!stored) {
     const error = new Error(`Unknown run_id '${runId}'. Runs are created by chatgpt_conversation_start with wait:false; only the newest ${CHATGPT_RUN_KEEP} are retained.`);
     error.code = "CHATGPT_RUN_UNKNOWN";
     throw error;
   }
-  // A run recorded as running by a process that no longer exists can never finish:
-  // the bridge restarted mid-turn. If that pid is alive it is a sibling bridge still
-  // holding the promise, so its record stands.
-  // ponytail: pid reuse could mislabel a dead run as alive; record a boot id if that bites.
-  if (stored.status === "running" && !processRunning(Number(stored.pid))) {
+  if (chatgptRunLost(stored)) {
     Object.assign(stored, {
       status: "failed",
       finished_at: nowIso(),
       error: { code: "CHATGPT_RUN_LOST", message: "The bridge process exited before this run finished. The ChatGPT conversation may still have completed in the browser; continue it with conversation_id if known." },
     });
     chatgptRuns.set(runId, stored);
-    persistChatgptRuns();
+    persistChatgptRun(stored);
   }
   return stored;
 }
@@ -3318,23 +3354,22 @@ async function dispatchTool(name, args) {
       };
       const timeoutMs = maxRuntimeSeconds * 1000 + 120_000;
       if (wait) return await callBackgroundChrome(name, "tabs.chatgptConversationStart", request, { timeoutMs });
-      return startChatgptRun(name, request, timeoutMs);
+      return await startChatgptRun(name, request, timeoutMs);
     }
 
     case "chatgpt_conversation_status": {
       const run = await findChatgptRun(args);
-      await audit(name, args, { ok: true, runStatus: run.status });
+      await audit(name, args, { ok: true, runId: run.run_id, runStatus: run.status });
       return chatgptRunStatus(run);
     }
 
     case "chatgpt_conversation_result": {
       const run = await findChatgptRun(args);
-      await audit(name, args, { ok: true, runStatus: run.status });
-      if (run.status === "running") {
-        return { run_id: run.run_id, status: "running", conversation_id: run.conversation_id ?? null, started_at: run.started_at };
-      }
-      // The blocking payload spread first; run bookkeeping wins on the (currently
-      // nonexistent) key overlap so status is always the registry's verdict.
+      await audit(name, args, { ok: true, runId: run.run_id, runStatus: run.status });
+      if (run.status === "running") return chatgptRunStatus(run);
+      // Blocking payload first, registry fields on top. The keys that overlap are
+      // conversation_id (identical by construction: run.conversation_id is copied from
+      // the payload) and error (the registry's typed record wins).
       return { ...(run.result ?? {}), ...chatgptRunStatus(run) };
     }
 
