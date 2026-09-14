@@ -3,6 +3,10 @@
 - Fixed MDB workspace lease reuse races: long ChatGPT turns keep retrying transient heartbeat failures, stale non-idle leases are retained until a hard bound, and release/reclaim waits for the extension idle navigation to actually commit before making a tab reusable.
 ## Unreleased
 
+### Asynchronous ChatGPT conversation runs
+
+- Added `wait: false` to `chatgpt_conversation_start` plus the new `chatgpt_conversation_status` and `chatgpt_conversation_result` tools. A blocking turn can run for up to an hour, longer than the HTTP front holds one request open, so a caller that cannot wait now receives a `run_id` immediately and polls for the status and the same payload the blocking call returns. Runs are kept in memory and in `chatgpt-conversation-runs.json` under the bridge data directory, so finished runs remain readable after a bridge restart; a run whose bridge process died mid-turn is reported as `failed` with `CHATGPT_RUN_LOST`. The default blocking behaviour is unchanged.
+
 ### Background Chrome without focus stealing
 
 - Added persistent dynamic MDB pool provisioning: eight tabs remain the default, operators can request a growth-only target up to 32 with `chrome_workspace_setup`, and capacity pressure auto-targets four more tabs without repeatedly ratcheting while expansion is pending. Provisioning is recorded even when Chrome is in the background; actual tab creation still occurs only when the existing MDB window is naturally focused. Workspace status and exhaustion errors now expose current/target/max/pending capacity and safe lease-pressure details.

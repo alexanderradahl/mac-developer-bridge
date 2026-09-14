@@ -92,7 +92,9 @@ Git, package managers, Vercel CLI, database CLIs, AppleScript, browser CLIs, bui
 | `bridge_status` | Runtime identity, paths, permissions context, shell, audit mode, Codex binary, focus policy, and background-Chrome status |
 | `chrome_workspace_status` | Inspect the extension-owned `MDB` Chrome group, lease activity, and reusable background-tab pool; no website grant required |
 | `chatgpt_extension_status` | Inspect the installed ChatGPT Chrome extension, OpenAI native-host registration, and live read-only page-bridge status without patching the OpenAI extension |
-| `chatgpt_conversation_start` | Experimentally start or continue one exact ChatGPT conversation through the signed-in page's first-party runtime action; no UI typing/clicking or credential export |
+| `chatgpt_conversation_start` | Experimentally start or continue one exact ChatGPT conversation through the signed-in page's first-party runtime action; no UI typing/clicking or credential export; pass `wait: false` to get a `run_id` back immediately instead of blocking for the whole turn |
+| `chatgpt_conversation_status` | Poll a `wait: false` run: `running`, `completed`, `failed`, or `timed_out`, plus conversation id, timestamps, and error; finished runs survive a bridge restart |
+| `chatgpt_conversation_result` | Fetch the finished `wait: false` run's payload (assistant text, conversation id, usage when available); returns only `status: "running"` while the turn is still in progress |
 | `chrome_workspace_setup` | Provision a growth-only `MDB` pool target from 1 to 32 tabs; default is eight, with creation deferred until Chrome is naturally focused |
 | `chrome_tabs` | List tabs in the real signed-in Chrome profile without activating Chrome; scoped only when Strict approvals is on |
 | `chrome_open` | Lease an idle tab from the persistent `MDB` group and open a URL without creating a new tab |
