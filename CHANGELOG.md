@@ -3,6 +3,12 @@
 - Fixed MDB workspace lease reuse races: long ChatGPT turns keep retrying transient heartbeat failures, stale non-idle leases are retained until a hard bound, and release/reclaim waits for the extension idle navigation to actually commit before making a tab reusable.
 ## Unreleased
 
+### Run outcomes, activity, and listing (0.3.0)
+
+- `chatgpt_conversation_status` now returns `needs-input` instead of `completed` when the turn's final assistant message carries an explicit `NEEDS_INPUT:` or `BLOCKER:` line, ends with a question, or states it cannot finish / remains blocked / is a partial handoff. The reply adds `question`, `blocker`, and a typed `outcome_reason` (`explicit_signal`, `trailing_question`, `stop_phrase`). Runs persisted by older bridges are classified lazily on read.
+- Status also reports `last_activity_at`, `phase`, and `events_tail` (last 20 events: tool calls with ok/refused, background job start and exit code, and the final assistant message truncated to 200 chars). `chatgpt_conversation_events` returns the full list (newest 500 kept). Events are attributed to every running run, since ChatGPT sends no per-turn correlation id.
+- Added `chatgpt_conversation_list`, which returns every known run (memory plus persisted files) so a new caller session can re-find in-flight runs.
+
 ### Asynchronous ChatGPT conversation runs
 
 - Added `wait: false` to `chatgpt_conversation_start` plus the new `chatgpt_conversation_status` and `chatgpt_conversation_result` tools. A blocking turn can run for up to an hour, longer than the HTTP front holds one request open, so a caller that cannot wait now receives a `run_id` immediately and polls for the status and the same payload the blocking call returns. Runs are kept in memory and as one mode-0600 file per run under `chatgpt-runs/` in the bridge data directory (newest 100 kept), so finished runs remain readable after a bridge restart; a run whose bridge process died mid-turn, or that is older than any turn can last, is reported as `failed` with `CHATGPT_RUN_LOST`. Timeouts classify as `timed_out` and keep the conversation id the extension reported. The default blocking behaviour is unchanged.

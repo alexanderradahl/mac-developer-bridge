@@ -12,7 +12,7 @@ import { fileURLToPath } from "node:url";
 import { createFederation, consumePersonalApproval } from "./lib/federation.mjs";
 import { backgroundChromeCall, backgroundChromeStatus } from "./lib/chrome-extension-client.mjs";
 
-const BRIDGE_VERSION = "0.2.0";
+const BRIDGE_VERSION = "0.3.0";
 const SERVER_NAME = "mac-developer-bridge";
 const SERVER_TITLE = "Mac Developer Bridge";
 const MODERN_PROTOCOL = "2026-07-28";
@@ -764,7 +764,7 @@ const TOOLS = [
   {
     name: "chatgpt_conversation_status",
     title: "Poll an asynchronous ChatGPT conversation run",
-    description: "Report the status of a ChatGPT turn started by chatgpt_conversation_start with wait:false. Runs are kept in memory and as one JSON file per run in the bridge data directory, so finished runs remain readable after a bridge restart.",
+    description: "Report the status of a ChatGPT turn started by chatgpt_conversation_start with wait:false: running, completed, needs-input, failed, or timed_out, plus the latest activity timestamp, coarse phase, and the newest events. needs-input means the turn finished by asking for something instead of delivering the work; the assistant can say so explicitly by emitting a 'NEEDS_INPUT: <question>' and/or 'BLOCKER: <reason>' line in its final message, and question, blocker and outcome_reason report what was detected. Runs are kept in memory and as one JSON file per run in the bridge data directory, so finished runs remain readable after a bridge restart.",
     inputSchema: {
       type: "object",
       properties: {
@@ -787,6 +787,27 @@ const TOOLS = [
       required: ["run_id"],
       additionalProperties: false,
     },
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  },
+  {
+    name: "chatgpt_conversation_events",
+    title: "Read the activity feed of an asynchronous ChatGPT conversation run",
+    description: "Return the full recorded activity feed for a run started with wait:false: the bridge tool calls it made, the background jobs it started and their exits, and its final message. Polling chatgpt_conversation_* is deliberately not recorded, so an empty feed means no activity rather than no polling.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        run_id: { type: "string", pattern: "^[A-Za-z0-9-]{8,64}$", description: "run_id returned by chatgpt_conversation_start with wait:false." },
+      },
+      required: ["run_id"],
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  },
+  {
+    name: "chatgpt_conversation_list",
+    title: "List asynchronous ChatGPT conversation runs",
+    description: "List every retained wait:false run, newest first, merging this bridge's in-memory registry over the run files left by earlier or sibling bridge processes. Each entry carries run_id, status, timestamps, and conversation id.",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   },
   {
@@ -1919,19 +1940,100 @@ function chatgptRunFailureStatus(code) {
   return /TIMEOUT/i.test(String(code || "")) ? "timed_out" : "failed";
 }
 
+// A finished turn that ends by asking the caller something, or by reporting it is
+// stuck, is not the same outcome as a finished turn that delivered the work.
+// ponytail: bounded heuristic rail; the explicit NEEDS_INPUT:/BLOCKER: lines are the assistant-owned signal, the phrase list is the ceiling
+const CHATGPT_STOP_PHRASES = [
+  /\b(cannot|can't|could not|couldn't|unable to)\s+(finish|complete|proceed|continue)\b/i,
+  /\bremains? blocked\b/i,
+  /\bpartial handoff\b/i,
+];
+function chatgptTurnOutcome(text) {
+  if (typeof text !== "string" || text.trim() === "") return null;
+  const lines = text.split(/\r?\n/);
+  let explicit = false;
+  let question = null;
+  let blocker = null;
+  for (const line of lines) {
+    const needsInput = /^[\s\-*]*NEEDS_INPUT:\s*(.*)$/i.exec(line);
+    if (needsInput) {
+      explicit = true;
+      question ??= needsInput[1].trim() || null;
+    }
+    const blocked = /^[\s\-*]*BLOCKER:\s*(.*)$/i.exec(line);
+    if (blocked) {
+      explicit = true;
+      blocker ??= blocked[1].trim() || null;
+    }
+  }
+  if (explicit) return { status: "needs-input", question, blocker, reason: "explicit_signal" };
+  const lastLine = lines.map((line) => line.trim()).filter((line) => line !== "").pop();
+  if (lastLine?.endsWith("?")) return { status: "needs-input", question: lastLine, blocker: null, reason: "trailing_question" };
+  const sentences = lines.flatMap((line) => line.split(/(?<=[.!?])\s+/));
+  for (const sentence of sentences) {
+    const trimmed = sentence.trim();
+    if (CHATGPT_STOP_PHRASES.some((pattern) => pattern.test(trimmed))) {
+      return { status: "needs-input", question: null, blocker: trimmed.slice(0, 500), reason: "stop_phrase" };
+    }
+  }
+  return null;
+}
+
+// Run files written before needs-input existed carry no outcome_reason, so classify
+// them once on read and rewrite the record rather than re-deriving it on every poll.
+function classifyStoredChatgptRun(stored) {
+  if (stored?.status !== "completed" || stored.outcome_reason !== undefined) return false;
+  if (typeof stored.result?.assistant_text !== "string") return false;
+  const outcome = chatgptTurnOutcome(stored.result.assistant_text);
+  Object.assign(stored, outcome
+    ? { status: outcome.status, question: outcome.question, blocker: outcome.blocker, outcome_reason: outcome.reason }
+    : { outcome_reason: null });
+  return true;
+}
+
+// The activity feed. Long turns look identical to hung ones from the outside, so every
+// bridge tool call, background job transition and final message a run could have caused
+// is appended to it.
+const CHATGPT_RUN_EVENT_KEEP = 500;
+// ponytail: attributed to every running run; exact attribution needs a correlation id ChatGPT does not send
+function recordChatgptRunEvent(event, runId) {
+  const entry = { at: nowIso(), ...event };
+  const targets = runId === undefined || runId === null
+    ? [...chatgptRuns.values()].filter((run) => run.status === "running")
+    : [chatgptRuns.get(runId)].filter(Boolean);
+  for (const run of targets) {
+    if (!Array.isArray(run.events)) run.events = [];
+    run.events.push(entry);
+    // ponytail: 500-event cap
+    if (run.events.length > CHATGPT_RUN_EVENT_KEEP) run.events = run.events.slice(-CHATGPT_RUN_EVENT_KEEP);
+    run.last_activity_at = entry.at;
+    // ponytail: events live in memory until finish() persists them; a running run's
+    // owner answers status from memory, and a run lost to a restart is failed anyway.
+  }
+}
+
 async function startChatgptRun(toolName, request, timeoutMs) {
+  const startedAt = nowIso();
   const run = {
     run_id: crypto.randomUUID(),
     status: "running",
     conversation_id: request.conversationId ?? null,
-    started_at: nowIso(),
+    started_at: startedAt,
     finished_at: null,
     error: null,
     pid: process.pid,
     result: null,
+    question: null,
+    blocker: null,
+    outcome_reason: null,
+    events: [],
+    last_activity_at: startedAt,
   };
   chatgptRuns.set(run.run_id, run);
   const finish = (patch) => {
+    if (typeof patch.result?.assistant_text === "string") {
+      recordChatgptRunEvent({ type: "assistant", text: patch.result.assistant_text.slice(0, 200) }, run.run_id);
+    }
     Object.assign(run, patch, { finished_at: nowIso() });
     persistChatgptRun(run);
     for (const [id, other] of chatgptRuns) {
@@ -1944,12 +2046,20 @@ async function startChatgptRun(toolName, request, timeoutMs) {
   // ok:false guard mirrors mcp-http.mjs's structured?.ok === false check for an older
   // unpacked extension that still resolved with a failure payload.
   callBackgroundChrome(toolName, "tabs.chatgptConversationStart", request, { timeoutMs }).then(
-    (result) => finish({
-      result,
-      conversation_id: result?.conversation_id ?? run.conversation_id,
-      status: result?.ok === false ? chatgptRunFailureStatus(result?.error?.code) : "completed",
-      error: result?.ok === false ? { code: result?.error?.code ?? null, message: String(result?.error?.message || "ChatGPT runtime reported a failed turn") } : null,
-    }),
+    (result) => {
+      // A successful turn still has two outcomes: the work, or a question the caller
+      // has to answer before the conversation can continue.
+      const outcome = result?.ok === false ? null : chatgptTurnOutcome(result?.assistant_text);
+      finish({
+        result,
+        conversation_id: result?.conversation_id ?? run.conversation_id,
+        status: result?.ok === false ? chatgptRunFailureStatus(result?.error?.code) : (outcome?.status ?? "completed"),
+        error: result?.ok === false ? { code: result?.error?.code ?? null, message: String(result?.error?.message || "ChatGPT runtime reported a failed turn") } : null,
+        question: outcome?.question ?? null,
+        blocker: outcome?.blocker ?? null,
+        outcome_reason: outcome?.reason ?? null,
+      });
+    },
     (error) => finish({
       // Timeout and handoff failures carry the conversation the extension did create
       // in error.details, so the caller can continue it instead of resubmitting.
@@ -1987,19 +2097,64 @@ async function findChatgptRun(args) {
     error.code = "CHATGPT_RUN_UNKNOWN";
     throw error;
   }
-  if (chatgptRunLost(stored)) {
-    Object.assign(stored, {
-      status: "failed",
-      finished_at: nowIso(),
-      error: { code: "CHATGPT_RUN_LOST", message: "The bridge process exited before this run finished. The ChatGPT conversation may still have completed in the browser; continue it with conversation_id if known." },
-    });
-    chatgptRuns.set(runId, stored);
+  if (patchLostChatgptRun(stored) || classifyStoredChatgptRun(stored)) {
+    chatgptRuns.set(stored.run_id ?? runId, stored);
     persistChatgptRun(stored);
   }
   return stored;
 }
 
+function patchLostChatgptRun(run) {
+  if (!chatgptRunLost(run)) return false;
+  Object.assign(run, {
+    status: "failed",
+    finished_at: nowIso(),
+    error: { code: "CHATGPT_RUN_LOST", message: "The bridge process exited before this run finished. The ChatGPT conversation may still have completed in the browser; continue it with conversation_id if known." },
+  });
+  return true;
+}
+
+// Merge the in-memory registry over every retained run file: this process owns the
+// live records, the files carry runs a restart or a sibling bridge left behind.
+async function listChatgptRuns() {
+  const merged = new Map();
+  let names = [];
+  try {
+    names = (await fsp.readdir(CHATGPT_RUN_DIR)).filter((name) => name.endsWith(".json"));
+  } catch (error) {
+    if (error?.code !== "ENOENT") stderr(`chatgpt run dir unreadable: ${error?.message || error}`);
+  }
+  for (const name of names) {
+    const stored = await readChatgptRunFile(name.slice(0, -".json".length));
+    if (typeof stored?.run_id === "string") merged.set(stored.run_id, stored);
+  }
+  for (const run of chatgptRuns.values()) merged.set(run.run_id, run);
+  const runs = [];
+  for (const run of merged.values()) {
+    // Live records are never lost-patched, same invariant as findChatgptRun.
+    if (!chatgptRuns.has(run.run_id) && (patchLostChatgptRun(run) || classifyStoredChatgptRun(run))) {
+      chatgptRuns.set(run.run_id, run);
+      persistChatgptRun(run);
+    }
+    runs.push({
+      run_id: run.run_id,
+      status: run.status,
+      started_at: run.started_at,
+      finished_at: run.finished_at ?? null,
+      conversation_id: run.conversation_id ?? null,
+    });
+  }
+  runs.sort((a, b) => String(b.started_at).localeCompare(String(a.started_at)));
+  return { runs };
+}
+
 function chatgptRunStatus(run) {
+  const events = Array.isArray(run.events) ? run.events : [];
+  const lastEvent = events[events.length - 1] ?? null;
+  const lastActivityAt = [run.last_activity_at, run.finished_at]
+    .filter((value) => typeof value === "string")
+    .sort()
+    .pop() ?? run.started_at;
   return {
     run_id: run.run_id,
     status: run.status,
@@ -2007,6 +2162,18 @@ function chatgptRunStatus(run) {
     started_at: run.started_at,
     finished_at: run.finished_at ?? null,
     error: run.error ?? null,
+    question: run.question ?? null,
+    blocker: run.blocker ?? null,
+    outcome_reason: run.outcome_reason ?? null,
+    last_activity_at: lastActivityAt,
+    phase: run.status !== "running"
+      ? "finished"
+      : lastEvent === null
+        ? "starting"
+        : lastEvent.type === "job.start"
+          ? "job"
+          : "tool",
+    events_tail: events.slice(-20),
   };
 }
 
@@ -3373,6 +3540,18 @@ async function dispatchTool(name, args) {
       return { ...(run.result ?? {}), ...chatgptRunStatus(run) };
     }
 
+    case "chatgpt_conversation_events": {
+      const run = await findChatgptRun(args);
+      await audit(name, args, { ok: true, runId: run.run_id, runStatus: run.status });
+      return { run_id: run.run_id, status: run.status, events: Array.isArray(run.events) ? run.events : [] };
+    }
+
+    case "chatgpt_conversation_list": {
+      const listed = await listChatgptRuns();
+      await audit(name, args, { ok: true, runCount: listed.runs.length });
+      return listed;
+    }
+
     case "chrome_workspace_setup": {
       const poolSize = optionalInteger(args, "pool_size", BACKGROUND_CHROME_DEFAULT_POOL_SIZE, 1, BACKGROUND_CHROME_MAX_POOL_SIZE);
       return await callBackgroundChromeLocal(name, "workspace.init", { poolSize });
@@ -3510,6 +3689,9 @@ async function dispatchTool(name, args) {
           detached: true,
           stdio: ["ignore", stdoutFd, stderrFd],
         });
+        // Attached before the first await: a job that exits during the metadata write
+        // would otherwise emit 'exit' with nobody listening and never show job.exit.
+        child.once("exit", (code, signal) => recordChatgptRunEvent({ type: "job.exit", job_id: id, exit_code: code, signal }));
         await new Promise((resolve, reject) => {
           child.once("spawn", resolve);
           child.once("error", reject);
@@ -3543,6 +3725,7 @@ async function dispatchTool(name, args) {
           `Could not record job metadata, so the job was killed rather than left unreclaimable: ${metadataError?.message || metadataError}`,
         );
       }
+      recordChatgptRunEvent({ type: "job.start", job_id: id, label });
       await audit(name, args, { jobId: id, pid: child.pid });
       return { ...metadata, running: processRunning(child.pid) };
     }
@@ -4277,6 +4460,8 @@ async function handleMessage(message) {
     }
     try {
       const value = await dispatchTool(name, args);
+      // Polling a run is not activity by that run, so it never lands in its own feed.
+      if (!name.startsWith("chatgpt_conversation_")) recordChatgptRunEvent({ type: "tool", name, ok: true });
       // Discriminated escape for federated results. toolTextResult flattens
       // everything into one text block plus structuredContent, which is right for
       // the bridge's own 22 tools and destroys image, audio and resource content
@@ -4296,6 +4481,7 @@ async function handleMessage(message) {
         : toolTextResult(value, { modern }));
     } catch (error) {
       stderr(`tool ${name} failed: ${error?.stack || error}`);
+      if (!name.startsWith("chatgpt_conversation_")) recordChatgptRunEvent({ type: "tool", name, ok: false, code: error?.code ?? null });
       await audit(name, args, {}, error);
       // Include `code`. The pty taxonomy (PTY_WRITE_CANON_LIMIT and 14 others) was
       // built, documented in README, and then discarded here — no client could ever see

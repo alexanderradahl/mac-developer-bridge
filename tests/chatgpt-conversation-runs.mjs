@@ -65,13 +65,19 @@ function startFakeExtensionHost() {
       const failure = message.method === "tabs.chatgptConversationStart" && message.args?.prompt?.startsWith("fail:")
         ? { code: message.args.prompt.slice(5), message: "stubbed failure", conversation_id: "conversation-partial" }
         : null;
+      // A "reply:" prompt dictates the assistant text, with literal \n sequences turned
+      // into newlines, so outcome classification can be exercised end to end.
+      const prompt = message.args?.prompt ?? "";
+      const assistantText = prompt.startsWith("reply:")
+        ? prompt.slice("reply:".length).replace(/\\n/g, "\n")
+        : "async stub response";
       const result = message.method === "tabs.chatgptConversationStart"
         ? {
           ok: true,
           complete: true,
           conversation_id: "conversation-async",
           assistant_message_id: "assistant-async",
-          assistant_text: "async stub response",
+          assistant_text: assistantText,
           usage: { total_tokens: 7 },
         }
         : { echoedMethod: message.method, echoedArgs: message.args };
@@ -229,6 +235,12 @@ try {
     started_at: started.started_at,
     finished_at: null,
     error: null,
+    question: null,
+    blocker: null,
+    outcome_reason: null,
+    last_activity_at: started.started_at,
+    phase: "starting",
+    events_tail: [],
   });
   assert.deepEqual(started, runningResult, "wait:false start and a running result share one shape");
   assert.equal("assistant_text" in runningResult, false);
@@ -290,6 +302,92 @@ try {
   assert.equal(failedResult.status, "failed");
   assert.equal("assistant_text" in failedResult, false);
 
+  // A finished turn that asks for something instead of delivering the work is reported
+  // as needs-input, with the typed reason it was detected by.
+  async function finishedRunFor(prompt) {
+    const run = toolResult(await bridgeTool(bridge, "chatgpt_conversation_start", { prompt, wait: false }));
+    return { run, status: await waitForFinishedRun(run.run_id) };
+  }
+
+  const trailing = await finishedRunFor("reply:Which port should I use?");
+  assert.equal(trailing.status.status, "needs-input");
+  assert.equal(trailing.status.question, "Which port should I use?");
+  assert.equal(trailing.status.blocker, null);
+  assert.equal(trailing.status.outcome_reason, "trailing_question");
+  const trailingResult = toolResult(await bridgeTool(bridge, "chatgpt_conversation_result", { run_id: trailing.run.run_id }));
+  assert.equal(trailingResult.assistant_text, "Which port should I use?");
+  assert.equal(trailingResult.status, "needs-input");
+
+  const explicit = await finishedRunFor("reply:Done.\\nBLOCKER: tests need a token");
+  assert.equal(explicit.status.status, "needs-input");
+  assert.equal(explicit.status.blocker, "tests need a token");
+  assert.equal(explicit.status.question, null);
+  assert.equal(explicit.status.outcome_reason, "explicit_signal");
+
+  const stopPhrase = await finishedRunFor("reply:Full acceptance remains blocked. See HANDOFF.");
+  assert.equal(stopPhrase.status.status, "needs-input");
+  assert.equal(stopPhrase.status.outcome_reason, "stop_phrase");
+  assert.match(stopPhrase.status.blocker, /remains blocked/);
+
+  const plainDone = await finishedRunFor("reply:All done.");
+  assert.equal(plainDone.status.status, "completed");
+  assert.equal(plainDone.status.question, null);
+  assert.equal(plainDone.status.blocker, null);
+  assert.equal(plainDone.status.outcome_reason, null);
+
+  // Activity feed: work the run causes while it is in flight is attributed to it, and
+  // polling the run is not work.
+  const activity = toolResult(await bridgeTool(bridge, "chatgpt_conversation_start", { prompt: "activity probe", wait: false }));
+  toolResult(await bridgeTool(bridge, "shell_exec", { command: "true" }));
+  toolResult(await bridgeTool(bridge, "shell_start", { command: "exit 3" }));
+  const activityDeadline = Date.now() + HOST_DELAY_MS + 5_000;
+  let activityStatus;
+  for (;;) {
+    activityStatus = toolResult(await bridgeTool(bridge, "chatgpt_conversation_status", { run_id: activity.run_id }));
+    const events = activityStatus.events_tail;
+    const jobExit = events.find((event) => event.type === "job.exit");
+    if (events.some((event) => event.type === "tool" && event.name === "shell_exec" && event.ok === true)
+      && events.some((event) => event.type === "job.start")
+      && jobExit) {
+      assert.equal(jobExit.exit_code, 3);
+      break;
+    }
+    if (Date.now() >= activityDeadline) throw new Error(`timed out waiting for run activity: ${JSON.stringify(events)}`);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  assert.ok(
+    activityStatus.status === "running"
+      ? ["tool", "job"].includes(activityStatus.phase)
+      : activityStatus.phase === "finished",
+    `unexpected phase ${activityStatus.phase} for status ${activityStatus.status}`,
+  );
+  const activityFinished = await waitForFinishedRun(activity.run_id);
+  assert.equal(activityFinished.status, "completed");
+  assert.equal(activityFinished.phase, "finished");
+  assert.ok(Date.parse(activityFinished.last_activity_at) > Date.parse(activityFinished.started_at));
+  const activityEvents = toolResult(await bridgeTool(bridge, "chatgpt_conversation_events", { run_id: activity.run_id }));
+  const activityEventsAgain = toolResult(await bridgeTool(bridge, "chatgpt_conversation_events", { run_id: activity.run_id }));
+  assert.equal(activityEventsAgain.events.length, activityEvents.events.length, "polling must not record activity");
+  assert.deepEqual(activityFinished.events_tail, activityEvents.events.slice(-20));
+  const lastEvent = activityEvents.events.at(-1);
+  assert.equal(lastEvent.type, "assistant");
+  assert.equal(lastEvent.text, "async stub response");
+
+  const listed = toolResult(await bridgeTool(bridge, "chatgpt_conversation_list"));
+  const listedById = new Map(listed.runs.map((run) => [run.run_id, run]));
+  assert.equal(listedById.get(started.run_id).status, "completed");
+  assert.equal(listedById.get(timedOut.run_id).status, "timed_out");
+  assert.equal(listedById.get(failed.run_id).status, "failed");
+  assert.equal(listedById.get(trailing.run.run_id).status, "needs-input");
+  assert.equal(listedById.get(activity.run_id).conversation_id, "conversation-async");
+  for (let index = 1; index < listed.runs.length; index += 1) {
+    assert.ok(listed.runs[index - 1].started_at >= listed.runs[index].started_at, "runs are listed newest first");
+  }
+
+  const advertised = (await bridge.request("tools/list", { _meta: modernMeta })).result.tools.map((tool) => tool.name);
+  assert.ok(advertised.includes("chatgpt_conversation_events"));
+  assert.ok(advertised.includes("chatgpt_conversation_list"));
+
   // A run whose bridge exits mid-turn can never finish; the next bridge reports it lost.
   const lost = toolResult(await bridgeTool(bridge, "chatgpt_conversation_start", { prompt: "restart mid-turn", wait: false }));
   await waitForPersistedRun(lost.run_id, "running");
@@ -302,6 +400,14 @@ try {
   const lostResult = toolResult(await bridgeTool(bridge, "chatgpt_conversation_result", { run_id: lost.run_id }));
   assert.equal(lostResult.status, "failed");
   assert.equal("assistant_text" in lostResult, false);
+
+  // Runs the restarted bridge never held in memory are still listed from their files.
+  const listedAfterRestart = toolResult(await bridgeTool(bridge, "chatgpt_conversation_list"));
+  const afterRestartById = new Map(listedAfterRestart.runs.map((run) => [run.run_id, run]));
+  assert.equal(afterRestartById.get(lost.run_id).status, "failed");
+  assert.equal(afterRestartById.get(started.run_id).status, "completed");
+  assert.equal(afterRestartById.get(trailing.run.run_id).status, "needs-input");
+  assert.ok(afterRestartById.size >= listedById.size);
 
   const auditLog = await fs.readFile(auditFile, "utf8");
   assert.equal(auditLog.includes(distinctivePrompt), false);

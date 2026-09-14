@@ -93,8 +93,10 @@ Git, package managers, Vercel CLI, database CLIs, AppleScript, browser CLIs, bui
 | `chrome_workspace_status` | Inspect the extension-owned `MDB` Chrome group, lease activity, and reusable background-tab pool; no website grant required |
 | `chatgpt_extension_status` | Inspect the installed ChatGPT Chrome extension, OpenAI native-host registration, and live read-only page-bridge status without patching the OpenAI extension |
 | `chatgpt_conversation_start` | Experimentally start or continue one exact ChatGPT conversation through the signed-in page's first-party runtime action; no UI typing/clicking or credential export; pass `wait: false` to get a `run_id` back immediately instead of blocking for the whole turn |
-| `chatgpt_conversation_status` | Poll a `wait: false` run: `running`, `completed`, `failed`, or `timed_out`, plus conversation id, timestamps, and error; finished runs survive a bridge restart |
+| `chatgpt_conversation_status` | Poll a `wait: false` run: `running`, `completed`, `needs-input`, `failed`, or `timed_out`, plus conversation id, timestamps, error, the detected `question`/`blocker`/`outcome_reason`, last activity, phase, and the newest events; finished runs survive a bridge restart |
 | `chatgpt_conversation_result` | Fetch the finished `wait: false` run's payload (assistant text, conversation id, usage when available); returns only `status: "running"` while the turn is still in progress |
+| `chatgpt_conversation_events` | Read a `wait: false` run's full activity feed: the tool calls it made, background job starts and exits, and its final message; polling is not recorded |
+| `chatgpt_conversation_list` | List every retained `wait: false` run, newest first, merging the in-memory registry over the run files left by earlier bridge processes |
 | `chrome_workspace_setup` | Provision a growth-only `MDB` pool target from 1 to 32 tabs; default is eight, with creation deferred until Chrome is naturally focused |
 | `chrome_tabs` | List tabs in the real signed-in Chrome profile without activating Chrome; scoped only when Strict approvals is on |
 | `chrome_open` | Lease an idle tab from the persistent `MDB` group and open a URL without creating a new tab |
@@ -191,6 +193,8 @@ curl --fail-with-body \
 That route accepts only a direct loopback connection with the static MDB bearer. It rejects OAuth credentials and forwarded/tunnel requests, returns `Cache-Control: no-store`, and wraps the exact MCP operation rather than exposing the Chrome native-host socket.
 
 #### Experimental ChatGPT browser model
+
+`chatgpt-runtime/chatgpt-gpt6` adds ChatGPT's mounted `gpt-6-pro` runtime as another separate model. Its catalog window is 410,000 tokens, matching the signed-in runtime configuration observed on September 4, 2026, and its thinking effort is fixed at `standard`. It uses the same stateless tool protocol and configured Project binding described below; it does not change defaults or fallback chains.
 
 MDB also exposes a separate static-bearer, direct-loopback `POST /v1/responses` adapter for the explicit OpenCodex models `chatgpt-runtime/chatgpt-browser` and `chatgpt-runtime/chatgpt-sol`. The first uses the fixed-standard browser runtime. The Sol entry activates ChatGPT's mounted `gpt-5-6-thinking` model and maps Codex effort levels as `low -> low`, `medium -> standard`, `high -> high`, `xhigh -> max`, `max -> max`, and `ultra -> max`. The adapter rebuilds each stateless turn from Responses instructions/input, presents supported `function` and `custom` tools to the ChatGPT runtime through a fixed JSON decision protocol, and converts a validated message or tool selection back into canonical Responses JSON/SSE output. Codex remains responsible for executing local tools and replaying their results on the next turn.
 

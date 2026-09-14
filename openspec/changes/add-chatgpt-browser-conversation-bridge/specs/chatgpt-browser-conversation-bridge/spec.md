@@ -57,3 +57,18 @@ The system MUST replace the prompt with byte length and a hash prefix before aud
 #### Scenario: Full audit mode
 - **WHEN** `MAC_DEV_BRIDGE_AUDIT_MODE=full` and the conversation tool succeeds or fails
 - **THEN** the audit entry contains no prompt plaintext and retains only bounded correlation metadata
+
+### Requirement: Report why an asynchronous run ended and whether it is alive
+`chatgpt_conversation_status` SHALL report `needs-input` (with `question`, `blocker`, and a typed `outcome_reason`) when the final assistant message carries an explicit `NEEDS_INPUT:`/`BLOCKER:` line, ends with a question, or states it stopped; SHALL expose `last_activity_at`, `phase`, and the last 20 events; and the bridge SHALL expose `chatgpt_conversation_events` (full event list) and `chatgpt_conversation_list` (every known run, including persisted ones).
+
+#### Scenario: Assistant asks a question
+- **WHEN** the turn's final message ends with a question mark or contains a `NEEDS_INPUT:` line
+- **THEN** status is `needs-input` and `question` carries that text
+
+#### Scenario: Caller detects a stalled run
+- **WHEN** the caller polls status during a run
+- **THEN** `last_activity_at` advances with each tool call, job start, and job exit, and status polls themselves add no event
+
+#### Scenario: New caller session re-finds runs
+- **WHEN** `chatgpt_conversation_list` is called after a bridge restart
+- **THEN** every persisted run is returned with id, status, timestamps, and conversation id

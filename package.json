@@ -1,6 +1,6 @@
 {
   "name": "mac-developer-bridge",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "type": "module",
   "description": "Give ChatGPT a real terminal on your Mac. Zero-dependency local MCP bridge for shell, files, PTY sessions, jobs, and Codex history.",
   "scripts": {

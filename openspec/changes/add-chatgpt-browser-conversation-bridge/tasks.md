@@ -13,3 +13,9 @@
 - [x] 3.1 Add unit and integration coverage for payload bounds, secret-field rejection, audit redaction, route authentication, and normalized results.
 - [x] 3.2 Document setup, semantics, limitations, and the explicit non-provider boundary for OpenCodex/Work Mode.
 - [x] 3.3 Run syntax checks, the focused test suite, full tests where practical, OpenSpec validation, and one bounded live probe after reloading MDB.
+
+## 4. Run outcome and activity (0.3.0)
+
+- [x] 4.1 Classify `needs-input` from the final assistant message (explicit `NEEDS_INPUT:`/`BLOCKER:` lines, trailing question, bounded stop phrases).
+- [x] 4.2 Record tool calls, background job start/exit, and the final assistant message as run events; expose `last_activity_at`, `phase`, `events_tail`, and `chatgpt_conversation_events`.
+- [x] 4.3 Add `chatgpt_conversation_list` over in-memory and persisted runs; tests, README, 0.3.0 bump.
