@@ -1523,6 +1523,11 @@ const federation = createFederation({
   writeJobMetadata,
   version: BRIDGE_VERSION,
   approvalFile: PERSONAL_BROWSER_APPROVAL_FILE,
+  // GUI-launched HTTP mode has no shell environment to inherit, so use a
+  // durable operator registry in the bridge data directory by default.
+  // An explicit environment variable still wins when supplied.
+  registryPath: process.env.MAC_DEV_BRIDGE_MCP_SERVERS
+    || path.join(APP_SUPPORT_DIR, "mcp-servers.json"),
   // Collisions with a built-in tool are rejected at startup rather than
   // shadowing one silently at call time.
   reservedToolNames: TOOLS.map((tool) => tool.name),
@@ -3991,7 +3996,7 @@ async function handleMessage(message) {
     sendResult(id, {
       resultType: "complete",
       supportedVersions: [MODERN_PROTOCOL, "2025-11-25", "2025-06-18"],
-      capabilities: { tools: { listChanged: false } },
+      capabilities: { tools: { listChanged: false }, resources: { listChanged: false, subscribe: false } },
       instructions: "This bridge has unrestricted access under the host macOS user. Prefer codex_thread_read over invoking Codex model turns. Use shell_start for long-running commands. Relaxed access is the default: routine HTTP/HTTPS work through the signed-in MDB Chrome workspace and non-Chrome foreground desktop-app control do not require per-site/per-app approval files. Direct Chrome AppleScript/JXA, direct Chrome executable launches, and shell web-open commands are always blocked in both Relaxed and Strict modes; Chrome web work must use the chrome_* MDB background tools. Prefer background browser/API paths so the operator keeps focus. If the operator enables Strict approvals in the menu-bar app, scoped browser and non-Chrome foreground-app approvals are required until they turn it off. Do not print secrets unless the user explicitly requests them.",
       ttlMs: 3_600_000,
       cacheScope: "private",
@@ -4009,7 +4014,7 @@ async function handleMessage(message) {
     const negotiatedProtocol = LEGACY_PROTOCOLS.has(requested) ? requested : "2025-11-25";
     sendResult(id, {
       protocolVersion: negotiatedProtocol,
-      capabilities: { tools: { listChanged: false } },
+      capabilities: { tools: { listChanged: false }, resources: { listChanged: false, subscribe: false } },
       serverInfo: serverInfo(),
       instructions: "This bridge runs without a filesystem sandbox or command allowlist. Effective permissions equal the macOS user running it. Prefer codex_thread_read for persisted Codex history without model usage. On macOS, use the MDB chrome_* background workspace for normal logged-in web work and prefer APIs/connectors over native UI automation. Direct Chrome AppleScript/JXA, direct Chrome executable launches, and shell web-open commands are always refused so Chrome cannot bypass the MDB group or steal focus. Relaxed access is the default and removes approval ceremony; Strict approvals is an operator-controlled optional mode for URL scopes and non-Chrome foreground apps.",
     });
@@ -4024,6 +4029,36 @@ async function handleMessage(message) {
 
   if (method === "ping") {
     sendResult(id, completeResult({}, modern));
+    return;
+  }
+
+  if (method === "resources/list") {
+    await federationReady;
+    sendResult(id, completeResult(
+      { resources: federation.listResources() },
+      modern,
+      modern ? { ttlMs: 300_000, cacheScope: "private" } : null,
+    ));
+    return;
+  }
+
+  if (method === "resources/read") {
+    const uri = message?.params?.uri;
+    if (typeof uri !== "string" || uri.length === 0) {
+      sendError(id, -32602, "Invalid params: resource uri is required");
+      return;
+    }
+    await federationReady;
+    if (!federation.hasResource(uri)) {
+      sendError(id, -32002, `Unknown resource: ${uri}`);
+      return;
+    }
+    try {
+      const value = await federation.readResource(uri);
+      sendResult(id, completeResult(value, modern));
+    } catch (error) {
+      sendError(id, -32002, error?.message || String(error));
+    }
     return;
   }
 

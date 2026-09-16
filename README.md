@@ -289,7 +289,7 @@ These are read by `bridge.mjs` on both transports.
 | `MAC_DEV_BRIDGE_PTY_IDLE_TIMEOUT_MS` | `900000` (1 s–1 h) | Idle reclaim window, and a **ceiling**: `pty_start` may request a shorter one, never a longer. A live session's effective value is in `bridge_status`. |
 | `MAC_DEV_BRIDGE_PTY_MAX_LIFETIME_MS` | `28800000` (5 s–24 h) | Hard ceiling, enforced even on an actively used session. |
 | `MAC_DEV_BRIDGE_PTY_START_TIMEOUT_MS` | `5000` | How long `pty_start` waits for the helper to report a real pty. |
-| `MAC_DEV_BRIDGE_MCP_SERVERS` | — | Path to a child-MCP provider registry JSON file. |
+| `MAC_DEV_BRIDGE_MCP_SERVERS` | `$DATA_DIR/mcp-servers.json` | Path to a child-MCP provider registry JSON file. An explicit environment value overrides the data-directory default. |
 | `MAC_DEV_BRIDGE_MCP_SERVERS_JSON` | — | The same registry inline. Takes precedence. |
 | `MAC_DEV_BRIDGE_MCP_START_DEADLINE_MS` | `15000` (1 s–120 s) | Wall-clock ceiling on one provider's whole startup — handshake, grant check, and every `tools/list` page. A provider that exceeds it is abandoned rather than left holding up the tool surface. |
 | `MAC_DEV_BRIDGE_MCP_PING_IDLE_MS` | `30000` | Idle interval after which a federated child is pinged; a child that fails the ping is treated as hung and restarted. |

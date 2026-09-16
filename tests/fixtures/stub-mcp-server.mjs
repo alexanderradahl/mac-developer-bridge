@@ -16,6 +16,7 @@ const PAGINATE = process.env.STUB_PAGINATE === "1";
 const GARBAGE = process.env.STUB_GARBAGE === "1";
 const HUGE_LINE = process.env.STUB_HUGE_LINE === "1";
 const LONG_TOOL = process.env.STUB_LONG_TOOL === "1";
+const RESOURCES = process.env.STUB_RESOURCES === "1";
 const NAME = process.env.STUB_NAME || "stub-mcp-server";
 // A slow-but-alive provider. Every tools/list page is answered after a delay, so
 // the gateway's own per-request timeout never fires and the cost is paid page by
@@ -90,7 +91,19 @@ if (process.env.STUB_ESCAPEE_PID_FILE) {
 const SCHEMA = { $schema: "http://json-schema.org/draft-07/schema#", type: "object", properties: {}, additionalProperties: true };
 
 const TOOLS = [
-  { name: "echo", description: "Echo the given text back.", inputSchema: SCHEMA, annotations: { readOnlyHint: true, category: "stub" }, execution: { kind: "immediate" } },
+  {
+    name: "echo",
+    description: "Echo the given text back.",
+    inputSchema: SCHEMA,
+    annotations: { readOnlyHint: true, category: "stub" },
+    execution: { kind: "immediate" },
+    ...(RESOURCES ? {
+      _meta: {
+        ui: { resourceUri: "ui://widget/stub.html" },
+        "openai/outputTemplate": "ui://widget/stub.html",
+      },
+    } : {}),
+  },
   { name: "image", description: "Return a text block and an image block.", inputSchema: SCHEMA, annotations: { readOnlyHint: true } },
   { name: "blobres", description: "Return an embedded resource carrying a blob.", inputSchema: SCHEMA },
   { name: "structured", description: "Return structuredContent, isError and an unknown content type.", inputSchema: SCHEMA },
@@ -205,6 +218,17 @@ if (HUGE_LINE) {
   process.stdout.write(`${"Z".repeat(Number(process.env.STUB_HUGE_LINE_BYTES || 9 * 1024 * 1024))}\n`);
 }
 
+const CAPABILITIES = {
+  tools: { listChanged: false },
+  ...(RESOURCES ? { resources: { listChanged: false } } : {}),
+};
+
+const STUB_RESOURCE = {
+  uri: "ui://widget/stub.html",
+  name: "Stub widget",
+  mimeType: "text/html;profile=mcp-app",
+};
+
 const rl = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });
 rl.on("line", async (line) => {
   const trimmed = line.trim();
@@ -242,11 +266,11 @@ rl.on("line", async (line) => {
         send({ jsonrpc: "2.0", id, error: { code: -32022, message: "Unsupported protocol version", data: { supported: ["2026-11-01"] } } });
         return;
       }
-      send({ jsonrpc: "2.0", id, result: { resultType: "complete", supportedVersions: ["2026-11-01"], capabilities: { tools: { listChanged: false } }, serverInfo: { name: NAME, version: "0.0.1" } } });
+      send({ jsonrpc: "2.0", id, result: { resultType: "complete", supportedVersions: ["2026-11-01"], capabilities: CAPABILITIES, serverInfo: { name: NAME, version: "0.0.1" } } });
       return;
     }
     if (ERA === "modern") {
-      send({ jsonrpc: "2.0", id, result: { resultType: "complete", supportedVersions: ["2026-07-28"], capabilities: { tools: { listChanged: false } }, serverInfo: { name: NAME, version: "0.0.1" } } });
+      send({ jsonrpc: "2.0", id, result: { resultType: "complete", supportedVersions: ["2026-07-28"], capabilities: CAPABILITIES, serverInfo: { name: NAME, version: "0.0.1" } } });
       return;
     }
     send({ jsonrpc: "2.0", id, error: { code: -32601, message: "Method not found" } });
@@ -259,7 +283,7 @@ rl.on("line", async (line) => {
       send({ jsonrpc: "2.0", id, result: { protocolVersion: "1999-01-01", capabilities: {}, serverInfo: { name: NAME, version: "0.0.1" } } });
       return;
     }
-    send({ jsonrpc: "2.0", id, result: { protocolVersion: "2025-06-18", capabilities: { tools: {} }, serverInfo: { name: NAME, version: "0.0.1" } } });
+    send({ jsonrpc: "2.0", id, result: { protocolVersion: "2025-06-18", capabilities: CAPABILITIES, serverInfo: { name: NAME, version: "0.0.1" } } });
     return;
   }
 
@@ -275,6 +299,37 @@ rl.on("line", async (line) => {
     // process-only health check reports "healthy".
     if (process.env.STUB_DEAF_PING === "1") return;
     send({ jsonrpc: "2.0", id, result: {} });
+    return;
+  }
+  if (method === "resources/list") {
+    if (!RESOURCES) {
+      send({ jsonrpc: "2.0", id, error: { code: -32601, message: "Method not found" } });
+      return;
+    }
+    send({ jsonrpc: "2.0", id, result: { resources: [STUB_RESOURCE] } });
+    return;
+  }
+  if (method === "resources/read") {
+    if (!RESOURCES) {
+      send({ jsonrpc: "2.0", id, error: { code: -32601, message: "Method not found" } });
+      return;
+    }
+    if (params?.uri !== STUB_RESOURCE.uri) {
+      send({ jsonrpc: "2.0", id, error: { code: -32602, message: `Unknown resource: ${params?.uri}` } });
+      return;
+    }
+    send({
+      jsonrpc: "2.0",
+      id,
+      result: {
+        contents: [{
+          uri: STUB_RESOURCE.uri,
+          mimeType: STUB_RESOURCE.mimeType,
+          text: '<div id="stub-widget">stub widget</div>',
+          _meta: { ui: { prefersBorder: true } },
+        }],
+      },
+    });
     return;
   }
   if (method === "tools/list") {
