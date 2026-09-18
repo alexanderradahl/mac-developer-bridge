@@ -20,6 +20,7 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const bridgePath = path.resolve(here, "..", "bridge.mjs");
 const disablePath = path.resolve(here, "..", "scripts", "disable.sh");
 const stubPath = path.join(here, "fixtures", "stub-mcp-server.mjs");
+const httpFixturePath = path.join(here, "fixtures", "http-mcp-server.mjs");
 // macOS: /var is a symlink to /private/var, so an unresolved temp path and the
 // path a child reports back are different strings for the same directory.
 const temporaryRoot = await fsp.realpath(await fsp.mkdtemp(path.join(os.tmpdir(), "mac-developer-bridge-federation-")));
@@ -86,6 +87,35 @@ function stubProvider(overrides = {}) {
   };
 }
 
+async function startHttpFixture({ collide = false, port = 0, env = {} } = {}) {
+  const portFile = path.join(temporaryRoot, `http-mcp-${crypto.randomBytes(6).toString("hex")}.port`);
+  const child = spawn(process.execPath, [httpFixturePath], {
+    env: {
+      ...process.env,
+      HTTP_MCP_COLLIDE: collide ? "1" : undefined,
+      HTTP_MCP_PORT: port ? String(port) : undefined,
+      HTTP_MCP_PORT_FILE: portFile,
+      ...env,
+    },
+    stdio: "ignore",
+  });
+  spawnedPids.add(child.pid);
+  let deadline = Date.now() + 3_000;
+  while (Date.now() < deadline) {
+    if (child.exitCode !== null) throw new Error(`HTTP MCP fixture exited with ${child.exitCode}`);
+    try {
+      const text = await fsp.readFile(portFile, "utf8");
+      const resolvedPort = Number.parseInt(text.trim(), 10);
+      if (Number.isInteger(resolvedPort)) return { child, port: resolvedPort, portFile };
+    } catch (error) {
+      if (error.code !== "ENOENT") throw error;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  child.kill("SIGKILL");
+  throw new Error("HTTP MCP fixture did not report its port");
+}
+
 async function poll(predicate, { attempts = 100, delayMs = 100, label = "condition" } = {}) {
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     const value = await predicate();
@@ -101,7 +131,7 @@ function textOf(result) {
 
 let bridgeCounter = 0;
 
-async function startBridge({ recheckMs = "400", providerEnv = {} } = {}) {
+async function startBridge({ recheckMs = "400", providerEnv = {}, providers = null } = {}) {
   bridgeCounter += 1;
   const dataDir = path.join(temporaryRoot, `bridge-${bridgeCounter}`);
   const logDir = path.join(dataDir, "logs");
@@ -117,7 +147,7 @@ async function startBridge({ recheckMs = "400", providerEnv = {} } = {}) {
       MAC_DEV_BRIDGE_UNLOCK_FILE: unlockFile,
       MAC_DEV_BRIDGE_AUDIT_MODE: "metadata",
       MAC_DEV_BRIDGE_MCP_SERVERS_JSON: JSON.stringify({
-        providers: [{ key: "stub", command: process.execPath, args: [stubPath], env: providerEnv, mode: "isolated" }],
+        providers: providers || [{ key: "stub", command: process.execPath, args: [stubPath], env: providerEnv, mode: "isolated" }],
       }),
       MAC_DEV_BRIDGE_UNLOCK_RECHECK_MS: recheckMs,
     },
@@ -127,12 +157,16 @@ async function startBridge({ recheckMs = "400", providerEnv = {} } = {}) {
   let bridgeStderr = "";
   child.stderr.on("data", (chunk) => { bridgeStderr += chunk.toString(); });
   const pending = new Map();
+  const notifications = [];
   let nextId = 1;
   readline.createInterface({ input: child.stdout, crlfDelay: Infinity }).on("line", (line) => {
     let message;
     try { message = JSON.parse(line); } catch { return; }
     const entry = pending.get(message.id);
-    if (!entry) return;
+    if (!entry) {
+      if (message.method) notifications.push(message);
+      return;
+    }
     clearTimeout(entry.timer);
     pending.delete(message.id);
     entry.resolve(message);
@@ -158,6 +192,7 @@ async function startBridge({ recheckMs = "400", providerEnv = {} } = {}) {
     exited,
     dataDir,
     unlockFile,
+    notifications,
     get stderr() { return bridgeStderr; },
   };
 }
@@ -237,6 +272,261 @@ try {
     assert.equal(status.providers[0].state, "failed");
     assert.match(status.providers[0].lastError, /collides with a built-in bridge tool/);
     assert.equal(federation.hasTool("stub__echo"), false, "a colliding provider must not shadow the built-in tool");
+  }
+
+  // --- 4a. HTTP providers resolve, call, fail locally, and recover ----------
+  {
+    const fixture = await startHttpFixture();
+    const federation = await makeFederation([
+      stubProvider({ key: "native" }),
+      { key: "remote", transport: "http", url: `http://127.0.0.1:${fixture.port}/mcp`, callTimeoutMs: 1_500 },
+    ]);
+    const provider = federation.status().providers.find((entry) => entry.key === "remote");
+    assert.equal(provider.state, "ready");
+    assert.equal(provider.transport, "http");
+    assert.equal(provider.endpoint, `http://127.0.0.1:${fixture.port}/mcp`);
+    assert.ok(federation.hasTool("remote__media_search"));
+    assert.ok(federation.hasTool("remote__plain"));
+    assert.equal(textOf(await federation.callTool("remote__media_search", { query: "cats" })), "search:cats");
+
+    fixture.child.kill("SIGTERM");
+    await poll(async () => fixture.child.exitCode !== null, { label: "the HTTP fixture to stop", attempts: 30, delayMs: 20 });
+    const failedLocally = await federation.callTool("remote__media_search", { query: "again" });
+    assert.equal(failedLocally.__isError, true);
+    assert.match(textOf(failedLocally), /Call to 'remote__media_search' failed: fetch failed/);
+    const unavailable = await federation.callTool("remote__media_search", { query: "again" });
+    assert.equal(unavailable.__isError, true);
+    assert.match(textOf(unavailable), /Provider 'remote' is unavailable/);
+    assert.equal(textOf(await federation.callTool("native__echo", { text: "still-native" })), "echo:still-native");
+
+    const replacement = await startHttpFixture({ port: fixture.port });
+    const recovered = await federation.callTool("remote__media_search", { query: "after-recovery" });
+    assert.equal(textOf(recovered), "search:after-recovery");
+    assert.equal(federation.status().providers.find((entry) => entry.key === "remote").state, "ready");
+    replacement.child.kill("SIGTERM");
+  }
+
+  // --- 4b. dotted child names get deterministic portable aliases -----------
+  {
+    const fixture = await startHttpFixture();
+    const federation = await makeFederation([{ key: "neox_phone", transport: "http", url: `http://127.0.0.1:${fixture.port}/mcp` }]);
+    assert.deepEqual(federation.listTools().map((tool) => tool.name).sort(), ["neox_phone__media_search", "neox_phone__plain"]);
+    assert.equal(textOf(await federation.callTool("neox_phone__media_search", { query: "target" })), "search:target");
+    assert.equal(textOf(await federation.callTool("neox_phone__plain", {})), "called:plain");
+    fixture.child.kill("SIGTERM");
+  }
+
+  // --- 4c. deterministic alias collisions reject the provider -------------
+  {
+    const fixture = await startHttpFixture({ collide: true });
+    const federation = await makeFederation([{ key: "collider", transport: "http", url: `http://127.0.0.1:${fixture.port}/mcp` }]);
+    const provider = federation.status().providers[0];
+    assert.equal(provider.state, "failed");
+    assert.match(provider.lastError, /duplicate normalized tool alias/);
+    assert.deepEqual(federation.listTools(), []);
+    fixture.child.kill("SIGTERM");
+  }
+
+  // --- 4c1. registry order owns cross-provider alias collisions ------------
+  {
+    const first = await makeFederation([
+      stubProvider({ key: "a", env: { STUB_EXTRA_TOOL: "b__c" } }),
+      stubProvider({ key: "a__b", env: { STUB_EXTRA_TOOL: "c" } }),
+    ]);
+    assert.equal(first.status().providers[0].state, "ready");
+    assert.equal(first.status().providers[1].state, "failed");
+    assert.ok(first.hasTool("a__b__c"));
+    assert.match(first.status().providers[1].lastError, /collides with provider 'a'/);
+
+    const reversed = await makeFederation([
+      stubProvider({ key: "a__b", env: { STUB_EXTRA_TOOL: "c" } }),
+      stubProvider({ key: "a", env: { STUB_EXTRA_TOOL: "b__c" } }),
+    ]);
+    assert.equal(reversed.status().providers[0].state, "ready");
+    assert.equal(reversed.status().providers[1].state, "failed");
+    assert.ok(reversed.hasTool("a__b__c"));
+    assert.match(reversed.status().providers[1].lastError, /collides with provider 'a__b'/);
+  }
+
+  // --- 4d. generic Bonjour discovery resolves the current endpoint ---------
+  {
+    const fixture = await startHttpFixture();
+    const originalDnsSd = __testing.executeDnsSd;
+    __testing.executeDnsSd = async (args) => {
+      if (args[1] === "-B") return "BROWSE\n0 eth0 IPv4 NeoXPhone ._mcp._tcp. local.\n";
+      return `LOOKUP\n0 NeoXPhone._mcp._tcp.local. can be reached via 127.0.0.1:${fixture.port} (interface 12)\n`;
+    };
+    try {
+      const federation = await makeFederation([{
+        key: "remote",
+        transport: "http",
+        discovery: { serviceType: "_mcp._tcp", serviceName: "NeoXPhone", path: "/mcp" },
+      }]);
+      const provider = federation.status().providers[0];
+      assert.equal(provider.endpoint, `http://127.0.0.1:${fixture.port}/mcp`);
+      assert.equal(provider.state, "ready");
+    } finally {
+      __testing.executeDnsSd = originalDnsSd;
+    }
+    fixture.child.kill("SIGTERM");
+  }
+
+  // --- 4e. an HTTP provider may appear after bridge startup ---------------
+  {
+    const first = await startHttpFixture();
+    const port = first.port;
+    first.child.kill("SIGTERM");
+    await poll(() => first.child.exitCode !== null, { attempts: 50, delayMs: 20, label: "the offline HTTP fixture to stop" });
+    let listChanged = 0;
+    const federation = await makeFederation([{
+      key: "late_http",
+      transport: "http",
+      url: `http://127.0.0.1:${port}/mcp`,
+    }], { extra: { onToolsChanged: () => { listChanged += 1; } } });
+    assert.deepEqual(federation.listTools(), [], "offline HTTP providers must not advertise fake schemas");
+    assert.equal(federation.status().providers[0].state, "reconnecting");
+    const replacement = await startHttpFixture({ port });
+    await poll(() => federation.hasTool("late_http__media_search"), { attempts: 100, delayMs: 50, label: "the offline HTTP provider to register after it appears" });
+    assert.ok(listChanged > 0, "a late registration must notify the parent tool surface");
+    assert.equal(textOf(await federation.callTool("late_http__media_search", { query: "late" })), "search:late");
+    replacement.child.kill("SIGTERM");
+  }
+
+  // --- 4f. parent capabilities and notification plumbing stay operational --
+  {
+    const first = await startHttpFixture();
+    const port = first.port;
+    first.child.kill("SIGTERM");
+    await poll(() => first.child.exitCode !== null, { attempts: 50, delayMs: 20, label: "the bridge's offline HTTP fixture to stop" });
+    const bridge = await startBridge({ providers: [{ key: "late_http", transport: "http", url: `http://127.0.0.1:${port}/mcp` }] });
+    const initialized = await bridge.request("initialize", { protocolVersion: "2025-06-18", clientInfo: { name: "federation-test", version: "1" }, capabilities: {} });
+    assert.equal(initialized.result.capabilities.tools.listChanged, true);
+    const initiallyListed = await bridge.request("tools/list");
+    assert.equal(initiallyListed.result.tools.some((tool) => tool.name === "late_http__media_search"), false);
+    const replacement = await startHttpFixture({ port });
+    await poll(() => bridge.notifications.some((message) => message.method === "notifications/tools/list_changed"), { attempts: 120, delayMs: 50, label: "the parent tools/list_changed notification" });
+    const listed = await bridge.request("tools/list");
+    assert.ok(listed.result.tools.some((tool) => tool.name === "late_http__media_search"));
+    const called = await bridge.request("tools/call", { name: "late_http__media_search", arguments: { query: "bridge" } });
+    assert.equal(called.result.content[0].text, "search:bridge");
+    replacement.child.kill("SIGTERM");
+  }
+
+  // --- 4g. Streamable HTTP framing, intermediate messages, and headers -----
+  {
+    const headersFile = path.join(temporaryRoot, "http-headers.log");
+    const fixture = await startHttpFixture({ env: {
+      HTTP_MCP_SSE: "1",
+      HTTP_MCP_MULTI_SSE: "1",
+      HTTP_MCP_SERVER_REQUEST: "1",
+      HTTP_MCP_WAIT_FOR_SERVER_REQUEST_REPLY: "1",
+      HTTP_MCP_REQUIRE_INITIALIZED_NOTIFICATION: "1",
+      HTTP_MCP_HEADERS_FILE: headersFile,
+    } });
+    const federation = await makeFederation([{ key: "stream", transport: "http", url: `http://127.0.0.1:${fixture.port}/mcp` }]);
+    const result = await federation.callTool("stream__plain", {});
+    assert.equal(textOf(result), "called:plain", "the final response must survive intermediate SSE messages");
+    const requests = (await fsp.readFile(headersFile, "utf8")).trim().split("\n").filter(Boolean).map((line) => JSON.parse(line));
+    const initialize = requests.find((entry) => entry.method === "initialize");
+    const initialized = requests.find((entry) => entry.method === "notifications/initialized");
+    const toolsList = requests.find((entry) => entry.method === "tools/list");
+    const toolsCall = requests.find((entry) => entry.method === "tools/call");
+    assert.equal(initialize.headers["mcp-protocol-version"], undefined, "the initialization request must not invent a protocol header");
+    assert.equal(initialized.headers["mcp-protocol-version"], "2025-06-18");
+    assert.equal(toolsList.headers["mcp-protocol-version"], "2025-06-18");
+    assert.equal(toolsCall.headers["mcp-protocol-version"], "2025-06-18");
+    assert.ok(toolsList.headers["mcp-session-id"]);
+    assert.ok(toolsCall.headers["mcp-session-id"]);
+    fixture.child.kill("SIGTERM");
+  }
+
+  // --- 4g2. refresh collisions are transactional -------------------------
+  {
+    const duplicate = await startHttpFixture({ env: {
+      HTTP_MCP_SSE: "1",
+      HTTP_MCP_REFRESH_ON_CALL: "1",
+      HTTP_MCP_REFRESH_TOOLS: "media.search,media_search,plain",
+    } });
+    const federation = await makeFederation([{ key: "refresh", transport: "http", url: `http://127.0.0.1:${duplicate.port}/mcp` }]);
+    const before = federation.listTools().map((tool) => tool.name);
+    assert.equal(textOf(await federation.callTool("refresh__plain", {})), "called:plain");
+    await poll(() => federation.status().providers[0].lastError?.includes("duplicate normalized tool alias"), { attempts: 50, delayMs: 20, label: "same-provider refresh collision" });
+    assert.equal(federation.status().providers[0].state, "ready");
+    assert.deepEqual(federation.listTools().map((tool) => tool.name), before, "a duplicate refresh must preserve the advertised surface");
+    assert.equal(textOf(await federation.callTool("refresh__plain", {})), "called:plain");
+    duplicate.child.kill("SIGTERM");
+
+    const first = await startHttpFixture({ env: { HTTP_MCP_TOOLS: "b__c" } });
+    const second = await startHttpFixture({ env: {
+      HTTP_MCP_SSE: "1",
+      HTTP_MCP_TOOLS: "plain",
+      HTTP_MCP_REFRESH_ON_CALL: "1",
+      HTTP_MCP_REFRESH_TOOLS: "c",
+    } });
+    const cross = await makeFederation([
+      { key: "a", transport: "http", url: `http://127.0.0.1:${first.port}/mcp` },
+      { key: "a__b", transport: "http", url: `http://127.0.0.1:${second.port}/mcp` },
+    ]);
+    const crossBefore = cross.listTools().map((tool) => tool.name);
+    assert.equal(textOf(await cross.callTool("a__b__plain", {})), "called:plain");
+    await poll(() => cross.status().providers.find((provider) => provider.key === "a__b").lastError?.includes("collides with provider 'a'"), { attempts: 50, delayMs: 20, label: "cross-provider refresh collision" });
+    assert.deepEqual(cross.listTools().map((tool) => tool.name), crossBefore, "a later provider must not release its old claim before a collision is validated");
+    assert.equal(textOf(await cross.callTool("a__b__plain", {})), "called:plain");
+    first.child.kill("SIGTERM");
+    second.child.kill("SIGTERM");
+  }
+
+  // --- 4g1. initialized notification failures block registration -----------
+  {
+    const fixture = await startHttpFixture({ env: { HTTP_MCP_FAIL_INITIALIZED_NOTIFICATION: "1" } });
+    const federation = await makeFederation([{ key: "initfail", transport: "http", url: `http://127.0.0.1:${fixture.port}/mcp` }]);
+    const provider = federation.status().providers[0];
+    assert.equal(provider.state, "failed");
+    assert.match(provider.lastError, /HTTP notification returned status 500/);
+    assert.deepEqual(federation.listTools(), []);
+    fixture.child.kill("SIGTERM");
+  }
+
+  // --- 4h. stale session ids restart the remote session and retry ----------
+  {
+    const fixture = await startHttpFixture({ env: { HTTP_MCP_STALE_SESSION: "1" } });
+    const federation = await makeFederation([{ key: "stale", transport: "http", url: `http://127.0.0.1:${fixture.port}/mcp` }]);
+    assert.ok(federation.hasTool("stale__plain"), "a 404 for a stale session must recover before tools/list completes");
+    assert.equal(textOf(await federation.callTool("stale__plain", {})), "called:plain");
+    fixture.child.kill("SIGTERM");
+  }
+
+  // --- 4h1. HTTP bodies are capped while the stream is being read ----------
+  {
+    const fixture = await startHttpFixture({ env: { HTTP_MCP_BIG_BYTES: "20000" } });
+    const federation = await makeFederation([{ key: "bounded", transport: "http", url: `http://127.0.0.1:${fixture.port}/mcp`, maxResultBytes: 1024 }]);
+    const result = await federation.callTool("bounded__plain", {});
+    assert.equal(result.__structured.code, "RESULT_TOO_LARGE");
+    assert.match(textOf(result), /HTTP result exceeds 1024 bytes/);
+    fixture.child.kill("SIGTERM");
+  }
+
+  // --- 4i. dns-sd browse and lookup are killed after their first match ------
+  {
+    const eventsFile = path.join(temporaryRoot, "dns-sd-events.log");
+    const dnsFixture = path.join(here, "fixtures", "dns-sd-live.mjs");
+    const originalDnsSd = __testing.executeDnsSd;
+    __testing.executeDnsSd = (args, timeoutMs, options) => originalDnsSd(
+      [process.execPath, dnsFixture, ...args.slice(1)],
+      timeoutMs,
+      { ...options },
+    );
+    process.env.DNS_SD_EVENTS_FILE = eventsFile;
+    try {
+      const endpoint = await __testing.resolveBonjourEndpoint({ serviceType: "_mcp._tcp", serviceName: "NeoXPhone", domain: "local", path: "/mcp" });
+      assert.equal(endpoint, "http://127.0.0.1:43123/mcp");
+    } finally {
+      __testing.executeDnsSd = originalDnsSd;
+      delete process.env.DNS_SD_EVENTS_FILE;
+    }
+    const events = (await fsp.readFile(eventsFile, "utf8")).trim().split("\n");
+    assert.equal(events.filter((line) => line.startsWith("start-")).length, 2);
+    assert.equal(events.filter((line) => line.startsWith("stop-")).length, 2, "both long-running dns-sd processes must be terminated and reaped");
   }
 
   // --- 5. child never answers initialize: failed, not hung -----------------
@@ -1214,6 +1504,34 @@ exec ${realPgrep} "$@"
 
   // --- 27. killNow reports containment honestly, and names survivors ------
   {
+    const midStartDataDir = path.join(temporaryRoot, "mid-start");
+    const midStartJobDir = path.join(midStartDataDir, "jobs");
+    await fsp.mkdir(midStartJobDir, { recursive: true, mode: 0o700 });
+    const midStartFederation = createFederation({
+      audit: noopAudit,
+      stderr: quietStderr(),
+      dataDir: midStartDataDir,
+      jobDir: midStartJobDir,
+      nowIso: () => new Date().toISOString(),
+      writeJobMetadata: async (metadata) => {
+        await fsp.writeFile(path.join(midStartJobDir, `${metadata.id}.json`), `${JSON.stringify(metadata)}\n`, { mode: 0o600 });
+      },
+      version: "test",
+      registryJson: JSON.stringify({ providers: [stubProvider({
+        key: "midstart",
+        env: { STUB_HELP_DELAY_MS: "1000" },
+        flagCheck: { args: [stubPath, "--help"], requireFlags: ["--allowedUrlPattern"], timeoutMs: 3_000 },
+      })] }),
+      registryPath: undefined,
+    });
+    federations.push(midStartFederation);
+    const midStartPromise = midStartFederation.start();
+    await poll(() => midStartFederation.status().providers[0]?.state === "starting", { attempts: 100, delayMs: 10, label: "provider to enter starting state" });
+    const [midStart] = midStartFederation.killAll();
+    assert.equal(midStart.pgid, null);
+    assert.equal(midStart.containmentVerified, false, "revocation during start must not claim containment before a child existed");
+    await midStartPromise;
+
     // A clean kill. Before the bounded retry this was false every single time:
     // the verdict was read one line after the SIGKILL, from
     // process.kill(-pgid, 0), against a child this process is the parent of and

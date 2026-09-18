@@ -137,6 +137,7 @@ const server = spawn(process.execPath, [TARGET], {
 });
 let stderr = "";
 let serverExit = null;
+let notificationServer = null;
 server.stderr.on("data", (d) => {
   stderr += d.toString();
 });
@@ -465,6 +466,13 @@ try {
   // --- misc ---------------------------------------------------------------
   assert.equal((await fetch(`${BASE}/nope`)).status, 404);
   assert.equal((await fetch(`${BASE}/mcp`, { method: "GET", headers: { authorization: `Bearer ${TOKEN}` } })).status, 405);
+  const getSse = await fetch(`${BASE}/mcp`, {
+    headers: { authorization: `Bearer ${TOKEN}`, accept: "text/event-stream" },
+    signal: AbortSignal.timeout(2_000),
+  });
+  assert.equal(getSse.status, 200);
+  assert.match(getSse.headers.get("content-type") || "", /text\/event-stream/);
+  await getSse.body?.cancel();
   ok("404 off-path, 405 on GET /mcp");
 
   // --- handshake replay: kill the child, next call must still work ----------
@@ -512,6 +520,63 @@ try {
   assert.ok(sseBody.includes('"id":9'), `SSE frame missing payload: ${sseBody}`);
   ok("SSE-only Accept receives a single event frame");
 
+  // Generic child notifications are client/session-specific unless explicitly
+  // allowlisted. Only the global tools/list_changed event may reach every GET stream.
+  {
+    const notificationPort = PORT + 1;
+    const notificationDataDir = await fsp.realpath(await fsp.mkdtemp(path.join(os.tmpdir(), "mac-developer-bridge-http-notify-")));
+    const notificationUnlock = path.join(notificationDataDir, "FULL_ACCESS_ENABLED");
+    await fsp.writeFile(notificationUnlock, "I_UNDERSTAND_THIS_GRANTS_FULL_ACCESS\n");
+    const notificationBridge = path.join(ROOT, "tests", "fixtures", "notification-bridge.mjs");
+    notificationServer = spawn(process.execPath, [TARGET], {
+      stdio: ["ignore", "ignore", "pipe"],
+      env: {
+        ...process.env,
+        MAC_DEV_BRIDGE_HTTP_TOKEN: TOKEN,
+        MAC_DEV_BRIDGE_HTTP_PORT: String(notificationPort),
+        MAC_DEV_BRIDGE_ENTRY: notificationBridge,
+        MAC_DEV_BRIDGE_DATA_DIR: notificationDataDir,
+        MAC_DEV_BRIDGE_UNLOCK_FILE: notificationUnlock,
+        MAC_DEV_BRIDGE_AUDIT_MODE: "off",
+      },
+    });
+    let notificationStderr = "";
+    notificationServer.stderr.on("data", (chunk) => { notificationStderr += chunk.toString(); });
+    const notificationBase = `http://127.0.0.1:${notificationPort}`;
+    for (let i = 0; i < 100; i += 1) {
+      try {
+        if ((await fetch(`${notificationBase}/healthz`)).ok) break;
+      } catch {}
+      if (i === 99) throw new Error(`notification server never listened: ${notificationStderr}`);
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    const streams = await Promise.all([1, 2].map(() => fetch(`${notificationBase}/mcp`, {
+      headers: { authorization: `Bearer ${TOKEN}`, accept: "text/event-stream" },
+    })));
+    assert.deepEqual(streams.map((stream) => stream.status), [200, 200]);
+    const readers = streams.map((stream) => stream.body.getReader());
+    await (await fetch(`${notificationBase}/mcp`, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${TOKEN}` },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "ping" }),
+    })).text();
+    for (const reader of readers) {
+      let body = "";
+      for (let i = 0; i < 10 && !body.includes("notifications/tools/list_changed"); i += 1) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        body += new TextDecoder().decode(value);
+      }
+      assert.match(body, /notifications\/tools\/list_changed/);
+      assert.doesNotMatch(body, /notifications\/progress/);
+      await reader.cancel();
+    }
+    notificationServer.kill("SIGTERM");
+    notificationServer = null;
+    await fsp.rm(notificationDataDir, { recursive: true, force: true });
+    ok("GET streams fan out only global-safe notifications");
+  }
+
   console.log(results.join("\n"));
   console.log("http test passed");
 } catch (e) {
@@ -520,6 +585,7 @@ try {
   console.log(`--- server stderr ---\n${stderr}`);
   process.exitCode = 1;
 } finally {
+  notificationServer?.kill("SIGTERM");
   server.kill("SIGTERM");
   await new Promise((resolve) => chromeServer.close(resolve));
   await fsp.rm(chromeSocketPath, { force: true });

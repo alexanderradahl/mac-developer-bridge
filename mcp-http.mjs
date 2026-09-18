@@ -207,6 +207,20 @@ let child = null;
 let starting = null;
 let nextId = 1;
 const pending = new Map(); // serverId -> waiter
+const serverEventStreams = new Set();
+const GLOBAL_SAFE_NOTIFICATIONS = new Set(["notifications/tools/list_changed"]);
+
+function publishServerMessage(message) {
+  if (!GLOBAL_SAFE_NOTIFICATIONS.has(message?.method)) return;
+  const frame = `event: message\ndata: ${JSON.stringify(message)}\n\n`;
+  for (const stream of [...serverEventStreams]) {
+    if (stream.writableEnded || stream.destroyed) {
+      serverEventStreams.delete(stream);
+      continue;
+    }
+    try { stream.write(frame); } catch { serverEventStreams.delete(stream); }
+  }
+}
 
 // Replayed onto a replacement child. Only `notifications/initialized` matters:
 // it sets bridge.mjs's `legacyInitialized`, which gates every non-ping method
@@ -235,7 +249,10 @@ function wireChild(proc) {
       log(`unparseable line from bridge: ${line.slice(0, 200)}`);
       return;
     }
-    if (msg.id === undefined || msg.id === null) return; // server-initiated notification
+    if (msg.id === undefined || msg.id === null) {
+      publishServerMessage(msg);
+      return;
+    }
     const waiter = pending.get(msg.id);
     if (!waiter) return;
     pending.delete(msg.id);
@@ -1764,10 +1781,33 @@ async function handle(req, res) {
     );
   }
 
-  // Session termination and the optional SSE stream: nothing to do, but answer
-  // cleanly so clients that probe them don't treat it as a transport failure.
+  // Session termination is stateless in this proxy. A GET with an SSE Accept
+  // header is the Streamable HTTP channel for unsolicited bridge notifications,
+  // including notifications/tools/list_changed.
   if (req.method === "DELETE") return sendEmpty(res, 204);
-  if (req.method === "GET") return send(res, 405, { error: "SSE stream not supported; POST JSON-RPC" });
+  if (req.method === "GET") {
+    if (!String(req.headers.accept || "").includes("text/event-stream")) {
+      return send(res, 405, { error: "SSE stream requires Accept: text/event-stream" });
+    }
+    res.writeHead(200, {
+      "content-type": "text/event-stream",
+      "cache-control": "no-cache, no-transform",
+      connection: "keep-alive",
+    });
+    res.flushHeaders?.();
+    res.write(": connected\n\n");
+    serverEventStreams.add(res);
+    const keepalive = setInterval(() => {
+      if (!res.writableEnded) res.write(": keep-alive\n\n");
+    }, 15_000);
+    keepalive.unref?.();
+    const close = () => {
+      clearInterval(keepalive);
+      serverEventStreams.delete(res);
+    };
+    res.once("close", close);
+    return;
+  }
   if (req.method !== "POST") return send(res, 405, { error: "method not allowed" });
 
   let raw;

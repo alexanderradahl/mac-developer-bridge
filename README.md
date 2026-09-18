@@ -267,6 +267,43 @@ Limits that will be visible in normal use:
 
 If a provider registry is configured, each provider's tools are advertised with a `key__tool` prefix and proxied. There is no built-in provider: the registry is operator-supplied. Personal-browser-profile mode requires a per-use operator grant — see SECURITY.md.
 
+Providers default to the existing stdio shape. A provider may instead federate an existing MCP server that implements Streamable HTTP/JSON-RPC:
+
+```json
+{
+  "providers": [
+    {
+      "key": "docs",
+      "transport": "http",
+      "url": "http://127.0.0.1:8420/mcp",
+      "maxResultBytes": 1048576
+    }
+  ]
+}
+```
+
+On macOS, generic Bonjour discovery can resolve a service's current host and port instead of hard-coding a DHCP address. The bridge uses the system `dns-sd` tool, re-resolves the service when an endpoint is unavailable, and appends the configured path:
+
+```json
+{
+  "providers": [
+    {
+      "key": "neox_phone",
+      "transport": "http",
+      "discovery": {
+        "serviceType": "_http._tcp",
+        "serviceName": "NeoX Phone",
+        "path": "/mcp"
+      }
+    }
+  ]
+}
+```
+
+These are generic examples; no vendor is special-cased. Keep HTTP providers on a trusted private network and never publish a LAN child endpoint. The bridge proxies MCP requests only; it has no `/files/` relay or bulk-payload store.
+
+Federation is isolated by provider. A failed or offline remote provider returns a local error immediately and cannot prevent native Mac Developer Bridge tools—or another provider—from answering. Child tool names are normalized to portable `[A-Za-z0-9_-]` aliases (`media.search` becomes `neox_phone__media_search`, for example), while calls are mapped back to the original child name. Ambiguous aliases make that provider fail at startup rather than route nondeterministically.
+
 ## Bridge environment
 
 These are read by `bridge.mjs` on both transports.

@@ -192,6 +192,10 @@ function sendError(id, code, message, data = undefined) {
   });
 }
 
+function sendFederatedToolsChanged() {
+  writeProtocolMessage({ jsonrpc: "2.0", method: "notifications/tools/list_changed" });
+}
+
 function toolTextResult(value, { isError = false, modern = false } = {}) {
   const text = typeof value === "string" ? value : JSON.stringify(value, null, 2);
   return completeResult(
@@ -1526,6 +1530,7 @@ const federation = createFederation({
   // Collisions with a built-in tool are rejected at startup rather than
   // shadowing one silently at call time.
   reservedToolNames: TOOLS.map((tool) => tool.name),
+  onToolsChanged: sendFederatedToolsChanged,
 });
 
 // Reported, never acted on: personal mode is gated by consuming the grant inside
@@ -2205,11 +2210,9 @@ let ptyProbe = probePtySupport().then((ok) => {
   return ok;
 });
 
-// Started eagerly, here, rather than on first use. tools/list is answered with
-// ttlMs 300_000 and capabilities.tools.listChanged is false, and mcp-http.mjs
-// drops id-less messages so notifications/tools/list_changed never reaches the
-// client — a provider that finishes starting after the first tools/list would be
-// invisible for five minutes with no way to correct it.
+// Started eagerly, here, rather than on first use. The initial tools/list still
+// waits for the first registration, while later provider registration emits the
+// standard tools/list_changed notification through the active transport.
 const federationReady = federation.start().then(() => {
   // Arms the idle unlock recheck for federated children, which unlike pty
   // sessions exist from boot and never call syncPtyTimers themselves.
@@ -3991,7 +3994,7 @@ async function handleMessage(message) {
     sendResult(id, {
       resultType: "complete",
       supportedVersions: [MODERN_PROTOCOL, "2025-11-25", "2025-06-18"],
-      capabilities: { tools: { listChanged: false } },
+      capabilities: { tools: { listChanged: true } },
       instructions: "This bridge has unrestricted access under the host macOS user. Prefer codex_thread_read over invoking Codex model turns. Use shell_start for long-running commands. Relaxed access is the default: routine HTTP/HTTPS work through the signed-in MDB Chrome workspace and non-Chrome foreground desktop-app control do not require per-site/per-app approval files. Direct Chrome AppleScript/JXA, direct Chrome executable launches, and shell web-open commands are always blocked in both Relaxed and Strict modes; Chrome web work must use the chrome_* MDB background tools. Prefer background browser/API paths so the operator keeps focus. If the operator enables Strict approvals in the menu-bar app, scoped browser and non-Chrome foreground-app approvals are required until they turn it off. Do not print secrets unless the user explicitly requests them.",
       ttlMs: 3_600_000,
       cacheScope: "private",
@@ -4009,7 +4012,7 @@ async function handleMessage(message) {
     const negotiatedProtocol = LEGACY_PROTOCOLS.has(requested) ? requested : "2025-11-25";
     sendResult(id, {
       protocolVersion: negotiatedProtocol,
-      capabilities: { tools: { listChanged: false } },
+      capabilities: { tools: { listChanged: true } },
       serverInfo: serverInfo(),
       instructions: "This bridge runs without a filesystem sandbox or command allowlist. Effective permissions equal the macOS user running it. Prefer codex_thread_read for persisted Codex history without model usage. On macOS, use the MDB chrome_* background workspace for normal logged-in web work and prefer APIs/connectors over native UI automation. Direct Chrome AppleScript/JXA, direct Chrome executable launches, and shell web-open commands are always refused so Chrome cannot bypass the MDB group or steal focus. Relaxed access is the default and removes approval ceremony; Strict approvals is an operator-controlled optional mode for URL scopes and non-Chrome foreground apps.",
     });
@@ -4028,15 +4031,13 @@ async function handleMessage(message) {
   }
 
   if (method === "tools/list") {
-    // Await the self-test before answering. tools/list is cached by the client for
-    // 300s and capabilities.tools.listChanged is false, so a tool set that changed
-    // after the first answer would be wrong for five minutes with no way to correct
-    // it. Free after the first call: the probe is a settled promise.
+    // Await the self-test before answering. The first list must not contain a
+    // provider schema that has not actually been fetched. Free after the first
+    // call: the probe is a settled promise.
     await ptyProbe;
     // Deliberately NOT awaited for native tools; see the dispatch default: branch.
-    // tools/list genuinely must wait: the answer is cached by the client for 300s and
-    // listChanged is false, so omitting a provider's tools here would be wrong for
-    // five minutes with no way to correct it. tools/call does not wait — see below.
+    // tools/list genuinely must wait for the initial provider attempts; later
+    // additions trigger notifications/tools/list_changed. tools/call does not wait.
     await federationReady;
     sendResult(id, completeResult(
       { tools: advertisedTools() },

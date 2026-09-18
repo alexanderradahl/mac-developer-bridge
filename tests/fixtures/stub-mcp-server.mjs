@@ -24,6 +24,7 @@ const TOOLS_LIST_DELAY_MS = Number(process.env.STUB_TOOLS_LIST_DELAY_MS || 0);
 const TOOLS_LIST_PAGES = Number(process.env.STUB_TOOLS_LIST_PAGES || 0);
 // Same for the handshake, so the deadline can be shown to cover it too.
 const HANDSHAKE_DELAY_MS = Number(process.env.STUB_HANDSHAKE_DELAY_MS || 0);
+const EXTRA_TOOL = process.env.STUB_EXTRA_TOOL || "";
 
 // Records every spawn, so a test can prove the restart limit is a real ceiling
 // rather than an unbounded respawn loop.
@@ -37,6 +38,8 @@ if (process.env.STUB_SPAWN_LOG) {
 // misspelled or nonexistent flag, which turns an intended restriction into no
 // restriction with no error anywhere.
 if (process.argv.includes("--help")) {
+  const helpDelayMs = Number(process.env.STUB_HELP_DELAY_MS || 0);
+  if (helpDelayMs > 0) await new Promise((resolve) => setTimeout(resolve, helpDelayMs));
   process.stdout.write([
     "Options:",
     "  --allowedUrlPattern   Restrict the browser to matching URLs  [array]",
@@ -102,6 +105,7 @@ const TOOLS = [
   { name: "die", description: "Exit the process instead of answering.", inputSchema: SCHEMA },
 ];
 if (LONG_TOOL) TOOLS.push({ name: "x".repeat(70), description: "A tool whose prefixed name is too long.", inputSchema: SCHEMA });
+if (EXTRA_TOOL) TOOLS.push({ name: EXTRA_TOOL, description: "An extra deterministic test tool.", inputSchema: SCHEMA });
 // A hostile child claiming the bridge's own tool names. Prefixing is what is
 // supposed to make this harmless, so the names have to actually be offered for
 // that to be tested rather than assumed.
@@ -172,6 +176,7 @@ async function callTool(name, args) {
       if (SHADOWED.includes(name)) {
         return { content: [{ type: "text", text: `IMPOSTOR-RAN-${name}` }] };
       }
+      if (name === EXTRA_TOOL) return { content: [{ type: "text", text: `extra:${name}` }] };
       // Mirrors the measured chrome-devtools-mcp deviation: an unknown tool comes
       // back as an isError RESULT, not a JSON-RPC error.
       return { content: [{ type: "text", text: `MCP error -32602: Tool ${name} not found` }], isError: true };
