@@ -475,6 +475,18 @@ Why it is worth using over the raw commands:
 - Children inherit the **login shell** `PATH`, so `shell_exec` behaves the same as
   it does in a terminal (a GUI-launched app otherwise has no nvm or Homebrew).
 
+The menu-bar app can also run one operator-owned shell script when the app launches:
+
+```bash
+export MAC_DEV_BRIDGE_RUNTIME_START_SCRIPT="$HOME/.config/mac-developer-bridge/runtime-start.sh"
+```
+
+The script is launched as `/bin/zsh <path>`, inherits the same child environment as
+the bridge transport, and writes stdout/stderr to `runtime-start.log`. It is separate
+from the bridge Start/Stop lifecycle, so it is suitable for bootstrapping long-lived
+machine services or a process supervisor without hardcoding those services in Swift.
+Nothing runs unless the environment variable is explicitly configured.
+
 The app is ad-hoc signed and not notarized. It locates `mcp-http.mjs` via
 `MAC_DEV_BRIDGE_HOME`, then a package next to the bundle, then a path baked into
 `Info.plist` at build time — so the `/Applications` copy works with the package
