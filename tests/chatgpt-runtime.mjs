@@ -36,6 +36,10 @@ function runtimePage({
   primaryComposerFlag = true,
   duplicateModernWrapper = false,
   conflictingModernWrapper = false,
+  wrappedModernCallback = false,
+  clonedModernSelection = false,
+  blockedModernWrapper = false,
+  differentModernSelection = false,
 } = {}) {
   let clock = 1_000;
   let submitted = null;
@@ -141,9 +145,13 @@ function runtimePage({
       selectedModel: {slug:modelId}, composerController: {}, onSubmit() {},
       isSubmitting:false, isStreaming:false,
     };
-    if (duplicateModernWrapper || conflictingModernWrapper) {
+    if (duplicateModernWrapper || conflictingModernWrapper || wrappedModernCallback || clonedModernSelection || blockedModernWrapper || differentModernSelection) {
       rootFiber.memoizedProps = {...modelFiber.memoizedProps};
       if(conflictingModernWrapper) rootFiber.memoizedProps.composerController = {};
+      if(wrappedModernCallback) rootFiber.memoizedProps.onSubmit = function WrappedOnSubmit() {};
+      if(clonedModernSelection) rootFiber.memoizedProps.selectedModel = {...modelFiber.memoizedProps.selectedModel};
+      if(blockedModernWrapper) rootFiber.memoizedProps.isSubmitting = true;
+      if(differentModernSelection) rootFiber.memoizedProps.selectedModel = {slug:"conflicting-model"};
     }
   }
   const composer = { "__reactFiber$test": modelFiber };
@@ -465,3 +473,16 @@ for(const flags of [{primaryComposerFlag:false},{primaryComposerFlag:0},{primary
   assert.equal(page.submitted(),null);
 }
 console.log("October composer regressions: 8 passed; preflight made no submissions");
+
+for(const flags of [{wrappedModernCallback:true},{clonedModernSelection:true},{wrappedModernCallback:true,clonedModernSelection:true}]) {
+  const page=runtimePage({modernModelShape:true,primaryComposerFlag:null,modelId:"gpt-5-6-thinking",thinkingEffort:"max",...flags});
+  const result=await page.run({prompt:"fresh wrapper preflight",model:"gpt-5-6-thinking",thinkingEffort:"max",preflightOnly:true});
+  assert.equal(result.ok,true,JSON.stringify(result));assert.equal(result.submission_attempted,false);assert.equal(page.submitted(),null);
+}
+for(const [flags,code] of [[{wrappedModernCallback:true,blockedModernWrapper:true},"CHATGPT_RUNTIME_NOT_READY"],
+                           [{clonedModernSelection:true,differentModernSelection:true},"CHATGPT_RUNTIME_CONTRACT_CHANGED"]]) {
+  const page=runtimePage({modernModelShape:true,primaryComposerFlag:null,modelId:"gpt-5-6-thinking",thinkingEffort:"max",...flags});
+  const result=await page.run({prompt:"conflicting wrapper preflight",model:"gpt-5-6-thinking",thinkingEffort:"max",preflightOnly:true});
+  assert.equal(result.ok,false);assert.equal(result.error.code,code);assert.equal(page.submitted(),null);
+}
+console.log("Fresh-page wrapper regressions: 5 passed; conflicting models and busy wrappers remain rejected");

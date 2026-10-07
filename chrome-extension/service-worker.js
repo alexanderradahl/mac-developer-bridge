@@ -2249,13 +2249,20 @@ async function pageChatgptRuntimeConversationStart(input) {
       && typeof composerController === "object"
       && typeof modernOnSubmit === "function"
     ) {
-      // React wrappers may carry the same composer props twice. They are one
-      // composer only when controller, selection and submit callback agree.
-      if (!modernModelCandidates.some(candidate =>
-          candidate.props.composerController === composerController
-          && candidate.props.selectedModel === selectedModel
-          && candidate.props.onSubmit === modernOnSubmit)) {
-        modernModelCandidates.push({ props, depth });
+      // Modern submission uses this controller's rendered Send button, not a
+      // wrapper callback. Fresh-page wrappers may allocate different callbacks
+      // and model objects for the same controller and selected model slug.
+      const sameComposer = modernModelCandidates.find(candidate =>
+        candidate.props.composerController === composerController
+        && candidate.props.selectedModel.slug === selectedModel.slug);
+      if (sameComposer) {
+        // Keep a block observed on either wrapper; never select the permissive
+        // wrapper when the other says the composer is busy or unavailable.
+        for (const key of ["disabled", "isSubmitting", "isStreaming", "submitPending", "isCompletionInProgress"]) {
+          if (props[key] === true) sameComposer.props[key] = true;
+        }
+      } else {
+        modernModelCandidates.push({ props: {...props}, depth });
       }
     }
   }
@@ -2297,8 +2304,8 @@ async function pageChatgptRuntimeConversationStart(input) {
         ...modernContext.props,
         currentModelId: model,
         isNewThread: !routeConversationMatch,
-        submitPending: modernContext.props.isSubmitting === true,
-        isCompletionInProgress: modernContext.props.isStreaming === true,
+        submitPending: modernContext.props.isSubmitting === true || modernContext.props.submitPending === true,
+        isCompletionInProgress: modernContext.props.isStreaming === true || modernContext.props.isCompletionInProgress === true,
       },
     };
     currentModelId = model;
