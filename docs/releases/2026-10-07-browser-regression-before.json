@@ -1,0 +1,166 @@
+{
+  "passed": false,
+  "browserVersion": "153.0.8010.0",
+  "reactVersion": "19.2.0",
+  "platform": "linux",
+  "architecture": "x64",
+  "nodeVersion": "v24.19.0",
+  "workerPath": "/workspace/scratch/03faab782ef0/mdb-browser-tests/chrome-extension/service-worker-baseline.js",
+  "workerSha256": "fd82831c246ed06ae782dfc546546885a78e5e064afab7f1ed8f2f85257ede97",
+  "testSourceSha256": "916c51a3471988c134420eb2fc8b02c4d3745437c9217830d4a85772ab7bd6d2",
+  "fixtureSourceSha256": "0f9289257cac0bd0e16c7e04855df0932014195ffc4a51d57c16f1db2f144638",
+  "reactFixtureSha256": "eee6c75af081c9adae7fb4a7a339408909f6d164db995feb54595c9d976cbcfd",
+  "isolation": {
+    "profilePath": "/tmp/mdb-browser-regression-1cXyoE",
+    "newTemporaryProfile": true,
+    "noExistingBrowserAttachment": true,
+    "networkRestrictedToFixtureOrigin": "http://127.0.0.1:46157",
+    "externalRequestsBlocked": 0,
+    "browserClosed": true,
+    "profileRemoved": true,
+    "serverClosed": true
+  },
+  "fixtureReceiptCount": 2,
+  "fixtureReceipts": [
+    {
+      "scenario": "controlled-currency",
+      "amount": null,
+      "draft": "5"
+    },
+    {
+      "scenario": "react-currency",
+      "amount": null,
+      "draft": "5"
+    }
+  ],
+  "scenarios": [
+    {
+      "scenario": "ordinary-click",
+      "passed": false,
+      "durationMs": 72,
+      "error": "Expected values to be strictly equal:\n\n'0' !== '1'\n"
+    },
+    {
+      "scenario": "mousedown-combobox",
+      "passed": false,
+      "durationMs": 53,
+      "error": "Mousedown control should not receive a second click\n\ntrue !== false\n"
+    },
+    {
+      "scenario": "passive-snapshot",
+      "passed": false,
+      "durationMs": 41,
+      "error": "Expected values to be strictly deep-equal:\n+ actual - expected\n\n  {\n    active: 'BODY',\n    events: {\n      blur: 0,\n      change: 0,\n      focus: 0,\n      input: 0,\n+     invalid: 3,\n-     invalid: 0,\n      submit: 0\n    },\n    html: '<form><input id=\"invalid\" type=\"email\" required=\"\" aria-describedby=\"error\"><span id=\"error\">Email required</span><button>Submit</button></form><div id=\"semantic-combo\" role=\"combobox\">Semantic combo</div><div id=\"semantic-tab\" role=\"tab\">Semantic tab</div>'\n  }\n"
+    },
+    {
+      "scenario": "controlled-currency",
+      "passed": false,
+      "durationMs": 56,
+      "error": "Expected values to be strictly deep-equal:\n+ actual - expected\n\n  [\n    {\n+     amount: null,\n-     amount: 5,\n      draft: '5',\n      scenario: 'controlled-currency'\n    }\n  ]\n"
+    },
+    {
+      "scenario": "react-currency",
+      "passed": false,
+      "durationMs": 128,
+      "error": "Expected values to be strictly deep-equal:\n+ actual - expected\n\n  [\n    {\n+     amount: null,\n+     draft: '5',\n-     amount: 5,\n-     draft: '5.00',\n      scenario: 'react-currency'\n    }\n  ]\n"
+    },
+    {
+      "scenario": "replace-accepted",
+      "passed": false,
+      "durationMs": 5046,
+      "error": "page.waitForFunction: Timeout 5000ms exceeded."
+    },
+    {
+      "scenario": "replace-rejected",
+      "passed": false,
+      "durationMs": 46,
+      "error": "Expected values to be strictly equal:\n+ actual - expected\n\n+ undefined\n- 'CHROME_FILL_NOT_STICKY'\n"
+    },
+    {
+      "scenario": "contenteditable",
+      "passed": false,
+      "durationMs": 72,
+      "error": "Worker must not add duplicate input events to the browser-native editable operation\n\n5 !== 4\n"
+    },
+    {
+      "scenario": "contenteditable-rejected",
+      "passed": false,
+      "durationMs": 32,
+      "error": "Expected values to be strictly equal:\n+ actual - expected\n\n+ undefined\n- 'CHROME_FILL_NOT_STICKY'\n"
+    },
+    {
+      "scenario": "select",
+      "passed": false,
+      "durationMs": 51,
+      "error": "Expected values to be strictly equal:\n+ actual - expected\n\n+ undefined\n- true\n"
+    },
+    {
+      "scenario": "select-rejected",
+      "passed": false,
+      "durationMs": 36,
+      "error": "Expected values to be strictly equal:\n+ actual - expected\n\n+ undefined\n- 'CHROME_FILL_NOT_STICKY'\n"
+    },
+    {
+      "scenario": "invalid-submit",
+      "passed": false,
+      "durationMs": 40,
+      "error": "Expected values to be strictly equal:\n+ actual - expected\n\n+ undefined\n- true\n"
+    },
+    {
+      "scenario": "no-form-submit",
+      "passed": false,
+      "durationMs": 46,
+      "error": "Expected values to be strictly equal:\n+ actual - expected\n\n+ undefined\n- true\n"
+    },
+    {
+      "scenario": "read-only",
+      "passed": false,
+      "durationMs": 43,
+      "error": "Read-only field must be refused"
+    },
+    {
+      "scenario": "focus-lock",
+      "passed": false,
+      "durationMs": 42,
+      "error": "Expected values to be strictly equal:\n+ actual - expected\n\n+ undefined\n- 'CHROME_ELEMENT_READ_ONLY'\n"
+    },
+    {
+      "scenario": "beforeinput-lock",
+      "passed": false,
+      "durationMs": 45,
+      "error": "Expected values to be strictly equal:\n+ actual - expected\n\n+ undefined\n- 'CHROME_ELEMENT_DISABLED'\n"
+    },
+    {
+      "scenario": "cancel-beforeinput",
+      "passed": false,
+      "durationMs": 43,
+      "error": "Canceled beforeinput must be refused"
+    },
+    {
+      "scenario": "suspended-raf",
+      "passed": false,
+      "durationMs": 287,
+      "error": "Expected values to be strictly equal:\n+ actual - expected\n\n+ undefined\n- true\n"
+    },
+    {
+      "scenario": "hidden-first",
+      "passed": true,
+      "durationMs": 52
+    }
+  ],
+  "suiteRole": "negative control on unmodified HEAD 94704cf",
+  "sourceRepository": "https://github.com/alexanderradahl/mac-developer-bridge",
+  "sourceFile": "chrome-extension/service-worker.js",
+  "dependencyVersions": {
+    "playwright": "1.62.1",
+    "react": "19.2.0",
+    "react-dom": "19.2.0",
+    "esbuild": "0.25.11",
+    "@sparticuz/chromium": "153.0.0"
+  },
+  "osDescription": "Linux-6.18.44-x86_64-with-glibc2.39",
+  "limitations": [
+    "Runs the exact production page functions in isolated Linux headless Chromium.",
+    "Does not establish installed Mac runtime, native-host transport, trusted user gestures, or authenticated provider acceptance."
+  ]
+}

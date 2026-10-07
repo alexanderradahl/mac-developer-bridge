@@ -10,9 +10,9 @@ import readline from "node:readline";
 import { fileURLToPath } from "node:url";
 
 import { createFederation, consumePersonalApproval } from "./lib/federation.mjs";
-import { backgroundChromeCall, backgroundChromeStatus } from "./lib/chrome-extension-client.mjs";
+import { backgroundChromeCall, backgroundChromeStatus, backgroundChromeOperationStatus, safeChromeDiagnostics } from "./lib/chrome-extension-client.mjs";
 
-const BRIDGE_VERSION = "0.3.0";
+const BRIDGE_VERSION = "0.3.1";
 const SERVER_NAME = "mac-developer-bridge";
 const SERVER_TITLE = "Mac Developer Bridge";
 const MODERN_PROTOCOL = "2026-07-28";
@@ -36,6 +36,9 @@ const DEFAULT_SHELL = process.platform === "darwin" && fs.existsSync("/bin/zsh")
 const SHELL = process.env.MAC_DEV_BRIDGE_SHELL || DEFAULT_SHELL;
 const CODEX_BIN = process.env.CODEX_BIN || "codex";
 const BRIDGE_DIR = path.dirname(fileURLToPath(import.meta.url));
+// Capture once at process startup; later file edits must not change the identity
+// advertised by an already-running bridge.
+const BRIDGE_BUILD_ID = crypto.createHash("sha256").update(fs.readFileSync(fileURLToPath(import.meta.url))).digest("hex");
 
 // Interactive pty sessions. Every limit below is a bound on a publicly reachable
 // endpoint, so each one carries the number it was measured against.
@@ -224,6 +227,22 @@ function optionalBoolean(args, key, fallback = false) {
   if (value === undefined || value === null) return fallback;
   if (typeof value !== "boolean") throw new Error(`'${key}' must be a boolean`);
   return value;
+}
+
+function chromeOperationId(args, { required = false } = {}) {
+  const value = args?.operation_id;
+  if (value === undefined && !required) return undefined;
+  if (typeof value !== "string" || !/^[A-Za-z0-9][A-Za-z0-9_.:-]{7,127}$/.test(value)) {
+    throw new Error("'operation_id' must be 8–128 letters, digits, dots, colons, underscores or hyphens, starting with a letter or digit");
+  }
+  return value;
+}
+
+// Chrome failures cross multiple processes. Only typed diagnostics belong in
+// this envelope: never page values, selectors, URLs, response bodies or stacks.
+function safeChromeErrorDetails(details) {
+  const out = safeChromeDiagnostics(details);
+  return Object.keys(out).length ? out : undefined;
 }
 
 function optionalInteger(args, key, fallback, min, max) {
@@ -456,6 +475,10 @@ function redactString(input) {
 // hash prefix keep the record useful for correlating a session without keeping the
 // secret.
 function auditSafeArguments(tool, args) {
+  if (tool === "chrome_fill" && typeof args?.value === "string") {
+    const bytes = Buffer.byteLength(args.value, "utf8");
+    return { ...args, value: `[REDACTED ${bytes} bytes]` };
+  }
   if (tool === "pty_write" && typeof args?.data === "string") {
     const bytes = Buffer.byteLength(args.data, "utf8");
     const digest = crypto.createHash("sha256").update(args.data, "utf8").digest("hex").slice(0, 16);
@@ -852,6 +875,7 @@ const TOOLS = [
       type: "object",
       properties: {
         url: { type: "string", minLength: 1, maxLength: 20000 },
+        operation_id: { type: "string", minLength: 8, maxLength: 128, pattern: "^[A-Za-z0-9][A-Za-z0-9_.:-]{7,127}$", description: "Optional stable action ID. Reuse only for the identical request; query chrome_operation_status after an uncertain outcome instead of replaying with a new ID." },
       },
       required: ["url"],
       additionalProperties: false,
@@ -867,6 +891,7 @@ const TOOLS = [
       properties: {
         tab_id: { type: "integer", minimum: 0 },
         url: { type: "string", minLength: 1, maxLength: 20000 },
+        operation_id: { type: "string", minLength: 8, maxLength: 128, pattern: "^[A-Za-z0-9][A-Za-z0-9_.:-]{7,127}$", description: "Optional stable ID for this exact navigation request." },
       },
       required: ["tab_id", "url"],
       additionalProperties: false,
@@ -876,7 +901,7 @@ const TOOLS = [
   {
     name: "chrome_snapshot",
     title: "Read Chrome page in background",
-    description: "Read visible text and a bounded list of interactive elements from an MDB Chrome tab without activating Chrome. Password input values are redacted. Strict approvals, when enabled, restricts readable URLs to active scoped grants.",
+    description: "Read visible text, interactive controls and passive validity from an MDB Chrome tab without activating Chrome or triggering form validation. Password input values are redacted. Strict approvals restrict readable URLs to active scoped grants.",
     inputSchema: {
       type: "object",
       properties: {
@@ -892,12 +917,13 @@ const TOOLS = [
   {
     name: "chrome_click",
     title: "Click Chrome element in background",
-    description: "Click an element in an MDB Chrome tab without activating Chrome. Uses an adaptive pointer/mouse event sequence; controls that activate on pointerdown/mousedown are not followed by a redundant synthetic click that could toggle them closed. Events remain synthetic/isTrusted=false, so genuine trusted-user-gesture flows, CAPTCHAs, native dialogs, and file pickers still require foreground/manual interaction.",
+    description: "Click an observed element in an MDB Chrome tab without activating Chrome. Reports event dispatch separately from observed activation and popup changes; these do not prove an account change persisted. Events remain synthetic. Use a fresh snapshot to verify the intended result, and query chrome_operation_status after an uncertain timeout before any retry.",
     inputSchema: {
       type: "object",
       properties: {
         tab_id: { type: "integer", minimum: 0 },
         selector: { type: "string", minLength: 1, maxLength: 10000 },
+        operation_id: { type: "string", minLength: 8, maxLength: 128, pattern: "^[A-Za-z0-9][A-Za-z0-9_.:-]{7,127}$", description: "Optional stable ID for this exact click. Use the returned ID to reconcile a timeout before any retry." },
       },
       required: ["tab_id", "selector"],
       additionalProperties: false,
@@ -907,7 +933,7 @@ const TOOLS = [
   {
     name: "chrome_fill",
     title: "Fill Chrome field in background",
-    description: "Fill an input, textarea, select, or contenteditable element in an MDB Chrome tab without activating Chrome. Relaxed mode is the default; Strict approvals optionally restricts sites. File inputs remain foreground-only.",
+    description: "Fill an editable field in an MDB Chrome tab and verify the current connected control after framework updates. Optional blur commit and numeric normalization are explicit. DOM retention and observed submission do not prove application acceptance or persistence. File inputs remain foreground-only.",
     inputSchema: {
       type: "object",
       properties: {
@@ -915,6 +941,9 @@ const TOOLS = [
         selector: { type: "string", minLength: 1, maxLength: 10000 },
         value: { type: "string", maxLength: 500000 },
         submit: { type: "boolean", default: false, description: "If true, request form submission after filling. This can trigger external side effects." },
+        commit: { type: "string", enum: ["change", "blur"], default: "change", description: "Use blur to commit controls that update their application state when focus leaves the field." },
+        normalization: { type: "string", enum: ["exact", "numeric"], default: "exact", description: "Numeric permits equivalent finite numeric display formatting such as 5 to 5.00. Use exact for identifiers and ordinary text." },
+        operation_id: { type: "string", minLength: 8, maxLength: 128, pattern: "^[A-Za-z0-9][A-Za-z0-9_.:-]{7,127}$", description: "Optional stable ID for this exact fill request. Query its status after an uncertain timeout." },
       },
       required: ["tab_id", "selector", "value"],
       additionalProperties: false,
@@ -935,6 +964,20 @@ const TOOLS = [
       additionalProperties: false,
     },
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
+  },
+  {
+    name: "chrome_operation_status",
+    title: "Reconcile Chrome action status",
+    description: "Read bounded lifecycle metadata for a previous Chrome action by operation ID, including late completion after a timeout. Does not repeat the action or expose page/form contents. Completed means browser execution completed, not that a business change persisted. Unknown or expired status is never permission to replay a write.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        operation_id: { type: "string", minLength: 8, maxLength: 128, pattern: "^[A-Za-z0-9][A-Za-z0-9_.:-]{7,127}$" },
+      },
+      required: ["operation_id"],
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   },
   {
     name: "shell_exec",
@@ -1884,13 +1927,14 @@ async function ensureBackgroundChromeGrant() {
   return { ...pool, accessMode: "strict", strictApprovals: true };
 }
 
-async function callBackgroundChrome(toolName, method, args, { timeoutMs } = {}) {
+async function callBackgroundChrome(toolName, method, args, { timeoutMs, operationId } = {}) {
   let pool;
   try {
     pool = await ensureBackgroundChromeGrant();
     const result = await backgroundChromeCall(method, args, pool.allowedUrlPatterns, {
       dataDir: APP_SUPPORT_DIR,
       ...(timeoutMs === undefined ? {} : { timeoutMs }),
+      ...(operationId === undefined ? {} : { operationId }),
     });
     const nonces = pool.grants.map((grant) => grant.nonce);
     await audit(toolName, args, {
@@ -3410,6 +3454,7 @@ async function dispatchTool(name, args) {
       const federationStatus = federation.status();
       const status = {
         bridgeVersion: BRIDGE_VERSION,
+        bridgeBuildId: BRIDGE_BUILD_ID,
         pid: process.pid,
         hostname: os.hostname(),
         username: os.userInfo().username,
@@ -3620,14 +3665,14 @@ async function dispatchTool(name, args) {
     case "chrome_open": {
       const url = requireString(args, "url");
       if (url.length > 20_000) throw new Error("'url' must be at most 20000 characters");
-      return await callBackgroundChrome(name, "workspace.open", { url });
+      return await callBackgroundChrome(name, "workspace.open", { url }, { operationId: chromeOperationId(args) });
     }
 
     case "chrome_navigate": {
       const tabId = requireInteger(args, "tab_id", 0, 2_147_483_647);
       const url = requireString(args, "url");
       if (url.length > 20_000) throw new Error("'url' must be at most 20000 characters");
-      return await callBackgroundChrome(name, "tabs.navigate", { tabId, url });
+      return await callBackgroundChrome(name, "tabs.navigate", { tabId, url }, { operationId: chromeOperationId(args) });
     }
 
     case "chrome_snapshot": {
@@ -3641,7 +3686,7 @@ async function dispatchTool(name, args) {
       const tabId = requireInteger(args, "tab_id", 0, 2_147_483_647);
       const selector = requireString(args, "selector");
       if (selector.length > 10_000) throw new Error("'selector' must be at most 10000 characters");
-      return await callBackgroundChrome(name, "tabs.click", { tabId, selector });
+      return await callBackgroundChrome(name, "tabs.click", { tabId, selector }, { operationId: chromeOperationId(args) });
     }
 
     case "chrome_fill": {
@@ -3649,9 +3694,20 @@ async function dispatchTool(name, args) {
       const selector = requireString(args, "selector");
       const value = requireString(args, "value", { allowEmpty: true });
       const submit = optionalBoolean(args, "submit", false);
+      const commit = optionalString(args, "commit", "change");
+      const normalization = optionalString(args, "normalization", "exact");
+      if (!["change", "blur"].includes(commit)) throw new Error("'commit' must be change or blur");
+      if (!["exact", "numeric"].includes(normalization)) throw new Error("'normalization' must be exact or numeric");
       if (selector.length > 10_000) throw new Error("'selector' must be at most 10000 characters");
       if (value.length > 500_000) throw new Error("'value' must be at most 500000 characters");
-      return await callBackgroundChrome(name, "tabs.fill", { tabId, selector, value, submit });
+      return await callBackgroundChrome(name, "tabs.fill", { tabId, selector, value, submit, commit, normalization }, { operationId: chromeOperationId(args) });
+    }
+
+    case "chrome_operation_status": {
+      const operationId = chromeOperationId(args, { required: true });
+      const result = await backgroundChromeOperationStatus(operationId, { dataDir: APP_SUPPORT_DIR });
+      await audit(name, args, { ok: true, lifecycleMetadataOnly: true });
+      return result;
     }
 
     case "chrome_close": {
@@ -4560,6 +4616,8 @@ async function handleMessage(message) {
           error: String(error?.message || error),
           ...(error?.code ? { code: error.code } : {}),
           ...safeHandoffDetails,
+          ...(name.startsWith("chrome_") && safeChromeErrorDetails(error?.details)
+            ? { details: safeChromeErrorDetails(error.details) } : {}),
         },
         { isError: true, modern },
       ));

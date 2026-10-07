@@ -1,0 +1,23 @@
+{
+  "head": "94704cf6858f7ac5e315181a1b2d4a54e9df64b0",
+  "trackedDirty": {
+    "bridge.mjs": "93478777320b61a1340bc164ee3f6490682c7602ce3cc678e1cf86be1046dd4a",
+    "chrome-extension/service-worker.js": "4f17400d055e4e31c312933db6cd36ecbd31f86a898c26dbff2f781eb0edfdfd",
+    "lib/chatgpt-responses-adapter.mjs": "ffb9f6707965760a0b18f70ad2b27b8de894d39cb315bc45d04085ff6a418684",
+    "mcp-http.mjs": "e56482ef259ed8dc9a2017b222284390a163964593209fa151308a011e937762",
+    "openspec/changes/add-chatgpt-browser-model-provider/specs/chatgpt-browser-model-provider/spec.md": "6dfb5917057ac2f0708fa3ceaa6dfeb58db3506a9440459d981d10eff94827d6",
+    "openspec/changes/add-chatgpt-browser-model-provider/tasks.md": "fa23d9205d4d7a1b5012fe9b9cf7aaa917fab4210ba229381c666b12fa0da80c",
+    "package.json": "717fdfb5fe655b022d872b048c41675c8f85e280f11ec21e56ca97e11e2ece7c",
+    "tests/chatgpt-responses.mjs": "25b112f11ab7308b1a117412c29853825c1fd99e09869391326a7293f60496dd",
+    "tests/chatgpt-runtime.mjs": "8f7b013b87c9a0f63ff7429fe31f97c9d87d3b7c2bda9ea917ead89d986ea4bb",
+    "tests/http.mjs": "a765718744a43b3e7f71f73e32514cda433965d7b2d83e3f61e968aa5833968d"
+  },
+  "sourceHashes": {
+    "bridge.mjs": "93478777320b61a1340bc164ee3f6490682c7602ce3cc678e1cf86be1046dd4a",
+    "chrome-extension/service-worker.js": "4f17400d055e4e31c312933db6cd36ecbd31f86a898c26dbff2f781eb0edfdfd",
+    "chrome-extension/manifest.json": "be01de592bfe1ff967069b067887b08e0ec0a5ddaf43ef3dafb7c95b5246438a",
+    "lib/chrome-extension-client.mjs": "01d56742213e064fc934328e45b882f28c02486eec7158df259090ff6775a691",
+    "scripts/chrome-native-host.mjs": "b0e12fe06ea5764bcb3de1d88ae18a361e087536162e461e57c69d12a51017f2"
+  },
+  "note": "Source hashes captured before this repair. Used to preserve pre-existing local changes; no credentials or page contents are included."
+}

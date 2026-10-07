@@ -1,0 +1,164 @@
+{
+  "installedAt": "2026-10-07T23:28:28.421693+00:00",
+  "original": "/Users/alexanderbenz/Downloads/mac-developer-bridge",
+  "testedCandidate": "/Users/alexanderbenz/Downloads/mac-developer-bridge-worktrees/browser-reliability-deploy-20261007",
+  "preservedBase": "58fe6df",
+  "backup": "/Users/alexanderbenz/Library/Application Support/MacDeveloperBridge/backups/browser-reliability-20261007T232828Z",
+  "legacyNativePid": 76325,
+  "legacyBridgePid": 50342,
+  "httpParentPid": 800,
+  "nativeWrapperFenced": true,
+  "activationPending": true,
+  "files": [
+    {
+      "path": "CHANGELOG.md",
+      "beforeSha256": "6efca7db13ea1d75f4de8f216a9614d2c14417a759f41bf48a0c7cf5c5024f65",
+      "afterSha256": "44c5e5a744afa4947d5d993e8a0326a97e371f3226c71c423c611f5c1023975d",
+      "created": false
+    },
+    {
+      "path": "README.md",
+      "beforeSha256": "1b56f037e1d1b5e5557f9184f735f60ff8c6e28603639422f47199ca7e22e8b3",
+      "afterSha256": "6cf1924c1a150d9ca84141041ec9f5dd50015a5cbe898e737af7cae0bbc4dcd1",
+      "created": false
+    },
+    {
+      "path": "bridge.mjs",
+      "beforeSha256": "93478777320b61a1340bc164ee3f6490682c7602ce3cc678e1cf86be1046dd4a",
+      "afterSha256": "550ef940edb329ec4f776fb85725653fe886dc03bfbbe15281140fcc67b75d3f",
+      "created": false
+    },
+    {
+      "path": "chrome-extension/manifest.json",
+      "beforeSha256": "be01de592bfe1ff967069b067887b08e0ec0a5ddaf43ef3dafb7c95b5246438a",
+      "afterSha256": "2f821fd49a0bbd98ebff9bb34bee471b461b43097f449ee3f7bfd4bc19a09fa5",
+      "created": false
+    },
+    {
+      "path": "chrome-extension/service-worker.js",
+      "beforeSha256": "4f17400d055e4e31c312933db6cd36ecbd31f86a898c26dbff2f781eb0edfdfd",
+      "afterSha256": "12f9dbf0cb9db4d1196227cb09ac6a6a74e0af5400171560b04b5b1da20f8595",
+      "created": false
+    },
+    {
+      "path": "lib/chrome-extension-client.mjs",
+      "beforeSha256": "01d56742213e064fc934328e45b882f28c02486eec7158df259090ff6775a691",
+      "afterSha256": "f1b453b8a112a76993e8a8e2e195607f1a41f63ed23afe89e7ac8042cd7b5237",
+      "created": false
+    },
+    {
+      "path": "lib/chrome-operation-registry.mjs",
+      "beforeSha256": null,
+      "afterSha256": "a11f3df727f7f2f648581a6a2c9e65584ca9fd12bad188fe59bd432e353e76cd",
+      "created": true
+    },
+    {
+      "path": "package.json",
+      "beforeSha256": "717fdfb5fe655b022d872b048c41675c8f85e280f11ec21e56ca97e11e2ece7c",
+      "afterSha256": "9fb0634444952202eed8171f8c89733aaddc5244a60d806b0395e02c08d7413d",
+      "created": false
+    },
+    {
+      "path": "scripts/chrome-native-host.mjs",
+      "beforeSha256": "b0e12fe06ea5764bcb3de1d88ae18a361e087536162e461e57c69d12a51017f2",
+      "afterSha256": "0740d356e804a5f04af68fab5cd9b271aba468c9f8b80c61f1a163b14f20fa6f",
+      "created": false
+    },
+    {
+      "path": "tests/chatgpt-handoff-diagnostics.mjs",
+      "beforeSha256": null,
+      "afterSha256": "555a3612a630a6c754507bb11e3ec6789ea3a1071884712455274601a9033f62",
+      "created": true
+    },
+    {
+      "path": "tests/chrome-action-correctness.mjs",
+      "beforeSha256": null,
+      "afterSha256": "128af2c67d6b1204b79424510f194eba49d318ee2fa2a84d999cb8340856392e",
+      "created": true
+    },
+    {
+      "path": "tests/chrome-actions-real-browser.mjs",
+      "beforeSha256": null,
+      "afterSha256": "916c51a3471988c134420eb2fc8b02c4d3745437c9217830d4a85772ab7bd6d2",
+      "created": true
+    },
+    {
+      "path": "tests/chrome-background.mjs",
+      "beforeSha256": "973fd4d6a1e3f8e1c3f0165883c223b7328e42e69a79f47111db6d85db3e19f7",
+      "afterSha256": "fd1efb767a718506712a625fba937d09fc0e6afe71e762b3bb4529efb3249b97",
+      "created": false
+    },
+    {
+      "path": "tests/chrome-fill-background.mjs",
+      "beforeSha256": "ac5f08cc58a288813643a29c9e1a9c0cd139d465e9e19dbac2d1961d4414604b",
+      "afterSha256": "efdb9415493cce1e0b0fd4d2eb07c02d6bc2bfdbf8a9c0470980c67e99399984",
+      "created": false
+    },
+    {
+      "path": "tests/chrome-transport-reliability.mjs",
+      "beforeSha256": null,
+      "afterSha256": "376ccc9c7685dcbbbd3d431a30b55717e6dfb258cd657956b7beae295a9bb661",
+      "created": true
+    },
+    {
+      "path": "tests/chrome-workspace-capacity.mjs",
+      "beforeSha256": "dd93a5f0820428766916282292c498c5be07d4cf2e38190acc410177bd83d140",
+      "afterSha256": "d5f0bfadae9c7072e8450f3f73afae17f6b7896d0b082d3ef61d42f55d9458f2",
+      "created": false
+    },
+    {
+      "path": "tests/fixtures/chrome-actions.html",
+      "beforeSha256": null,
+      "afterSha256": "0f9289257cac0bd0e16c7e04855df0932014195ffc4a51d57c16f1db2f144638",
+      "created": true
+    },
+    {
+      "path": "tests/fixtures/chrome-react-currency.mjs",
+      "beforeSha256": null,
+      "afterSha256": "eee6c75af081c9adae7fb4a7a339408909f6d164db995feb54595c9d976cbcfd",
+      "created": true
+    },
+    {
+      "path": "docs/browser-action-reliability.md",
+      "beforeSha256": null,
+      "afterSha256": "bea23500cdadd1cb2ce01cfa8f9c2332ae1effb7f4398e3f89ee2a87bac98dee",
+      "created": true
+    },
+    {
+      "path": "docs/releases/2026-10-07-browser-repair-original-state.json",
+      "beforeSha256": null,
+      "afterSha256": "574a62cacde7a0b2abbb078f16727b982d20776901a605a73f61f53aca6a6530",
+      "created": true
+    },
+    {
+      "path": "docs/releases/2026-10-07-browser-regression-before.json",
+      "beforeSha256": null,
+      "afterSha256": "654116153752cbb66b7ad81df5e59e4fe5589e7c847df232a22388aafe9f9e13",
+      "created": true
+    },
+    {
+      "path": "docs/releases/2026-10-07-browser-regression-after.json",
+      "beforeSha256": null,
+      "afterSha256": "edb56db4ae92ce2a1f725d63c8e428a842eeb1307c01e734e22a0f23bc0d9b7f",
+      "created": true
+    },
+    {
+      "path": "docs/releases/2026-10-07-browser-regression-candidate.json",
+      "beforeSha256": null,
+      "afterSha256": "18b4c856c678f4765dc4e01f4db0578abdb8b7e85ddfef84a19b861fa836ece7",
+      "created": true
+    },
+    {
+      "path": "docs/releases/2026-10-07-browser-repair-source-tests.json",
+      "beforeSha256": null,
+      "afterSha256": "ee2206bb724d466471972061768a226144570fdc4814e9e2bb2170ab31b7ecb6",
+      "created": true
+    },
+    {
+      "path": "docs/releases/2026-10-07-browser-repair-deployment-candidate.json",
+      "beforeSha256": null,
+      "afterSha256": "07c8f630c7471ad7d721cda8d3566751610a4539b17fd571b577b23b88b1c6a3",
+      "created": true
+    }
+  ]
+}

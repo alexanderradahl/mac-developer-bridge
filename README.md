@@ -103,7 +103,8 @@ Git, package managers, Vercel CLI, database CLIs, AppleScript, browser CLIs, bui
 | `chrome_navigate` | Navigate an approved tab without selecting it |
 | `chrome_snapshot` | Read visible text and interactive elements from an approved tab |
 | `chrome_click` | Click an element in an approved tab without foregrounding Chrome |
-| `chrome_fill` | Fill inputs, textareas, selects, or contenteditable fields in the background |
+| `chrome_fill` | Fill and verify the current editable control, with explicit blur commit and optional numeric normalization |
+| `chrome_operation_status` | Read retained action lifecycle metadata after an uncertain result, without replaying the action |
 | `chrome_close` | Release an `MDB` workspace tab back to the idle pool, or close a non-workspace background tab |
 | `shell_exec` | Run any foreground shell command, optionally with cwd, env, stdin, timeout, and output cap |
 | `shell_start` | Start a detached long-running process |
@@ -161,6 +162,17 @@ A normal workflow is:
 4. `chrome_close` to return the workspace tab to its idle extension page and release the lease. Workspace release is local/grantless cleanup, so Strict-mode URL grants cannot strand a finished lease.
 
 Profile binding is always enforced. In relaxed mode the extension permits normal HTTP/HTTPS sites without a per-site grant. In Strict mode, each `chrome-background` approval is stored as its own mode-0600 file under `$DATA_DIR/chrome-background-grants/`, expires after at most 15 minutes, and is merged with other still-live approvals. Expired files are pruned automatically and URL patterns are enforced inside Chrome. Federated personal-browser providers keep their separate single-use behavior.
+
+
+#### Browser action results and timeout reconciliation (0.3.1)
+
+`chrome_snapshot` reads validity passively. It does not call validation methods or dispatch form events. `chrome_click` reports dispatched events and observed activation separately; an unrelated popup changing during mousedown does not suppress an ordinary button click.
+
+`chrome_fill` checks the current connected field after framework updates. Use `commit: "blur"` for a field that commits on losing focus. `normalization: "numeric"` is an explicit option for numeric input types or input modes that format `5` as `5.00`; ordinary text and identifiers keep exact comparison. Contenteditable checks preserve spaces and line breaks. Rejected or detached values are not silently written again. `submissionRequested`, `submissionObserved`, and `submissionBlocked` distinguish intent, the actual submit event, and browser validation. None proves a business change persisted; use a fresh page readback for that.
+
+Click, fill, open and navigate accept an optional `operation_id`. Reuse an ID only for the identical operation. The host records mutation dispatch before sending it to Chrome, deduplicates matching requests and rejects conflicting reuse. After a timeout, query `chrome_operation_status` using the returned ID. An operation can complete late. Missing, expired or unknown status is not proof that the action did not run, and must not trigger an automatic replay. Mutation metadata is bounded to 24 hours and 5,000 entries; passive reads use a separate short-lived memory budget. Page contents and field values are not stored in the journal, and fill values are redacted in every audit mode.
+
+`bridge_status` reports the loaded bridge hash, native-host build identity, extension release identity and connection generation. Check `backgroundChrome.operations.journalHealthy` as well as extension readiness: a damaged journal blocks mutations while passive reads remain available. See [the repair and regression guide](docs/browser-action-reliability.md) for the result contract, tests and reload verification.
 
 
 `chatgpt_extension_status` is deliberately read-only. It reports the installed ChatGPT Chrome extension version, the local `com.openai.codexextension` native-host registration, and—when a `chatgpt.com` tab is already open—the live status returned by OpenAI's own page bridge. MDB does **not** patch the OpenAI extension, add itself to the OpenAI native-host allowlist, expose arbitrary private OpenAI RPC calls, or programmatically open the ChatGPT side panel. The current ChatGPT extension does not declare `externally_connectable`; its side-panel open path also requires a trusted user gesture.

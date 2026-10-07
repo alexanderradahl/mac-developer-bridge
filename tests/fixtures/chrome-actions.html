@@ -1,0 +1,144 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>MDB isolated browser regression fixture</title>
+<style>
+  body { font: 16px system-ui; margin: 32px; }
+  input, button, select, [contenteditable], [role=combobox], [role=tab] { margin: 8px; padding: 8px; }
+  [contenteditable], [role=combobox], [role=tab] { display: block; min-width: 160px; min-height: 24px; }
+</style>
+<main id="root"></main>
+<script>
+  const root = document.getElementById('root');
+  const scenario = new URLSearchParams(location.search).get('scenario');
+  const state = { events: {}, saves: 0, toggles: 0, amount: null, draft: '', accepted: null, replacements: 0 };
+  window.fixtureState = state;
+  const count = (key) => state.events[key] = (state.events[key] || 0) + 1;
+  const receipt = (body) => fetch('/receipt', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ scenario, ...body }) });
+  const nativeValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value');
+
+  if (scenario === 'ordinary-click') {
+    root.innerHTML = '<button id="save">Save</button><div id="unrelated"></div><output id="saved">0</output>';
+    document.getElementById('save').addEventListener('mousedown', () => {
+      const popup = document.createElement('div');
+      popup.setAttribute('role', 'dialog');
+      popup.textContent = 'Unrelated validation popup';
+      document.getElementById('unrelated').append(popup);
+    });
+    document.getElementById('save').addEventListener('click', () => {
+      document.getElementById('saved').value = String(++state.saves);
+    });
+  } else if (scenario === 'mousedown-combobox') {
+    root.innerHTML = '<button id="combo" role="combobox" aria-controls="choices" aria-expanded="false">Choose</button><div id="choices" role="listbox" hidden>Choice A</div>';
+    const combo = document.getElementById('combo');
+    const toggle = () => {
+      ++state.toggles;
+      const expanded = combo.getAttribute('aria-expanded') !== 'true';
+      combo.setAttribute('aria-expanded', String(expanded));
+      document.getElementById('choices').hidden = !expanded;
+    };
+    combo.addEventListener('mousedown', toggle);
+    combo.addEventListener('click', toggle);
+  } else if (scenario === 'passive-snapshot') {
+    root.innerHTML = '<form><input id="invalid" type="email" required aria-describedby="error"><span id="error">Email required</span><button>Submit</button></form><div id="semantic-combo" role="combobox">Semantic combo</div><div id="semantic-tab" role="tab">Semantic tab</div>';
+    for (const type of ['invalid', 'input', 'change', 'focus', 'blur', 'submit']) {
+      state.events[type] = 0;
+      document.addEventListener(type, () => count(type), true);
+    }
+  } else if (scenario === 'controlled-currency') {
+    root.innerHTML = '<form id="form"><label>Tier amount <input id="amount" name="amount" inputmode="decimal" required></label><button type="submit">Save tier</button></form><output id="committed">not committed</output><output id="server-receipt">not submitted</output>';
+    const input = document.getElementById('amount');
+    // This is an application-controlled input with an instance value tracker,
+    // draft state, and blur-only business-model commit. The server receives
+    // state.amount, never a DOM value. It deliberately is not React itself.
+    let tracked = '';
+    Object.defineProperty(input, 'value', {
+      configurable: true,
+      get() { return nativeValue.get.call(this); },
+      set(value) { tracked = String(value); nativeValue.set.call(this, value); },
+    });
+    input.addEventListener('input', () => {
+      count('input');
+      if (input.value !== tracked) {
+        state.draft = input.value;
+        input.value = state.draft;
+      }
+    });
+    input.addEventListener('change', () => count('change'));
+    input.addEventListener('blur', () => {
+      count('blur');
+      queueMicrotask(() => {
+        state.amount = /^\d+(?:\.\d+)?$/.test(state.draft) ? Number(state.draft) : null;
+        if (state.amount !== null) input.value = state.amount.toFixed(2);
+        document.getElementById('committed').value = String(state.amount);
+      });
+    });
+    document.getElementById('form').addEventListener('submit', async (event) => {
+      event.preventDefault();
+      count('submit');
+      const response = await receipt({ amount: state.amount, draft: state.draft });
+      document.getElementById('server-receipt').value = JSON.stringify(await response.json());
+    });
+  } else if (scenario === 'react-currency') {
+    const script = document.createElement('script');
+    script.src = '/react-fixture.js';
+    document.body.append(script);
+  } else if (scenario === 'replace-accepted' || scenario === 'replace-rejected') {
+    root.innerHTML = '<form id="form"><input id="replace" value="before"><button type="submit">Save</button></form>';
+    const original = document.getElementById('replace');
+    original.addEventListener('input', () => {
+      const next = original.cloneNode();
+      next.value = scenario === 'replace-accepted' ? original.value : 'rejected';
+      next.addEventListener('blur', () => { state.accepted = next.value; });
+      original.replaceWith(next);
+      state.replacements++;
+    });
+    document.getElementById('form').addEventListener('submit', event => {
+      event.preventDefault();
+      state.saves++;
+      receipt({ value: state.accepted });
+    });
+  } else if (scenario === 'contenteditable' || scenario === 'contenteditable-rejected') {
+    root.innerHTML = '<div id="editor" contenteditable="true" role="textbox">before</div>';
+    document.getElementById('editor').addEventListener('input', (event) => {
+      count('input');
+      state.accepted = event.currentTarget.innerText;
+      if (scenario.endsWith('rejected')) event.currentTarget.textContent = 'rejected';
+    });
+  } else if (scenario === 'select' || scenario === 'select-rejected') {
+    root.innerHTML = '<select id="choice"><option value="a">Choice A</option><option value="b">Choice B</option></select>';
+    document.getElementById('choice').addEventListener('change', (event) => {
+      state.accepted = event.currentTarget.value;
+      if (scenario.endsWith('rejected')) event.currentTarget.value = 'a';
+    });
+  } else if (scenario === 'invalid-submit') {
+    root.innerHTML = '<form id="form"><input id="filled" required><input id="missing" required><button type="submit">Save</button></form>';
+    document.getElementById('form').addEventListener('submit', event => { event.preventDefault(); state.saves++; });
+    document.getElementById('form').addEventListener('invalid', () => count('invalid'), true);
+  } else if (scenario === 'no-form-submit') {
+    root.innerHTML = '<input id="plain">';
+    document.getElementById('plain').addEventListener('keydown', event => { if (event.key === 'Enter') count('enter'); });
+  } else if (scenario === 'read-only') {
+    root.innerHTML = '<input id="locked" readonly value="unchanged">';
+    document.getElementById('locked').addEventListener('input', () => count('input'));
+  } else if (scenario === 'focus-lock' || scenario === 'beforeinput-lock') {
+    root.innerHTML = '<input id="locking" value="unchanged">';
+    const input = document.getElementById('locking');
+    input.addEventListener(scenario === 'focus-lock' ? 'focus' : 'beforeinput', () => {
+      if (scenario === 'focus-lock') input.readOnly = true;
+      else input.disabled = true;
+    });
+    input.addEventListener('input', () => count('input'));
+  } else if (scenario === 'cancel-beforeinput') {
+    root.innerHTML = '<input id="cancel" value="unchanged">';
+    document.getElementById('cancel').addEventListener('beforeinput', event => { event.preventDefault(); count('beforeinput'); });
+    document.getElementById('cancel').addEventListener('input', () => count('input'));
+  } else if (scenario === 'suspended-raf') {
+    root.innerHTML = '<input id="background">';
+    window.requestAnimationFrame = () => { count('raf'); return 123; };
+    document.getElementById('background').addEventListener('input', event => { state.accepted = event.currentTarget.value; });
+  } else if (scenario === 'hidden-first') {
+    root.innerHTML = '<input class="field" hidden value="hidden"><input class="field" value="visible">';
+  } else {
+    root.textContent = 'Unknown regression scenario';
+  }
+</script>

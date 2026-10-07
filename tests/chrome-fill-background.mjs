@@ -16,6 +16,8 @@ class FakeElement {
     this.disabled = disabled;
     this.tagName = tagName;
     this.isContentEditable = false;
+    this.isConnected = true;
+    this.readOnly = false;
     this.attributes = new Map();
   }
   getBoundingClientRect() {
@@ -25,6 +27,10 @@ class FakeElement {
   }
   getAttribute(name) { return this.attributes.get(name) ?? null; }
   setAttribute(name, value) { this.attributes.set(name, String(value)); }
+  matches(selector) {
+    if (selector === ":disabled") return this.disabled;
+    return this.tagName === "BUTTON" && this.getAttribute("type") === "submit";
+  }
 }
 class FakeForm extends FakeElement {
   constructor({ submitter = null } = {}) {
@@ -35,7 +41,10 @@ class FakeForm extends FakeElement {
     this.method = "post";
   }
   querySelectorAll() { return this.submitter ? [this.submitter] : []; }
-  requestSubmit(submitter) { this.requestSubmitCalls.push(submitter ?? null); }
+  requestSubmit(submitter) {
+    this.requestSubmitCalls.push(submitter ?? null);
+    this.ownerDocument.dispatchEvent({ type: "submit", target: this, defaultPrevented: false });
+  }
 }
 class FakeButtonElement extends FakeElement {
   constructor({ visible = true, disabled = false } = {}) {
@@ -61,6 +70,8 @@ class FakeInputElement extends FakeElement {
 }
 class FakeTextAreaElement extends FakeInputElement {
   constructor(options = {}) { super(options); this.tagName = "TEXTAREA"; }
+  get value() { return this._value; }
+  set value(next) { this._value = String(next); }
 }
 class FakeSelectElement extends FakeInputElement {
   constructor(options = {}) { super(options); this.tagName = "SELECT"; this.options = []; }
@@ -73,12 +84,27 @@ class FakeEvent {
 }
 
 function createContext(matches) {
-  return vm.createContext({
-    document: {
-      title: "Background Reddit composer",
-      querySelectorAll: () => matches,
-      execCommand: () => false,
+  const listeners = new Map();
+  const document = {
+    title: "Background Reddit composer",
+    querySelectorAll: () => matches,
+    getElementById: () => null,
+    execCommand: () => false,
+    addEventListener: (type, callback) => {
+      if (!listeners.has(type)) listeners.set(type, new Set());
+      listeners.get(type).add(callback);
     },
+    removeEventListener: (type, callback) => listeners.get(type)?.delete(callback),
+    dispatchEvent: (event) => {
+      for (const callback of listeners.get(event.type) || []) callback(event);
+    },
+  };
+  for (const element of matches) {
+    element.ownerDocument = document;
+    if (element.form) element.form.ownerDocument = document;
+  }
+  return vm.createContext({
+    document,
     location: { href: "https://old.reddit.com/r/test/comments/example/" },
     Element: FakeElement,
     HTMLInputElement: FakeInputElement,
@@ -116,7 +142,7 @@ function createContext(matches) {
   assert.equal(result.selectedMatchIndex, 0);
   assert.equal(result.selectedVisible, true);
   assert.equal(element.value, "background fill succeeds");
-  assert.deepEqual(element.events, ["input", "change"]);
+  assert.deepEqual(element.events, ["beforeinput", "input", "change"]);
   assert.ok(elapsedMs >= 200, `expected the bounded fallback to be exercised, got ${elapsedMs}ms`);
   assert.ok(elapsedMs < 1_250, `background fill should settle well before the transport timeout, got ${elapsedMs}ms`);
 }
@@ -139,6 +165,11 @@ function createContext(matches) {
   assert.equal(result.selectedMatchIndex, 1);
   assert.equal(result.selectedVisible, true);
   assert.equal(result.submitStrategy, "requestSubmit:visible-submitter");
+  assert.equal(result.submissionRequested, true);
+  assert.equal(result.submissionObserved, true);
+  assert.equal(result.submitted, true);
+  assert.equal(result.submissionBlocked, false);
+  assert.equal(result.outcomeVerified, false, "a submit event does not prove application persistence");
   assert.equal(result.submitterTag, "button");
   assert.equal(result.submitterType, "submit");
   assert.equal(result.formAction, "https://old.reddit.com/api/comment");

@@ -3,6 +3,15 @@
 - Fixed MDB workspace lease reuse races: long ChatGPT turns keep retrying transient heartbeat failures, stale non-idle leases are retained until a hard bound, and release/reclaim waits for the extension idle navigation to actually commit before making a tab reusable.
 ## Unreleased
 
+### Browser action reliability (bridge 0.3.1 / extension 0.2.12)
+
+- Fixed ordinary clicks suppressed by unrelated popup changes and made snapshots read validation state without firing validation events.
+- Verify current framework-managed fields after replacement; add explicit blur commits, opt-in numeric normalization, exact contenteditable whitespace checks and editability rechecks. Report actual submission events rather than requested submission as success.
+- Observe correlated popup lifecycle without inheriting site access, and retain frame/document identity and safe action diagnostics through MCP.
+- Add stable action IDs, bounded deadlines, durable mutation dispatch metadata, late-outcome reconciliation and `chrome_operation_status`. Duplicate writes are not replayed. Passive reads have a separate budget and do not consume mutation history.
+- Capture loaded build identities and native connection generations. Preserve action failure stages separately from transport stages, and redact fill values from every audit mode.
+- Added real Chromium/React regression fixtures and Mac native-host/MCP protocol coverage. No new extension permissions or foreground browser-control backend were added.
+
 ### Run outcomes, activity, and listing (0.3.0)
 
 - `chatgpt_conversation_status` now returns `needs-input` instead of `completed` when the turn's final assistant message carries an explicit `NEEDS_INPUT:` or `BLOCKER:` line, ends with a question, or states it cannot finish / remains blocked / is a partial handoff. The reply adds `question`, `blocker`, and a typed `outcome_reason` (`explicit_signal`, `trailing_question`, `stop_phrase`). Runs persisted by older bridges are classified lazily on read.
