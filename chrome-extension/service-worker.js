@@ -555,12 +555,6 @@ async function reserveIdleWorkspaceTab() {
 
 async function leaseWorkspaceTab(url, compiled) {
   assertUrlAllowed(url, compiled);
-  const reloadKey = `${WORKSPACE_KEY}:reload-parking-v1`;
-  if ((await chrome.storage.local.get(reloadKey))?.[reloadKey]) {
-    const error = new Error("The owned tab pool is being preserved across an extension reload. No browser action was started.");
-    error.code = "CHROME_WORKSPACE_LEASE_LOST";
-    throw error;
-  }
   let state = await reconcileWorkspaceState();
   const configuredTarget = effectiveWorkspaceTargetSize(
     null,
@@ -692,77 +686,6 @@ async function releaseWorkspaceTab(tabId, { resetUrl = true } = {}) {
     tabId: wanted,
     wasActive: Boolean(result.updated?.active),
   };
-}
-
-async function waitForParkedWorkspaceTab(tabId, groupId) {
-  const deadline = Date.now() + 3000;
-  for (;;) {
-    const tab = await readTab(tabId);
-    if (!tab || tab.groupId !== groupId || tab.active) throw new Error("Workspace tab ownership changed during reload preparation.");
-    if (tab.url === "about:blank" && (!tab.status || tab.status === "complete")) return tab;
-    if (Date.now() >= deadline) throw new Error("Workspace parking did not complete before the bounded deadline.");
-    await delay(25);
-  }
-}
-
-async function restoreWorkspaceAfterReload() {
-  return await mutateWorkspaceState(async () => {
-    const key = `${WORKSPACE_KEY}:reload-parking-v1`;
-    const stored = (await chrome.storage.local.get(key))?.[key];
-    if (!stored || stored.schemaVersion !== 1 || !Number.isInteger(stored.groupId) || !Array.isArray(stored.tabIds)) return {restored:0};
-    if (Date.now() - Number(stored.createdAt) > 600000 || !await readGroup(stored.groupId)) {
-      await chrome.storage.local.remove(key);
-      return {restored:0,expired:true};
-    }
-    const restored = [];
-    const skipped = [];
-    for (const tabId of stored.tabIds.slice(0,MAX_WORKSPACE_POOL_SIZE)) {
-      const tab = Number.isInteger(tabId) ? await readTab(tabId) : null;
-      if (!tab || tab.groupId !== stored.groupId || tab.active || !["about:blank",workspaceIdleUrl()].includes(tab.url)) {
-        skipped.push(tabId);continue;
-      }
-      try {
-        if (tab.url !== workspaceIdleUrl()) await chrome.tabs.update(tabId,{url:workspaceIdleUrl(),active:false});
-        await waitForWorkspaceIdleNavigation(tabId);
-        restored.push(tabId);
-      } catch {skipped.push(tabId);}
-    }
-    if (restored.length) await saveWorkspaceState({groupId:stored.groupId,tabIds:restored,leases:{}});
-    await chrome.storage.local.remove(key);
-    return {restored:restored.length,skipped};
-  });
-}
-
-async function prepareWorkspaceForReload() {
-  try {
-    return await mutateWorkspaceState(async () => {
-      const state=await loadWorkspaceState();
-      if(!state)return {parked:0};
-      if(Object.keys(state.leases||{}).length) {
-        const error=new Error("MDB has active tab leases. Finish or release the owning tasks before reloading the extension.");
-        error.code="CHROME_WORKSPACE_RELOAD_BUSY";throw error;
-      }
-      const tabs=[];
-      for(const tabId of state.tabIds) {
-        const tab=await readTab(tabId);
-        if(!tab || tab.groupId!==state.groupId || tab.active || tab.url!==workspaceIdleUrl()) {
-          const error=new Error("Only verified inactive extension-owned idle tabs can be parked for reload.");
-          error.code="CHROME_WORKSPACE_RELOAD_BUSY";throw error;
-        }
-        tabs.push(tab);
-      }
-      const key=`${WORKSPACE_KEY}:reload-parking-v1`;
-      await chrome.storage.local.set({[key]:{schemaVersion:1,createdAt:Date.now(),groupId:state.groupId,tabIds:tabs.map(t=>t.id)}});
-      for(const tab of tabs) {
-        await chrome.tabs.update(tab.id,{url:"about:blank",active:false});
-        await waitForParkedWorkspaceTab(tab.id,state.groupId);
-      }
-      return {parked:tabs.length};
-    });
-  } catch(error) {
-    await restoreWorkspaceAfterReload().catch(()=>{});
-    throw error;
-  }
 }
 
 async function workspaceStatus() {
@@ -3722,9 +3645,8 @@ async function dispatch(message) {
   if (message.method === "extension.reload") {
     // Internal maintenance hook for this unpacked extension. Respond first so the
     // native host/client sees success, then let Chrome restart the service worker.
-    const preparation = await prepareWorkspaceForReload();
     setTimeout(() => chrome.runtime.reload(), 100);
-    return { reloading: true, version: VERSION, extensionId: chrome.runtime.id, ...preparation };
+    return { reloading: true, version: VERSION, extensionId: chrome.runtime.id };
   }
   if (message.method === "workspace.status") return await workspaceStatus();
   if (message.method === "workspace.init") return await initializeWorkspace(args.poolSize);
@@ -4127,7 +4049,6 @@ async function connect() {
     return;
   }
   try {
-    await restoreWorkspaceAfterReload();
     const workspace = await initializeWorkspaceIfChromeFocused();
     if (workspace) await setWorkspaceGroupActivity(workspace);
   } catch {}
