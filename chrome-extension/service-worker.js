@@ -2241,7 +2241,7 @@ async function pageChatgptRuntimeConversationStart(input) {
     const modernOnSubmit = Object.getOwnPropertyDescriptor(props || {}, "onSubmit")?.value;
     const composerController = Object.getOwnPropertyDescriptor(props || {}, "composerController")?.value;
     if (
-      props?.isPrimaryComposer !== false
+      (props?.isPrimaryComposer === true || props?.isPrimaryComposer === undefined)
       && selectedModel
       && typeof selectedModel === "object"
       && typeof selectedModel.slug === "string"

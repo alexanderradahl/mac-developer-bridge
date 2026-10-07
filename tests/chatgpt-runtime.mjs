@@ -451,7 +451,7 @@ for(const flags of [{primaryComposerFlag:null},{primaryComposerFlag:true},
   assert.equal(result.active_model,"gpt-5-6-thinking");
   assert.equal(page.submitted(),null,"preflight must never submit");
 }
-for(const flags of [{primaryComposerFlag:false},{primaryComposerFlag:null,conflictingModernWrapper:true}]) {
+for(const flags of [{primaryComposerFlag:false},{primaryComposerFlag:0},{primaryComposerFlag:"true"},{primaryComposerFlag:null,conflictingModernWrapper:true}]) {
   const page=runtimePage({modernModelShape:true,modelId:"gpt-5-6-thinking",thinkingEffort:"max",...flags});
   const result=await page.run({prompt:"compatibility preflight",model:"gpt-5-6-thinking",thinkingEffort:"max",preflightOnly:true});
   assert.equal(result.ok,false);
@@ -464,4 +464,4 @@ for(const flags of [{primaryComposerFlag:false},{primaryComposerFlag:null,confli
   assert.equal(result.ok,false);assert.equal(result.error.code,"CHATGPT_RUNTIME_MODEL_MISMATCH");
   assert.equal(page.submitted(),null);
 }
-console.log("October composer regressions: 6 passed; preflight made no submissions");
+console.log("October composer regressions: 8 passed; preflight made no submissions");
