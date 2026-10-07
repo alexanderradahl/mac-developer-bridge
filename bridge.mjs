@@ -1600,6 +1600,59 @@ const BACKGROUND_CHROME_MAX_POOL_SIZE = 32;
 const CHATGPT_CHROME_EXTENSION_ID = "hehggadaopoacecdllhhajmbjkdcmajg";
 const CHATGPT_NATIVE_HOST_NAME = "com.openai.codexextension";
 
+// Read installation metadata only; never launch an OpenAI native host here.
+async function chatgptChromeExtensionInstallationStatus() {
+  const chromeRoot = path.join(HOME, "Library", "Application Support", "Google", "Chrome");
+  const installations = [];
+  const errors = [];
+  let profiles;
+  try { profiles = await fsp.readdir(chromeRoot, {withFileTypes:true}); }
+  catch (error) {
+    return {extensionId: CHATGPT_CHROME_EXTENSION_ID, installed: error.code === "ENOENT" ? false : null,
+      enabled: null, installations, ...(error.code === "ENOENT" ? {} : {error: {code:error.code || "READ_FAILED"}})};
+  }
+  for (const profile of profiles.filter(x=>x.isDirectory() && /^(?:Default|Profile \d+)$/.test(x.name)).slice(0,32)) {
+    const root = path.join(chromeRoot, profile.name, "Extensions", CHATGPT_CHROME_EXTENSION_ID);
+    let versions;
+    try { versions = await fsp.readdir(root, {withFileTypes:true}); }
+    catch (error) { if(error.code !== "ENOENT")errors.push({profile:profile.name,code:error.code || "READ_FAILED"});continue; }
+    for (const version of versions.filter(x=>x.isDirectory()).slice(0,12)) {
+      const manifestPath=path.join(root,version.name,"manifest.json");
+      try {
+        const info=await fsp.stat(manifestPath);
+        if(!info.isFile() || info.size>262144)throw new Error("Invalid manifest size");
+        const manifest=JSON.parse(await fsp.readFile(manifestPath,"utf8"));
+        if(typeof manifest.version!=="string")throw new Error("Missing manifest version");
+        installations.push({profile:profile.name,version:manifest.version,manifestPath});
+      } catch(error) {errors.push({profile:profile.name,version:version.name,code:error.code || "INVALID_MANIFEST"});}
+    }
+  }
+  return {extensionId:CHATGPT_CHROME_EXTENSION_ID, installed:installations.length>0?true:errors.length?null:false,
+    enabled:null, installations, ...(errors.length?{errors:errors.slice(0,12)}:{})};
+}
+
+async function chatgptNativeHostInstallationStatus() {
+  const candidates = [
+    path.join(HOME,"Library","Application Support","Google","Chrome","NativeMessagingHosts",CHATGPT_NATIVE_HOST_NAME+".json"),
+    path.join("/Library","Google","Chrome","NativeMessagingHosts",CHATGPT_NATIVE_HOST_NAME+".json"),
+  ];
+  const registrations=[];const errors=[];
+  for(const manifestPath of candidates) {
+    try {
+      const info=await fsp.stat(manifestPath);
+      if(!info.isFile() || info.size>262144)throw new Error("Invalid manifest size");
+      const manifest=JSON.parse(await fsp.readFile(manifestPath,"utf8"));
+      if(manifest.name!==CHATGPT_NATIVE_HOST_NAME || manifest.type!=="stdio" || typeof manifest.path!=="string" || !path.isAbsolute(manifest.path))throw new Error("Invalid native host manifest");
+      let executablePresent=false;
+      try {await fsp.access(manifest.path,fs.constants.X_OK);executablePresent=true;}catch{}
+      const extensionAllowed=Array.isArray(manifest.allowed_origins) && manifest.allowed_origins.includes("chrome-extension://"+CHATGPT_CHROME_EXTENSION_ID+"/");
+      registrations.push({manifestPath,name:manifest.name,path:manifest.path,type:manifest.type,extensionAllowed,executablePresent});
+    } catch(error) {if(error.code!=="ENOENT")errors.push({manifestPath,code:error.code || "INVALID_MANIFEST"});}
+  }
+  return {name:CHATGPT_NATIVE_HOST_NAME,registered:registrations.length>0?true:errors.length?null:false,
+    registrations,...(errors.length?{errors}:{})};
+}
+
 function backgroundChromeApprovalError(reason) {
   const error = new Error(`Background Chrome is not approved for this website: ${reason}. Run scripts/approve-personal-browser.sh --provider chrome-background with the required URL patterns. Approvals are shared across all ChatGPT sessions on this bridge until their individual expiry times.`);
   error.code = "PERSONAL_MODE_NOT_APPROVED";

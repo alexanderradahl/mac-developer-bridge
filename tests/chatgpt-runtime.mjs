@@ -32,6 +32,10 @@ function runtimePage({
   projectId = null,
   mountedProjectId = projectId,
   completionNeverSettles = false,
+  modernModelShape = false,
+  primaryComposerFlag = true,
+  duplicateModernWrapper = false,
+  conflictingModernWrapper = false,
 } = {}) {
   let clock = 1_000;
   let submitted = null;
@@ -131,6 +135,17 @@ function runtimePage({
     memoizedState: null,
   };
   modelFiber.return = rootFiber;
+  if (modernModelShape) {
+    modelFiber.memoizedProps = {
+      ...(primaryComposerFlag === null ? {} : {isPrimaryComposer: primaryComposerFlag}),
+      selectedModel: {slug:modelId}, composerController: {}, onSubmit() {},
+      isSubmitting:false, isStreaming:false,
+    };
+    if (duplicateModernWrapper || conflictingModernWrapper) {
+      rootFiber.memoizedProps = {...modelFiber.memoizedProps};
+      if(conflictingModernWrapper) rootFiber.memoizedProps.composerController = {};
+    }
+  }
   const composer = { "__reactFiber$test": modelFiber };
   const document = {
     querySelector(selector) {
@@ -424,3 +439,29 @@ assert.equal(modernPersisted.assistant_message_id, null);
 assert.equal(modernPersisted.assistant_text, modernPersistedText);
 
 console.log("chatgpt runtime page test passed");
+
+// The October composer omits isPrimaryComposer and wraps the same controller.
+for(const flags of [{primaryComposerFlag:null},{primaryComposerFlag:true},
+                    {primaryComposerFlag:null,duplicateModernWrapper:true}]) {
+  const page=runtimePage({modernModelShape:true,modelId:"gpt-5-6-thinking",thinkingEffort:"max",...flags});
+  const result=await page.run({prompt:"compatibility preflight",model:"gpt-5-6-thinking",thinkingEffort:"max",preflightOnly:true});
+  assert.equal(result.ok,true,JSON.stringify(result));
+  assert.equal(result.preflight_only,true);
+  assert.equal(result.submission_attempted,false);
+  assert.equal(result.active_model,"gpt-5-6-thinking");
+  assert.equal(page.submitted(),null,"preflight must never submit");
+}
+for(const flags of [{primaryComposerFlag:false},{primaryComposerFlag:null,conflictingModernWrapper:true}]) {
+  const page=runtimePage({modernModelShape:true,modelId:"gpt-5-6-thinking",thinkingEffort:"max",...flags});
+  const result=await page.run({prompt:"compatibility preflight",model:"gpt-5-6-thinking",thinkingEffort:"max",preflightOnly:true});
+  assert.equal(result.ok,false);
+  assert.equal(result.error.code,"CHATGPT_RUNTIME_CONTRACT_CHANGED");
+  assert.equal(page.submitted(),null);
+}
+{
+  const page=runtimePage({modernModelShape:true,primaryComposerFlag:null,modelId:"different-model",thinkingEffort:"max"});
+  const result=await page.run({prompt:"compatibility preflight",model:"gpt-5-6-thinking",thinkingEffort:"max",preflightOnly:true});
+  assert.equal(result.ok,false);assert.equal(result.error.code,"CHATGPT_RUNTIME_MODEL_MISMATCH");
+  assert.equal(page.submitted(),null);
+}
+console.log("October composer regressions: 6 passed; preflight made no submissions");

@@ -555,6 +555,12 @@ async function reserveIdleWorkspaceTab() {
 
 async function leaseWorkspaceTab(url, compiled) {
   assertUrlAllowed(url, compiled);
+  const reloadKey = `${WORKSPACE_KEY}:reload-parking-v1`;
+  if ((await chrome.storage.local.get(reloadKey))?.[reloadKey]) {
+    const error = new Error("The owned tab pool is being preserved across an extension reload. No browser action was started.");
+    error.code = "CHROME_WORKSPACE_LEASE_LOST";
+    throw error;
+  }
   let state = await reconcileWorkspaceState();
   const configuredTarget = effectiveWorkspaceTargetSize(
     null,
@@ -686,6 +692,77 @@ async function releaseWorkspaceTab(tabId, { resetUrl = true } = {}) {
     tabId: wanted,
     wasActive: Boolean(result.updated?.active),
   };
+}
+
+async function waitForParkedWorkspaceTab(tabId, groupId) {
+  const deadline = Date.now() + 3000;
+  for (;;) {
+    const tab = await readTab(tabId);
+    if (!tab || tab.groupId !== groupId || tab.active) throw new Error("Workspace tab ownership changed during reload preparation.");
+    if (tab.url === "about:blank" && (!tab.status || tab.status === "complete")) return tab;
+    if (Date.now() >= deadline) throw new Error("Workspace parking did not complete before the bounded deadline.");
+    await delay(25);
+  }
+}
+
+async function restoreWorkspaceAfterReload() {
+  return await mutateWorkspaceState(async () => {
+    const key = `${WORKSPACE_KEY}:reload-parking-v1`;
+    const stored = (await chrome.storage.local.get(key))?.[key];
+    if (!stored || stored.schemaVersion !== 1 || !Number.isInteger(stored.groupId) || !Array.isArray(stored.tabIds)) return {restored:0};
+    if (Date.now() - Number(stored.createdAt) > 600000 || !await readGroup(stored.groupId)) {
+      await chrome.storage.local.remove(key);
+      return {restored:0,expired:true};
+    }
+    const restored = [];
+    const skipped = [];
+    for (const tabId of stored.tabIds.slice(0,MAX_WORKSPACE_POOL_SIZE)) {
+      const tab = Number.isInteger(tabId) ? await readTab(tabId) : null;
+      if (!tab || tab.groupId !== stored.groupId || tab.active || !["about:blank",workspaceIdleUrl()].includes(tab.url)) {
+        skipped.push(tabId);continue;
+      }
+      try {
+        if (tab.url !== workspaceIdleUrl()) await chrome.tabs.update(tabId,{url:workspaceIdleUrl(),active:false});
+        await waitForWorkspaceIdleNavigation(tabId);
+        restored.push(tabId);
+      } catch {skipped.push(tabId);}
+    }
+    if (restored.length) await saveWorkspaceState({groupId:stored.groupId,tabIds:restored,leases:{}});
+    await chrome.storage.local.remove(key);
+    return {restored:restored.length,skipped};
+  });
+}
+
+async function prepareWorkspaceForReload() {
+  try {
+    return await mutateWorkspaceState(async () => {
+      const state=await loadWorkspaceState();
+      if(!state)return {parked:0};
+      if(Object.keys(state.leases||{}).length) {
+        const error=new Error("MDB has active tab leases. Finish or release the owning tasks before reloading the extension.");
+        error.code="CHROME_WORKSPACE_RELOAD_BUSY";throw error;
+      }
+      const tabs=[];
+      for(const tabId of state.tabIds) {
+        const tab=await readTab(tabId);
+        if(!tab || tab.groupId!==state.groupId || tab.active || tab.url!==workspaceIdleUrl()) {
+          const error=new Error("Only verified inactive extension-owned idle tabs can be parked for reload.");
+          error.code="CHROME_WORKSPACE_RELOAD_BUSY";throw error;
+        }
+        tabs.push(tab);
+      }
+      const key=`${WORKSPACE_KEY}:reload-parking-v1`;
+      await chrome.storage.local.set({[key]:{schemaVersion:1,createdAt:Date.now(),groupId:state.groupId,tabIds:tabs.map(t=>t.id)}});
+      for(const tab of tabs) {
+        await chrome.tabs.update(tab.id,{url:"about:blank",active:false});
+        await waitForParkedWorkspaceTab(tab.id,state.groupId);
+      }
+      return {parked:tabs.length};
+    });
+  } catch(error) {
+    await restoreWorkspaceAfterReload().catch(()=>{});
+    throw error;
+  }
 }
 
 async function workspaceStatus() {
@@ -1647,7 +1724,40 @@ async function pageTaskAudit() {
   return result;
 }
 
-async function pageChatgptRuntimeInventory() {
+async function pageChatgptRuntimeInventory(input = {}) {
+  if (input?.composerOnly === true) {
+    if (location.origin !== "https://chatgpt.com") return {ok:false,error:{code:"CHATGPT_TAB_UNAVAILABLE",message:"Expected a ChatGPT tab."}};
+    const selectors = ['main [role="textbox"][aria-label="Ask ChatGPT"]', 'main [role="textbox"][contenteditable="true"]', '#prompt-textarea', 'form textarea'];
+    const entries = [];
+    const safeScalar = /^(?:slug|id|model|modelId|currentModelId|isPrimaryComposer|isStreaming|isSubmitting|disabled|submitPending|isCompletionInProgress|isNewThread|effort|thinkingEffort|reasoningEffort|isDisabled|isComposerSubmissionReady)$/;
+    for (const selector of selectors) {
+      const root = document.querySelector(selector);
+      if (!root) continue;
+      let fiber = null;
+      for (let el=root, i=0;el && i<10;el=el.parentElement,i++) {
+        const key=Object.keys(el).find(k=>k.startsWith("__reactFiber$")||k.startsWith("__reactInternalInstance$"));
+        if(key) {fiber=Object.getOwnPropertyDescriptor(el,key)?.value;break;}
+      }
+      const seen=new Set();const chain=[];
+      for(let depth=0;fiber && depth<100 && !seen.has(fiber);fiber=fiber.return,depth++) {
+        seen.add(fiber);
+        const props=fiber.memoizedProps;
+        if(!props||typeof props!=="object")continue;
+        const descriptors=Object.getOwnPropertyDescriptors(props);
+        const fields={};
+        for(const [key,d] of Object.entries(descriptors).slice(0,100)) {
+          if(!('value' in d)||/cookie|token|authorization|credential|password|secret|email|account/i.test(key))continue;
+          const value=d.value;
+          if(safeScalar.test(key) && ['string','boolean','number'].includes(typeof value)) fields[key]=String(value).slice(0,120);
+          else if(/model|composer|submit|stream|reason|effort|conversation/i.test(key)) fields[key]={type:typeof value,keys:value&&typeof value==='object'?Object.keys(value).filter(k=>!/cookie|token|authorization|credential|password|secret|email|account/i.test(k)).slice(0,35):[],scalars:value&&typeof value==='object'?Object.fromEntries(Object.entries(Object.getOwnPropertyDescriptors(value)).filter(([k,v])=>safeScalar.test(k)&&'value' in v&&['string','number','boolean'].includes(typeof v.value)).map(([k,v])=>[k,String(v.value).slice(0,100)])):null};
+        }
+        chain.push({depth,component:typeof fiber.type==='string'?fiber.type:typeof fiber.type?.name==='string'?fiber.type.name:'component',propKeys:Object.keys(descriptors).filter(k=>!/cookie|token|authorization|credential|password|secret|email|account/i.test(k)).slice(0,80),fields});
+      }
+      entries.push({selector,chain});break;
+    }
+    return {ok:true,read_only:true,mode:'composer-contract',page_url:location.origin+location.pathname,entries};
+  }
+
   const MAX_CANDIDATES = 300;
   const MAX_MODULES = 30_000;
   const fail = (code, message) => ({ ok: false, error: { code, message } });
@@ -2208,7 +2318,7 @@ async function pageChatgptRuntimeConversationStart(input) {
     const modernOnSubmit = Object.getOwnPropertyDescriptor(props || {}, "onSubmit")?.value;
     const composerController = Object.getOwnPropertyDescriptor(props || {}, "composerController")?.value;
     if (
-      props?.isPrimaryComposer === true
+      props?.isPrimaryComposer !== false
       && selectedModel
       && typeof selectedModel === "object"
       && typeof selectedModel.slug === "string"
@@ -2216,7 +2326,14 @@ async function pageChatgptRuntimeConversationStart(input) {
       && typeof composerController === "object"
       && typeof modernOnSubmit === "function"
     ) {
-      modernModelCandidates.push({ props, depth });
+      // React wrappers may carry the same composer props twice. They are one
+      // composer only when controller, selection and submit callback agree.
+      if (!modernModelCandidates.some(candidate =>
+          candidate.props.composerController === composerController
+          && candidate.props.selectedModel === selectedModel
+          && candidate.props.onSubmit === modernOnSubmit)) {
+        modernModelCandidates.push({ props, depth });
+      }
     }
   }
 
@@ -2236,6 +2353,11 @@ async function pageChatgptRuntimeConversationStart(input) {
   } else if (modelCandidates.length === 0 && modernModelCandidates.length === 1) {
     modernRuntime = true;
     const modernContext = modernModelCandidates[0];
+    const selectedModelId = modernContext.props.selectedModel.slug;
+    if (selectedModelId !== model) {
+      return fail("CHATGPT_RUNTIME_MODEL_MISMATCH", "The selected ChatGPT model does not match the requested model. No submission was attempted.",
+        {requested_model: model, active_model: selectedModelId});
+    }
     const routedModel = new URL(location.href).searchParams.get("model");
     if (routedModel !== null && routedModel !== model) {
       return fail(
@@ -2476,6 +2598,13 @@ async function pageChatgptRuntimeConversationStart(input) {
     page_url: location.href,
     operation: expectedConversationId === null ? "start" : "continue",
   });
+
+  if (input?.preflightOnly === true) {
+    return {ok: true, preflight_only: true, submission_attempted: false,
+      composer_kind: modernRuntime ? "modern-controller" : "legacy-controller",
+      model: currentModelId, requested_model: model, active_model: modelContext.props.selectedModel?.slug || currentModelId, thinking_effort: thinkingEffort,
+      runtime_action: submitCandidate.runtimeAction || "submitComposer:text_action"};
+  }
 
   const parseResponse = async (response) => {
     if (!response.ok) {
@@ -3577,13 +3706,25 @@ async function dispatch(message) {
   // Purely local extension/workspace operations do not touch authenticated web
   // content and therefore do not need a personal-browser URL grant.
   if (message.method === "status") {
+    if (args.workspaceMetadata === true) {
+      const groups = await chrome.tabGroups.query({});
+      const tabs = await chrome.tabs.query({});
+      const stored = await loadWorkspaceState();
+      return {version:VERSION,extensionId:chrome.runtime.id,connected:true,
+        storedWorkspace:stored,
+        ownedIdleTabs:tabs.filter(t=>String(t.url||"").startsWith(chrome.runtime.getURL(""))).map(t=>({tabId:t.id,groupId:t.groupId,windowId:t.windowId,url:t.url,status:t.status})),
+        mdbGroups:groups.filter(g=>String(g.title||"").startsWith("MDB")).map(g=>({id:g.id,title:g.title,color:g.color,windowId:g.windowId,collapsed:g.collapsed,tabCount:tabs.filter(t=>t.groupId===g.id).length,
+          tabs:tabs.filter(t=>t.groupId===g.id).map(t=>({tabId:t.id,status:t.status,protocol:String(t.url||"").split(':')[0],internalUrl:/^(?:chrome|chrome-extension):/.test(String(t.url||""))?t.url:null,pendingInternalUrl:/^(?:chrome|chrome-extension):/.test(String(t.pendingUrl||""))?t.pendingUrl:null}))})),
+      };
+    }
     return { version: VERSION, extensionId: chrome.runtime.id, connected: true };
   }
   if (message.method === "extension.reload") {
     // Internal maintenance hook for this unpacked extension. Respond first so the
     // native host/client sees success, then let Chrome restart the service worker.
+    const preparation = await prepareWorkspaceForReload();
     setTimeout(() => chrome.runtime.reload(), 100);
-    return { reloading: true, version: VERSION, extensionId: chrome.runtime.id };
+    return { reloading: true, version: VERSION, extensionId: chrome.runtime.id, ...preparation };
   }
   if (message.method === "workspace.status") return await workspaceStatus();
   if (message.method === "workspace.init") return await initializeWorkspace(args.poolSize);
@@ -3888,6 +4029,19 @@ async function dispatch(message) {
       }
     }
 
+    case "tabs.chatgptComposerPreflight": {
+      const tab = await getApprovedTab(args.tabId, compiled);
+      if (!String(tab.url || "").startsWith("https://chatgpt.com/")) {
+        throw new Error("The selected tab is not a ChatGPT page.");
+      }
+      return await executeInTab(tab.id, pageChatgptRuntimeConversationStart, [{
+        prompt: "MDB read-only composer compatibility check.",
+        model: String(args.model || "gpt-5-6-thinking"),
+        thinkingEffort: String(args.thinkingEffort || "max"),
+        preflightOnly: true,
+      }], "MAIN");
+    }
+
     case "tabs.chatgptRuntimeInventory": {
       const tab = await getApprovedTab(args.tabId, compiled);
       if (!String(tab.url || "").startsWith("https://chatgpt.com/")) {
@@ -3895,7 +4049,7 @@ async function dispatch(message) {
         error.code = "CHATGPT_TAB_UNAVAILABLE";
         throw error;
       }
-      const result = await executeInTab(tab.id, pageChatgptRuntimeInventory, [], "MAIN");
+      const result = await executeInTab(tab.id, pageChatgptRuntimeInventory, [{composerOnly: args.composerOnly === true}], "MAIN");
       if (result?.ok === false) {
         const error = new Error(result.error?.message || "ChatGPT runtime inventory failed.");
         error.code = result.error?.code || "CHATGPT_RUNTIME_INVENTORY_FAILED";
@@ -3973,6 +4127,7 @@ async function connect() {
     return;
   }
   try {
+    await restoreWorkspaceAfterReload();
     const workspace = await initializeWorkspaceIfChromeFocused();
     if (workspace) await setWorkspaceGroupActivity(workspace);
   } catch {}
