@@ -31,3 +31,10 @@
 - [x] 5.1 Open streaming Responses requests before awaiting the browser runtime and keep the stream active during long thinking turns
 - [x] 5.2 Recover only an unambiguous single raw-input tool call when the runtime leaves inner quotes unescaped
 - [x] 5.3 Add regressions for delayed stream startup and ambiguous malformed tool-call rejection
+
+## 6. GPT-6 Pro
+
+- [x] 6.1 Add `chatgpt-gpt6` aliases for the observed `gpt-6-pro` runtime at fixed standard effort
+- [x] 6.2 Support the editor's parent-owned React fiber with a bounded lookup and regression coverage
+- [x] 6.3 Verify adapter, runtime, HTTP Project routing, and syntax checks
+- [ ] 6.4 Activate the updated bridge and extension without interrupting existing work, then verify the registered 410,000-token model through a live tool round trip

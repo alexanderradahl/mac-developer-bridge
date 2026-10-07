@@ -52,7 +52,13 @@ const PUBLIC_URL = /^https?:\/\/[^\s"'\\/?#]+$/.test(PUBLIC_URL_RAW) ? PUBLIC_UR
 // and 9Jf_WtxFPY80 on another — so an exact-match list cannot work: the first
 // connector's URL was hardcoded here and every subsequent connector was rejected
 // with "Unrecognised redirect_uri".
-const DEFAULT_REDIRECT_URIS = ["https://chatgpt.com/connector_platform_oauth_redirect"];
+const DEFAULT_REDIRECT_URIS = [
+  "https://chatgpt.com/connector_platform_oauth_redirect",
+  // Claude Web's custom MCP connector uses one stable, exact OAuth callback.
+  // Keep this as a literal allowlist entry rather than accepting claude.ai
+  // callbacks by host or prefix.
+  "https://claude.ai/api/mcp/auth_callback",
+];
 
 /// True for ChatGPT's per-connector callback shape.
 ///

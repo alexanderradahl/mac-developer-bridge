@@ -84,6 +84,8 @@ function errorPayload(error, code = "CHROME_EXTENSION_ERROR") {
         "status",
         "complete",
         "conversation_id",
+        "page_url",
+        "assistant_message_id",
         "event_count",
         "parse_failure_count",
         "action_error_name",
@@ -437,9 +439,20 @@ async function waitForApprovedNavigation(tabId, compiled, {
         error.code = "CHROME_URL_NOT_APPROVED";
         throw error;
       }
-      // A committed but still-loading page is not ready for snapshot/click/fill.
-      // Waiting here makes chrome_open/chrome_navigate a reliable hand-off point.
+      // A committed SPA can remain status=loading after its DOM is interactive.
+      // Snapshot/click/fill only need an interactive document, not every resource.
       if (tab.status === "complete" || !tab.status) return tab;
+      try {
+        const [probe] = await chrome.scripting.executeScript({
+          target: { tabId },
+          injectImmediately: true,
+          world: "MAIN",
+          func: () => document.readyState,
+        });
+        if (["interactive", "complete"].includes(String(probe?.result || ""))) return tab;
+      } catch {
+        // The document may still be swapping; continue bounded polling.
+      }
     }
 
     if (Date.now() >= deadline) {
@@ -1959,6 +1972,7 @@ async function pageChatgptPersistedAssistantRead(input) {
   const fail = (code, message, details = {}) => ({ ok: false, error: { code, message, ...details } });
   const conversationId = String(input?.conversationId || "");
   const assistantMessageId = input?.assistantMessageId == null ? null : String(input.assistantMessageId);
+  const expectedAssistantText = input?.expectedAssistantText == null ? null : String(input.expectedAssistantText).trim();
   const timeoutMs = Math.max(1_000, Math.min(30_000, Number(input?.timeoutMs || 15_000)));
   if (location.origin !== "https://chatgpt.com") {
     return fail("CHATGPT_TAB_UNAVAILABLE", "The selected tab is not a chatgpt.com page.");
@@ -1976,16 +1990,62 @@ async function pageChatgptPersistedAssistantRead(input) {
     );
   }
 
+  const assistantEntries = () => {
+    const legacy = [...document.querySelectorAll('[data-message-author-role="assistant"]')];
+    if (legacy.length > 0) {
+      return legacy.map((node) => ({
+        node,
+        text: String(node.innerText || node.textContent || "").trim(),
+        messageId: node.closest?.('[data-message-id]')?.getAttribute?.("data-message-id") || null,
+      }));
+    }
+    const semantic = [...document.querySelectorAll("main div")].filter((node) => {
+      const text = String(node.innerText || node.textContent || "").trim();
+      if (!text.startsWith("ChatGPT said:")) return false;
+      return ![...node.children].some((child) =>
+        String(child.innerText || child.textContent || "").trim().startsWith("ChatGPT said:")
+      );
+    });
+    if (semantic.length > 0) {
+      return semantic.map((node) => ({
+        node,
+        text: String(node.innerText || node.textContent || "").trim().replace(/^ChatGPT said:\s*/, ""),
+        messageId: null,
+      }));
+    }
+    return [...document.querySelectorAll('main [class*="MarkdownRoot-"]')].map((node) => ({
+      node,
+      text: String(node.innerText || node.textContent || "").trim(),
+      messageId: null,
+    }));
+  };
+
   const deadline = Date.now() + timeoutMs;
   let lastText = "";
   let stableReads = 0;
   while (Date.now() < deadline) {
-    const assistantNodes = [...document.querySelectorAll('[data-message-author-role="assistant"]')];
+    const entries = assistantEntries();
+    const exactMessage = assistantMessageId === null
+      ? null
+      : entries.find((entry) => entry.messageId === assistantMessageId);
+    const anyMessageIds = entries.some((entry) => Boolean(entry.messageId));
+    // Current ChatGPT drops DOM message ids after a persisted reload on some
+    // long/tool-using turns. In that shape, accept only the latest assistant
+    // entry whose text exactly matches the response observed before reload.
+    // Never fall back by position alone when an expected message id is missing.
+    const textMatchedMessage = (
+      assistantMessageId !== null
+      && !exactMessage
+      && !anyMessageIds
+      && expectedAssistantText
+    )
+      ? [...entries].reverse().find((entry) => String(entry.text || "").trim() === expectedAssistantText)
+      : null;
     const latest = assistantMessageId === null
-      ? assistantNodes.at(-1)
-      : assistantNodes.find((node) => node.closest?.('[data-message-id]')?.getAttribute?.("data-message-id") === assistantMessageId);
-    const currentMessageId = latest?.closest?.('[data-message-id]')?.getAttribute?.("data-message-id") || null;
-    const assistantText = String(latest?.innerText || latest?.textContent || "").trim();
+      ? entries.at(-1)
+      : (exactMessage || textMatchedMessage);
+    const currentMessageId = latest?.messageId || null;
+    const assistantText = String(latest?.text || "").trim();
     if (assistantText.length > MAX_ASSISTANT_TEXT_CHARS) {
       return fail("CHATGPT_CONVERSATION_OUTPUT_LIMIT", "The persisted assistant response exceeded the configured output limit.");
     }
@@ -2001,7 +2061,7 @@ async function pageChatgptPersistedAssistantRead(input) {
       const style = getComputedStyle(button);
       return rect.width > 0 && rect.height > 0 && style.display !== "none" && style.visibility !== "hidden";
     });
-    if (document.readyState === "complete" && assistantText && stableReads >= 2 && !generating) {
+    if (["interactive", "complete"].includes(document.readyState) && assistantText && stableReads >= 2 && !generating) {
       return {
         ok: true,
         complete: true,
@@ -2017,7 +2077,11 @@ async function pageChatgptPersistedAssistantRead(input) {
   return fail(
     "CHATGPT_CONVERSATION_HANDOFF_UNCERTAIN",
     "The completed ChatGPT conversation did not expose its persisted assistant message after reload.",
-    { conversation_id: conversationId, assistant_message_id: assistantMessageId },
+    {
+      conversation_id: conversationId,
+      page_url: location.href,
+      assistant_message_id: assistantMessageId,
+    },
   );
 }
 
@@ -2036,6 +2100,21 @@ async function pageChatgptRuntimeConversationStart(input) {
   const projectId = input?.projectId == null ? null : String(input.projectId);
   const expectedConversationId = input?.conversationId == null ? null : String(input.conversationId);
   const promptBytes = new TextEncoder().encode(prompt).length;
+
+  // Mato worker progress text is not a terminal response. Wait for its exact
+  // final report before considering DOM stability or reloading the page.
+  const expectedWorkerJobId = prompt.includes('runtime_report_version')
+    ? (prompt.match(/JOB ID:\s*[`*]*([a-zA-Z0-9._-]+)/)?.[1] || null) : null;
+  const applicableWorkerFinal = (text) => {
+    if (!expectedWorkerJobId) return true;
+    try {
+      const value = JSON.parse(String(text || '').trim());
+      return value?.runtime_report_version === 'community-runtime-report-v1'
+        && value.report?.job_id === expectedWorkerJobId
+        && value.report?.schema_version === 1
+        && ['completed','blocked','uncertain'].includes(value.report?.operational_status);
+    } catch { return false; }
+  };
 
   if (location.origin !== "https://chatgpt.com") {
     return fail("CHATGPT_TAB_UNAVAILABLE", "The selected tab is not a chatgpt.com page.");
@@ -2072,13 +2151,21 @@ async function pageChatgptRuntimeConversationStart(input) {
 
   const findComposerRuntime = () => {
     const roots = [
+      // Current ChatGPT composer (Sep 2026) is a role=textbox div and no
+      // longer consistently exposes #prompt-textarea or a composer test id.
+      document.querySelector('main [role="textbox"][aria-label="Ask ChatGPT"]'),
+      document.querySelector('main [role="textbox"][contenteditable="true"]'),
+      // Keep the older selectors for backwards compatibility.
       document.querySelector("#prompt-textarea"),
       document.querySelector('[contenteditable="true"][data-testid*="composer"]'),
       document.querySelector('form textarea'),
     ].filter(Boolean);
     for (const root of roots) {
-      const key = Object.keys(root).find((candidate) => candidate.startsWith("__reactFiber$") || candidate.startsWith("__reactInternalInstance$"));
-      if (key) return { root, key };
+      // The editor may be unmanaged while its enclosing composer owns the fiber.
+      for (let node = root, depth = 0; node && depth < 8; node = node.parentElement, depth += 1) {
+        const key = Object.keys(node).find((candidate) => candidate.startsWith("__reactFiber$") || candidate.startsWith("__reactInternalInstance$"));
+        if (key) return { root: node, key };
+      }
     }
     return null;
   };
@@ -2095,41 +2182,90 @@ async function pageChatgptRuntimeConversationStart(input) {
   }
 
   const modelCandidates = [];
+  const modernModelCandidates = [];
   let fiber = composerRoot[fiberKey];
   let rootFiber = fiber;
   for (let depth = 0; fiber && depth < 120; depth += 1, fiber = fiber.return) {
     rootFiber = fiber;
     const props = fiber.memoizedProps && typeof fiber.memoizedProps === "object" ? fiber.memoizedProps : null;
+
     const action = Object.getOwnPropertyDescriptor(props || {}, "onCreateNewCompletion")?.value;
-    if (typeof action !== "function") continue;
-    let source = "";
-    try { source = Function.prototype.toString.call(action); } catch {}
-    const currentModelId = Object.getOwnPropertyDescriptor(props, "currentModelId")?.value;
-    const semanticMatch = action.length === 1
-      && /typeof\s+[A-Za-z_$][\w$]*\.content/.test(source)
-      && /\.content\.length/.test(source)
-      && typeof currentModelId === "string"
-      && Object.prototype.hasOwnProperty.call(props, "currentModelConfig")
-      && Object.prototype.hasOwnProperty.call(props, "conversation")
-      && Object.prototype.hasOwnProperty.call(props, "isNewThread");
-    if (semanticMatch) modelCandidates.push({ props, source, depth });
+    if (typeof action === "function") {
+      let source = "";
+      try { source = Function.prototype.toString.call(action); } catch {}
+      const legacyModelId = Object.getOwnPropertyDescriptor(props, "currentModelId")?.value;
+      const semanticMatch = action.length === 1
+        && /typeof\s+[A-Za-z_$][\w$]*\.content/.test(source)
+        && /\.content\.length/.test(source)
+        && typeof legacyModelId === "string"
+        && Object.prototype.hasOwnProperty.call(props, "currentModelConfig")
+        && Object.prototype.hasOwnProperty.call(props, "conversation")
+        && Object.prototype.hasOwnProperty.call(props, "isNewThread");
+      if (semanticMatch) modelCandidates.push({ props, source, depth });
+    }
+
+    const selectedModel = Object.getOwnPropertyDescriptor(props || {}, "selectedModel")?.value;
+    const modernOnSubmit = Object.getOwnPropertyDescriptor(props || {}, "onSubmit")?.value;
+    const composerController = Object.getOwnPropertyDescriptor(props || {}, "composerController")?.value;
+    if (
+      props?.isPrimaryComposer === true
+      && selectedModel
+      && typeof selectedModel === "object"
+      && typeof selectedModel.slug === "string"
+      && composerController
+      && typeof composerController === "object"
+      && typeof modernOnSubmit === "function"
+    ) {
+      modernModelCandidates.push({ props, depth });
+    }
   }
-  if (modelCandidates.length !== 1) {
+
+  let modernRuntime = false;
+  let modelContext;
+  let currentModelId;
+  if (modelCandidates.length === 1) {
+    modelContext = modelCandidates[0];
+    currentModelId = modelContext.props.currentModelId;
+    if (currentModelId !== model) {
+      return fail(
+        "CHATGPT_RUNTIME_MODEL_MISMATCH",
+        "The signed-in ChatGPT runtime did not activate the requested model.",
+        { requested_model: model, active_model: currentModelId },
+      );
+    }
+  } else if (modelCandidates.length === 0 && modernModelCandidates.length === 1) {
+    modernRuntime = true;
+    const modernContext = modernModelCandidates[0];
+    const routedModel = new URL(location.href).searchParams.get("model");
+    if (routedModel !== null && routedModel !== model) {
+      return fail(
+        "CHATGPT_RUNTIME_MODEL_MISMATCH",
+        "The signed-in ChatGPT page route does not match the requested model.",
+        { requested_model: model, active_model: routedModel },
+      );
+    }
+    const routeConversationMatch = location.pathname.match(/^\/c\/([^/?#]+)/)
+      || location.pathname.match(/^\/g\/[^/]+\/c\/([^/?#]+)/);
+    modelContext = {
+      ...modernContext,
+      props: {
+        ...modernContext.props,
+        currentModelId: model,
+        isNewThread: !routeConversationMatch,
+        submitPending: modernContext.props.isSubmitting === true,
+        isCompletionInProgress: modernContext.props.isStreaming === true,
+      },
+    };
+    currentModelId = model;
+  } else {
     return fail(
       "CHATGPT_RUNTIME_CONTRACT_CHANGED",
-      `Expected exactly one validated ChatGPT model context but found ${modelCandidates.length}. UI automation was not attempted.`,
+      "Expected one validated ChatGPT composer context; found "
+        + modelCandidates.length + " legacy and " + modernModelCandidates.length
+        + " current candidates. No submission was attempted.",
     );
   }
 
-  const modelContext = modelCandidates[0];
-  const currentModelId = modelContext.props.currentModelId;
-  if (currentModelId !== model) {
-    return fail(
-      "CHATGPT_RUNTIME_MODEL_MISMATCH",
-      "The signed-in ChatGPT runtime did not activate the requested model.",
-      { requested_model: model, active_model: currentModelId },
-    );
-  }
   if (projectId !== null && expectedConversationId === null && location.pathname !== `/g/${projectId}/project`) {
     return fail(
       "CHATGPT_RUNTIME_PROJECT_MISMATCH",
@@ -2197,7 +2333,7 @@ async function pageChatgptRuntimeConversationStart(input) {
   const seenFibers = new Set();
   const fiberStack = rootFiber ? [rootFiber] : [];
   let traversedFiberCount = 0;
-  while (fiberStack.length > 0 && traversedFiberCount < 50_000 && submitCandidates.length < 10) {
+  while (!modernRuntime && fiberStack.length > 0 && traversedFiberCount < 50_000 && submitCandidates.length < 10) {
     const current = fiberStack.pop();
     if (!current || seenFibers.has(current)) continue;
     seenFibers.add(current);
@@ -2211,10 +2347,91 @@ async function pageChatgptRuntimeConversationStart(input) {
     if (current.sibling) fiberStack.push(current.sibling);
     if (current.child) fiberStack.push(current.child);
   }
+  if (submitCandidates.length === 0 && modernRuntime) {
+    const composerInput = document.querySelector('main [role="textbox"][aria-label="Ask ChatGPT"]')
+      || document.querySelector('main [role="textbox"][contenteditable="true"]')
+      || document.querySelector("#prompt-textarea")
+      || document.querySelector('[contenteditable="true"][data-testid*="composer"]');
+    if (!composerInput) {
+      return fail("CHATGPT_RUNTIME_CONTRACT_CHANGED", "The current ChatGPT composer input could not be located.");
+    }
+
+    const domSubmitComposer = (_event, intent) => {
+      const text = String(intent?.text || "");
+      if (!text) return { accepted: false, completion: Promise.resolve(false) };
+      const completion = (async () => {
+        try { composerInput.focus({ preventScroll: true }); } catch { try { composerInput.focus(); } catch {} }
+        if (composerInput.isContentEditable) {
+          const selection = window.getSelection();
+          const range = document.createRange();
+          range.selectNodeContents(composerInput);
+          selection.removeAllRanges();
+          selection.addRange(range);
+          let inserted = false;
+          try { inserted = Boolean(document.execCommand("insertText", false, text)); } catch {}
+          if (!inserted) composerInput.textContent = text;
+          composerInput.dispatchEvent(new InputEvent("input", {
+            bubbles: true,
+            inputType: "insertText",
+            data: text,
+          }));
+        } else if (composerInput instanceof HTMLTextAreaElement || composerInput instanceof HTMLInputElement) {
+          const prototype = composerInput instanceof HTMLTextAreaElement
+            ? HTMLTextAreaElement.prototype
+            : HTMLInputElement.prototype;
+          const setter = Object.getOwnPropertyDescriptor(prototype, "value")?.set;
+          if (setter) setter.call(composerInput, text);
+          else composerInput.value = text;
+          composerInput.dispatchEvent(new InputEvent("input", {
+            bubbles: true,
+            inputType: "insertText",
+            data: text,
+          }));
+          composerInput.dispatchEvent(new Event("change", { bubbles: true }));
+        } else {
+          throw new Error("The current ChatGPT composer is not fillable.");
+        }
+
+        const sendDeadline = Date.now() + 5_000;
+        while (Date.now() < sendDeadline) {
+          const sendButton = document.querySelector('button[aria-label="Send"]');
+          if (sendButton && sendButton.getAttribute("aria-disabled") !== "true" && sendButton.disabled !== true) {
+            const rect = sendButton.getBoundingClientRect();
+            const style = getComputedStyle(sendButton);
+            if (rect.width > 0 && rect.height > 0 && style.display !== "none" && style.visibility !== "hidden") {
+              sendButton.click();
+              return true;
+            }
+          }
+          await new Promise((resolve) => setTimeout(resolve, 50));
+        }
+        throw new Error("The current ChatGPT Send control did not become ready after filling the composer.");
+      })();
+      return { accepted: true, completion };
+    };
+
+    submitCandidates.push({
+      submitComposer: domSubmitComposer,
+      runtimeAction: "dom-composer:send",
+      sharedProps: {
+        isComposerSubmissionReady: true,
+        isDisabled: false,
+        conversation: null,
+        composerController: modelContext.props.composerController || {},
+        isNewThread: expectedConversationId === null,
+        conversationMode: projectId === null
+          ? { kind: "primary_assistant" }
+          : { kind: "gizmo_interaction", gizmo_id: projectId },
+        availableSystemHints: [],
+        submitComposer: domSubmitComposer,
+      },
+    });
+  }
   if (submitCandidates.length !== 1) {
     return fail(
       "CHATGPT_RUNTIME_CONTRACT_CHANGED",
-      `Expected exactly one validated ChatGPT submitComposer action but found ${submitCandidates.length}. UI automation was not attempted.`,
+      "Expected exactly one validated ChatGPT submit action but found "
+        + submitCandidates.length + ". No submission was attempted.",
     );
   }
   const submitCandidate = submitCandidates[0];
@@ -2248,7 +2465,8 @@ async function pageChatgptRuntimeConversationStart(input) {
   const enrichResult = (result) => ({
     ...result,
     transport: "runtime",
-    runtime_action: "submitComposer:text_action",
+    worker_report_job_id: expectedWorkerJobId,
+    runtime_action: submitCandidate.runtimeAction || "submitComposer:text_action",
     runtime_fingerprint: actionFingerprint,
     model: currentModelId,
     thinking_effort: thinkingEffort,
@@ -2477,10 +2695,40 @@ async function pageChatgptRuntimeConversationStart(input) {
     }
   };
 
+  const assistantEntries = () => {
+    const legacy = [...document.querySelectorAll('[data-message-author-role="assistant"]')];
+    if (legacy.length > 0) {
+      return legacy.map((node) => ({
+        node,
+        text: String(node.innerText || node.textContent || "").trim(),
+        messageId: node.closest?.('[data-message-id]')?.getAttribute?.("data-message-id") || null,
+      }));
+    }
+    const semantic = [...document.querySelectorAll("main div")].filter((node) => {
+      const text = String(node.innerText || node.textContent || "").trim();
+      if (!text.startsWith("ChatGPT said:")) return false;
+      return ![...node.children].some((child) =>
+        String(child.innerText || child.textContent || "").trim().startsWith("ChatGPT said:")
+      );
+    });
+    if (semantic.length > 0) {
+      return semantic.map((node) => ({
+        node,
+        text: String(node.innerText || node.textContent || "").trim().replace(/^ChatGPT said:\s*/, ""),
+        messageId: null,
+      }));
+    }
+    return [...document.querySelectorAll('main [class*="MarkdownRoot-"]')].map((node) => ({
+      node,
+      text: String(node.innerText || node.textContent || "").trim(),
+      messageId: null,
+    }));
+  };
+
   let actionSettled = false;
   let actionError = null;
   let actionCompletionValue;
-  const initialAssistantCount = document.querySelectorAll('[data-message-author-role="assistant"]').length;
+  const initialAssistantCount = assistantEntries().length;
   globalThis.fetch = patchedFetch;
   try {
     let actionPromise;
@@ -2513,27 +2761,31 @@ async function pageChatgptRuntimeConversationStart(input) {
       if (observedConversationRequest && observedResponseSettled && !networkObservationHandled) {
         networkResult = observedResponseValue;
         networkObservationHandled = true;
-        if (networkResult?.ok === false) return enrichResult(networkResult);
-        if (networkResult?.conversation_id) observedConversationId = networkResult.conversation_id;
+        // ChatGPT's event-stream encoding changes independently of the rendered
+        // conversation UI. A parser failure must not discard a successfully
+        // rendered and persisted assistant response.
+        if (networkResult?.ok !== false && networkResult?.conversation_id) {
+          observedConversationId = networkResult.conversation_id;
+        }
       }
-      if (actionSettled && networkResult?.complete === true && networkResult?.assistant_text) {
+      if (actionSettled && networkResult?.complete === true && networkResult?.assistant_text && applicableWorkerFinal(networkResult.assistant_text)) {
         return enrichResult(networkResult);
       }
 
       const conversationMatch = location.pathname.match(/^\/c\/([^/?#]+)/)
         || location.pathname.match(/^\/g\/[^/]+\/c\/([^/?#]+)/);
       if (conversationMatch) observedConversationId = conversationMatch[1];
-      const assistantNodes = [...document.querySelectorAll('[data-message-author-role="assistant"]')];
+      const assistantNodes = assistantEntries();
       if (assistantNodes.length > initialAssistantCount) {
         const latest = assistantNodes.at(-1);
-        const assistantText = String(latest?.innerText || latest?.textContent || "").trim();
+        const assistantText = String(latest?.text || "").trim();
         if (assistantText.length > MAX_ASSISTANT_TEXT_CHARS) {
           return fail("CHATGPT_CONVERSATION_OUTPUT_LIMIT", "The rendered assistant response exceeded the configured output limit.", {
             conversation_id: observedConversationId,
             complete: false,
           });
         }
-        observedAssistantMessageId = latest?.closest?.('[data-message-id]')?.getAttribute?.("data-message-id") || null;
+        observedAssistantMessageId = latest?.messageId || null;
         if (assistantText && assistantText === lastAssistantText) stableAssistantReads += 1;
         else {
           lastAssistantText = assistantText;
@@ -2546,7 +2798,7 @@ async function pageChatgptRuntimeConversationStart(input) {
           const style = getComputedStyle(button);
           return rect.width > 0 && rect.height > 0 && style.display !== "none" && style.visibility !== "hidden";
         });
-        if (actionSettled && assistantText && stableAssistantReads >= 4 && !generating) {
+        if (actionSettled && assistantText && stableAssistantReads >= 4 && !generating && applicableWorkerFinal(assistantText)) {
           return enrichResult({
             ok: true,
             complete: true,
@@ -2559,7 +2811,7 @@ async function pageChatgptRuntimeConversationStart(input) {
             parse_failure_count: networkResult?.parse_failure_count ?? 0,
             event_types: networkResult?.event_types ?? [],
             endpoint: "/backend-api/f/conversation",
-            observation_source: networkResult ? "runtime-stream+rendered-runtime" : "rendered-runtime",
+            observation_source: networkResult?.ok === true ? "runtime-stream+rendered-runtime" : "rendered-runtime",
           });
         }
       }
@@ -3298,11 +3550,25 @@ async function pageFill(selector, value, submit) {
 async function executeInTab(tabId, func, args, world = "ISOLATED") {
   const result = await chrome.scripting.executeScript({
     target: { tabId },
+    injectImmediately: true,
     world,
     func,
     args,
   });
   return result?.[0]?.result ?? null;
+}
+
+function hasVerifiedNativeTerminalResult(result) {
+  return Boolean(
+    result && result.ok !== false && result.complete === true
+    && typeof result.assistant_message_id === "string" && result.assistant_message_id.trim()
+    && typeof result.conversation_id === "string" && result.conversation_id.trim()
+    && typeof result.assistant_text === "string" && result.assistant_text.trim()
+    && (result.assistant_role === undefined || result.assistant_role === "assistant")
+    && Number.isInteger(result.parsed_event_count) && result.parsed_event_count > 0
+    && Array.isArray(result.event_types)
+    && result.event_types.includes("message_stream_complete") && result.event_types.includes("done")
+  );
 }
 
 async function dispatch(message) {
@@ -3535,7 +3801,10 @@ async function dispatch(message) {
           error.details = result.error || null;
           throw error;
         }
-        if (transport === "runtime" && result?.complete === true && result?.conversation_id) {
+        // Keep the exact native final message when its stream already proves completion.
+        // A second DOM reload is not stronger evidence and can destroy a valid result.
+        if (transport === "runtime" && result?.complete === true && result?.conversation_id
+            && !hasVerifiedNativeTerminalResult(result)) {
           const conversationUrl = String(result.page_url || (await readTab(tab.id))?.url || tab.url || "");
           await chrome.tabs.reload(tab.id);
           await new Promise((resolve) => setTimeout(resolve, 250));
@@ -3543,19 +3812,62 @@ async function dispatch(message) {
             previousUrl: conversationUrl,
             requestedUrl: conversationUrl,
           });
-          const persisted = await executeInTab(tab.id, pageChatgptPersistedAssistantRead, [{
+          const persistedInput = {
             conversationId: result.conversation_id,
             ...(result.assistant_message_id ? { assistantMessageId: result.assistant_message_id } : {}),
-            timeoutMs: 15_000,
-          }], "MAIN");
-          if (persisted?.ok === false) {
-            const error = new Error(persisted.error?.message || "ChatGPT persisted conversation verification failed.");
-            error.code = persisted.error?.code || "CHATGPT_CONVERSATION_HANDOFF_UNCERTAIN";
-            error.details = persisted.error || null;
+            ...(typeof result.assistant_text === "string" ? { expectedAssistantText: result.assistant_text } : {}),
+            timeoutMs: 30_000,
+          };
+          let persisted = await executeInTab(
+            tab.id,
+            pageChatgptPersistedAssistantRead,
+            [persistedInput],
+            "MAIN",
+          );
+          // One bounded read-only retry gives long/tool-using turns time to finish
+          // their server-side conversation commit. The prompt is never replayed.
+          if (
+            !persisted || (persisted.ok === false
+            && persisted.error?.code === "CHATGPT_CONVERSATION_HANDOFF_UNCERTAIN")
+          ) {
+            await new Promise((resolve) => setTimeout(resolve, 1_000));
+            await chrome.tabs.reload(tab.id);
+            await new Promise((resolve) => setTimeout(resolve, 250));
+            await waitForApprovedNavigation(tab.id, compiled, {
+              previousUrl: conversationUrl,
+              requestedUrl: conversationUrl,
+            });
+            persisted = await executeInTab(
+              tab.id,
+              pageChatgptPersistedAssistantRead,
+              [persistedInput],
+              "MAIN",
+            );
+          }
+          if (!persisted || persisted.ok === false) {
+            const error = new Error(persisted?.error?.message || "ChatGPT persisted conversation verification is unavailable; the original prompt was not replayed.");
+            error.code = persisted?.error?.code || "CHATGPT_CONVERSATION_HANDOFF_UNCERTAIN";
+            error.details = {
+              ...(persisted?.error || {}),
+              conversation_id: result.conversation_id,
+              page_url: result.page_url || conversationUrl,
+              assistant_message_id: result.assistant_message_id || null,
+            };
             throw error;
+          }
+          let persistedExactWorkerReport = false;
+          if (result.worker_report_job_id && persisted.assistant_text === result.assistant_text) {
+            try {
+              const envelope = JSON.parse(persisted.assistant_text);
+              persistedExactWorkerReport = envelope?.runtime_report_version === "community-runtime-report-v1"
+                && envelope.report?.job_id === result.worker_report_job_id
+                && envelope.report?.schema_version === 1
+                && ["completed", "blocked", "uncertain"].includes(envelope.report?.operational_status);
+            } catch {}
           }
           result = {
             ...result,
+            persisted_exact_worker_report: persistedExactWorkerReport,
             assistant_message_id: persisted.assistant_message_id || result.assistant_message_id || null,
             assistant_text: persisted.assistant_text,
             persisted_response_bytes: persisted.persisted_response_bytes,

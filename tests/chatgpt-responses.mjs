@@ -32,6 +32,15 @@ assert.match(messageSse, /"type":"response.output_item.done"/);
 assert.match(messageSse, /"type":"response.completed"/);
 assert.ok(messageSse.endsWith("data: [DONE]\n\n"));
 
+for (const model of ["chatgpt-gpt6", "chatgpt-runtime/chatgpt-gpt6"]) {
+  const prepared = prepareChatgptResponsesRequest({ ...base, model, reasoning: { effort: "high" } });
+  assert.equal(prepared.model, "chatgpt-gpt6");
+  assert.equal(prepared.browserModel, "gpt-6-pro");
+  assert.equal(prepared.thinkingEffort, "standard");
+  const decision = parseChatgptResponsesEnvelope('{"kind":"message","text":"GPT6_OK"}', prepared);
+  assert.equal(buildChatgptResponsesResponse(prepared, decision).model, "chatgpt-gpt6");
+}
+
 const solEfforts = new Map([
   ["low", "low"],
   ["medium", "standard"],

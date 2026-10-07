@@ -305,6 +305,17 @@ try {
   assert.equal(browserCalls.at(-1).args.projectId, chatgptProjectId);
   ok("Responses Sol model maps reasoning effort and binds the configured Project");
 
+  const gpt6Reply = await responsesRequest({
+    model: "chatgpt-runtime/chatgpt-gpt6",
+    input: "Reply from the GPT-6 runtime.",
+  });
+  assert.equal(gpt6Reply.status, 200);
+  assert.equal((await gpt6Reply.json()).model, "chatgpt-gpt6");
+  assert.equal(browserCalls.at(-1).args.model, "gpt-6-pro");
+  assert.equal(browserCalls.at(-1).args.thinkingEffort, "standard");
+  assert.equal(browserCalls.at(-1).args.projectId, chatgptProjectId);
+  ok("Responses GPT-6 model uses fixed standard effort and binds the configured Project");
+
   const toolReply = await responsesRequest({
     model: "chatgpt-browser",
     stream: true,

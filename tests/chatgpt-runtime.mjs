@@ -22,6 +22,8 @@ function runtimePage({
   accepted = true,
   createConversation = true,
   exposeComposer = true,
+  composerFiberOnParent = false,
+  composerSelector = "#prompt-textarea",
   existingConversationId = null,
   loadedConversationId = existingConversationId,
   modelId = "gpt-5-6-pro",
@@ -132,7 +134,7 @@ function runtimePage({
   const composer = { "__reactFiber$test": modelFiber };
   const document = {
     querySelector(selector) {
-      if (exposeComposer && selector === "#prompt-textarea") return composer;
+      if (exposeComposer && selector === composerSelector) return composerFiberOnParent ? { parentElement: composer } : composer;
       return null;
     },
     querySelectorAll(selector) {
@@ -190,7 +192,39 @@ assert.equal(successPage.submitted().intent.text, "runtime prompt");
 assert.ok(successPage.submitted().event instanceof Event);
 assert.ok(!JSON.stringify(success).includes(successPage.secret), "runtime store secret escaped the result");
 
+const currentComposerPage = runtimePage({
+  assistantText: "MDB_CURRENT_COMPOSER_OK",
+  composerFiberOnParent: true,
+  composerSelector: 'main [role="textbox"][aria-label="Ask ChatGPT"]',
+});
+const currentComposerResult = await currentComposerPage.run({
+  prompt: "current composer prompt",
+  model: "gpt-5-6-pro",
+  thinkingEffort: "standard",
+});
+assert.equal(currentComposerResult.ok, true);
+assert.equal(currentComposerResult.assistant_text, "MDB_CURRENT_COMPOSER_OK");
+assert.equal(currentComposerPage.submitted().intent.text, "current composer prompt");
+
 const projectId = "g-p-6a8dee0602b0819184fa43aae5a20ee9";
+const gpt6Page = runtimePage({
+  assistantText: "MDB_GPT6_PROJECT_OK",
+  modelId: "gpt-6-pro",
+  composerFiberOnParent: true,
+  projectId,
+});
+const gpt6Result = await gpt6Page.run({
+  prompt: "GPT-6 project runtime prompt",
+  model: "gpt-6-pro",
+  thinkingEffort: "standard",
+  projectId,
+});
+assert.equal(gpt6Result.ok, true);
+assert.equal(gpt6Result.project_id, projectId);
+assert.equal(gpt6Result.thinking_effort, "standard");
+assert.equal(gpt6Result.assistant_text, "MDB_GPT6_PROJECT_OK");
+assert.equal(gpt6Page.submitted().intent.text, "GPT-6 project runtime prompt");
+
 const projectPage = runtimePage({
   assistantText: "MDB_SOL_PROJECT_OK",
   modelId: "gpt-5-6-thinking",
@@ -347,5 +381,46 @@ const persisted = await readPersisted({
 assert.equal(persisted.ok, true);
 assert.equal(persisted.assistant_message_id, "persisted-assistant-message");
 assert.equal(persisted.assistant_text, persistedNode.innerText);
+
+const modernPersistedText = '{"runtime_report_version":"community-runtime-report-v1","report":{"schema_version":1}}';
+let modernPersistedClock = 1_000;
+const modernSemanticNode = {
+  innerText: "ChatGPT said:\n\n" + modernPersistedText,
+  textContent: "ChatGPT said:\n\n" + modernPersistedText,
+  children: [],
+};
+const modernPersistedContext = {
+  Date: class extends Date { static now() { return modernPersistedClock; } },
+  document: {
+    readyState: "interactive",
+    querySelectorAll(selector) {
+      if (selector === '[data-message-author-role="assistant"]') return [];
+      if (selector === "main div") return [modernSemanticNode];
+      return [];
+    },
+  },
+  getComputedStyle: () => ({ display: "none", visibility: "hidden" }),
+  location: {
+    origin: "https://chatgpt.com",
+    pathname: "/c/modern-persisted-conversation",
+    href: "https://chatgpt.com/c/modern-persisted-conversation",
+  },
+  TextEncoder,
+  setTimeout(callback, ms = 0) {
+    modernPersistedClock += Number(ms) || 0;
+    queueMicrotask(callback);
+    return 1;
+  },
+};
+const readModernPersisted = vm.runInNewContext(persistedFunctionSource, modernPersistedContext);
+const modernPersisted = await readModernPersisted({
+  conversationId: "modern-persisted-conversation",
+  assistantMessageId: "message-id-not-present-after-reload",
+  expectedAssistantText: modernPersistedText,
+  timeoutMs: 5_000,
+});
+assert.equal(modernPersisted.ok, true);
+assert.equal(modernPersisted.assistant_message_id, null);
+assert.equal(modernPersisted.assistant_text, modernPersistedText);
 
 console.log("chatgpt runtime page test passed");

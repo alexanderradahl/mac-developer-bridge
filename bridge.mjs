@@ -4489,8 +4489,25 @@ async function handleMessage(message) {
       // always the literal "Error", since these are plain Error objects. Federated tool
       // errors already carry a code, so without this the bridge's own tools and its
       // proxied tools returned differently shaped error envelopes.
+      const rawDetails = (
+        error?.details && typeof error.details === "object" && !Array.isArray(error.details)
+      ) ? error.details : {};
+      const nestedDetails = (
+        rawDetails?.details && typeof rawDetails.details === "object" && !Array.isArray(rawDetails.details)
+      ) ? rawDetails.details : rawDetails;
+      const safeHandoffDetails = name === "chatgpt_conversation_start"
+        ? Object.fromEntries(
+            ["conversation_id", "page_url", "assistant_message_id", "complete"]
+              .filter((key) => nestedDetails?.[key] !== undefined)
+              .map((key) => [key, nestedDetails[key]]),
+          )
+        : {};
       sendResult(id, toolTextResult(
-        { error: String(error?.message || error), ...(error?.code ? { code: error.code } : {}) },
+        {
+          error: String(error?.message || error),
+          ...(error?.code ? { code: error.code } : {}),
+          ...safeHandoffDetails,
+        },
         { isError: true, modern },
       ));
     }

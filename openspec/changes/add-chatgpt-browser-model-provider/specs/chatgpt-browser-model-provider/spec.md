@@ -1,15 +1,23 @@
 ## ADDED Requirements
 
 ### Requirement: Publish an explicit browser-runtime model
-The system SHALL publish the signed-in ChatGPT browser runtime as the separate Codex-visible models `chatgpt-runtime/chatgpt-browser` and `chatgpt-runtime/chatgpt-sol` and SHALL NOT add either to an existing default or fallback chain.
+The system SHALL publish the signed-in ChatGPT browser runtime as the separate Codex-visible models `chatgpt-runtime/chatgpt-browser`, `chatgpt-runtime/chatgpt-sol`, and `chatgpt-runtime/chatgpt-gpt6` and SHALL NOT add them to an existing default or fallback chain.
 
 #### Scenario: Model catalog is synchronized
 - **WHEN** OpenCodex synchronizes its configured providers and custom models
-- **THEN** both browser-runtime models appear as separately selectable models and all existing model routes retain their prior targets
+- **THEN** all three browser-runtime models appear as separately selectable models and all existing model routes retain their prior targets
 
 #### Scenario: Context metadata matches GPT-5.6 Sol
-- **WHEN** the browser-runtime model is written to the Codex catalog
+- **WHEN** `chatgpt-browser` or `chatgpt-sol` is written to the Codex catalog
 - **THEN** it advertises the same 372,000-token context window and 334,800-token auto-compaction threshold as the live `gpt-5.6-sol` entry
+
+#### Scenario: GPT-6 Pro is selected
+- **WHEN** Codex selects `chatgpt-runtime/chatgpt-gpt6`
+- **THEN** the adapter activates `gpt-6-pro` with fixed `standard` effort and its catalog entry advertises the observed 410,000-token context window
+
+#### Scenario: The editor's parent owns the runtime fiber
+- **WHEN** the prompt editor has no React fiber but a nearby enclosing element does
+- **THEN** MDB searches at most eight elements starting from the editor and retains the mounted model and Project checks before submission
 
 ### Requirement: Expose Sol reasoning effort
 The Sol browser-runtime model SHALL activate ChatGPT's `gpt-5-6-thinking` model and SHALL translate Codex reasoning levels to a supported ChatGPT thinking effort before submission.
