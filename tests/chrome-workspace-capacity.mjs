@@ -224,7 +224,7 @@ const releaseLeaseMatch = workerSource.match(
 assert.ok(resetWaitMatch && reconcileLeaseMatch && touchLeaseMatch && reserveLeaseMatch && releaseLeaseMatch);
 
 const leasedTabId = 72;
-const idleUrl = "chrome-extension://test/workspace.html";
+const idleUrl = "about:blank#mdb-workspace-idle-test";
 let leaseNow = 1_000_000;
 let persistedLeaseState = {
   groupId: 9,
@@ -394,7 +394,7 @@ const deferredContext = vm.createContext({
   workspaceCapacityStatus: capacity,
   WORKSPACE_GROUP_TITLE: "MDB",
   WORKSPACE_GROUP_COLOR: "blue",
-  workspaceIdleUrl: () => "chrome-extension://test/workspace.html",
+  workspaceIdleUrl: () => "about:blank#mdb-workspace-idle-test",
   mutateWorkspaceState: async (operation) => await operation(),
   reconcileWorkspaceStateUnlocked: async () => existingState,
   provisionWorkspaceTargetSize: async () => 16,
@@ -433,7 +433,7 @@ const focusedContext = vm.createContext({
   workspaceCapacityStatus: capacity,
   WORKSPACE_GROUP_TITLE: "MDB",
   WORKSPACE_GROUP_COLOR: "blue",
-  workspaceIdleUrl: () => "chrome-extension://test/workspace.html",
+  workspaceIdleUrl: () => "about:blank#mdb-workspace-idle-test",
   mutateWorkspaceState: async (operation) => await operation(),
   reconcileWorkspaceStateUnlocked: async () => existingState,
   provisionWorkspaceTargetSize: async () => 12,

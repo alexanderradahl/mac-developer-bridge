@@ -725,3 +725,18 @@ It does **not** remove the data directory, so these survive an uninstall — inc
 - `oauth-client-id`, `mcp-http.pid`, `cloudflared.pid`, `jobs/`, and the audit log
 
 Delete `~/Library/Application Support/MacDeveloperBridge` as well if you want the credentials gone. It also does not stop a running front end; run `scripts/disable.sh` first.
+
+
+### Worker completion and idle-pool recovery
+
+Private-file workers finish through an exact persisted `MATO_JOB_RESULT` marker;
+progress prose is not a final response. The runtime must independently validate
+the private report and every claimed action. No private report is copied into a
+browser response merely to recover missing stream metadata.
+
+Reusable idle tabs use an extension-specific `about:blank` fragment instead of
+an extension-owned document. This keeps idle tab identity independent of an
+unpacked extension reload. Exact workspace ownership, lease protections, and
+the foreground requirement for creating new tabs remain unchanged. Existing
+extension-page idle tabs migrate when they are normally released or replaced;
+this change never takes over an active tab.
