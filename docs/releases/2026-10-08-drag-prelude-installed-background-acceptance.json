@@ -1,0 +1,137 @@
+{
+  "schemaVersion": 1,
+  "receiptType": "installed-inactive-background-fixture-acceptance",
+  "result": "PASS",
+  "checkedAt": "2026-10-08T07:51:34Z",
+  "scope": "One owned local HTML5 reorder fixture through the installed public MCP chrome_drag action, with independent server persistence and new-document readback.",
+  "release": {
+    "sourceCommit": "1b6e4c9926d7ab780424aff99949d454254852aa",
+    "sourceDocsHeadAtReview": "7720530b87cb0840b8ad4608eccb5d9a95bd83e9",
+    "pullRequest": "https://github.com/alexanderradahl/mac-developer-bridge/pull/22",
+    "bridgeVersion": "0.3.7",
+    "extensionVersion": "0.2.17",
+    "extensionBuildId": "browser-drag-20261008.2"
+  },
+  "activationReceipt": "2026-10-08-drag-prelude-installed-activation.json",
+  "action": {
+    "publicMcpTool": "chrome_drag",
+    "actionCount": 1,
+    "strategy": "html5",
+    "sourceSelector": "#member-bot",
+    "targetSelector": "#regular",
+    "targetPosition": "before",
+    "focusPolicy": "background-only",
+    "foregroundActivationUsed": false,
+    "automaticReplay": false,
+    "syntheticEventsTrusted": false,
+    "events": [
+      "pointerover",
+      "mouseover",
+      "pointermove",
+      "mousemove",
+      "pointerdown",
+      "mousedown",
+      "dragstart",
+      "pointercancel",
+      "drag",
+      "dragenter",
+      "dragover",
+      "drop",
+      "dragend"
+    ],
+    "dropEventsObserved": 1,
+    "clickEventsObserved": 0,
+    "mouseUpDispatched": false,
+    "pointerUpDispatched": false
+  },
+  "inactiveEvidence": {
+    "before": {
+      "hasFocus": false,
+      "visibilityState": "hidden"
+    },
+    "allDispatchedFixtureEvents": {
+      "hasFocus": false,
+      "visibilityState": "hidden",
+      "trusted": false,
+      "count": 13
+    },
+    "after": {
+      "hasFocus": false,
+      "visibilityState": "hidden"
+    },
+    "newDocument": {
+      "hasFocus": false,
+      "visibilityState": "hidden"
+    },
+    "requiredMouseDownChangedBackend": {
+      "before": "keyboard",
+      "after": "html5"
+    }
+  },
+  "toolReceipt": {
+    "actionDispatched": true,
+    "targetAcceptedDrag": true,
+    "dropDispatched": true,
+    "dragEndDispatched": true,
+    "applicationAccepted": null,
+    "outcomeVerified": false,
+    "durableState": "completed",
+    "durableOutcome": "succeeded",
+    "retryable": false,
+    "interpretation": "The tool reports dispatch completion, not application persistence. The separate owned server receipt and new-document readback below establish fixture acceptance."
+  },
+  "independentPersistence": {
+    "orderBefore": [
+      "staff",
+      "regular",
+      "member-bot",
+      "last"
+    ],
+    "orderAfter": [
+      "staff",
+      "member-bot",
+      "regular",
+      "last"
+    ],
+    "serverSaveCount": 1,
+    "serverOrder": [
+      "staff",
+      "member-bot",
+      "regular",
+      "last"
+    ],
+    "serverReceiptHasFocus": false,
+    "serverReceiptVisibilityState": "hidden",
+    "newDocumentObserved": true,
+    "newDocumentOrder": [
+      "staff",
+      "member-bot",
+      "regular",
+      "last"
+    ],
+    "newDocumentShowsOneSavedChange": true,
+    "newDocumentEventLogEmpty": true
+  },
+  "unusedFirstAcquiredTab": {
+    "observedHasFocus": true,
+    "observedVisibilityState": "hidden",
+    "dragAttempted": false,
+    "savedChanges": 0,
+    "eventCount": 0,
+    "explanation": "Although hidden, the first acquired tab reported focus and was not used for the inactive acceptance test. A second normally leased tab was observed both unfocused and hidden before the single drag."
+  },
+  "cleanup": {
+    "cleanedAt": "2026-10-08T07:51:58.896207+00:00",
+    "ownedFixtureServerStopped": true,
+    "ownedTabsReleasedCount": 2,
+    "oneDragOperation": true,
+    "durableState": "completed",
+    "durableOutcome": "succeeded"
+  },
+  "limitations": {
+    "discord": "Separate and not established by this fixture. Actual Discord role-reorder acceptance remained pending at the time of this fixture.",
+    "paidMembershipDelivery": "Not tested.",
+    "trustedInput": "All dispatched events were synthetic and untrusted; no trusted-input or foreground/OS shortcut claim is made."
+  },
+  "sanitization": "Private filesystem paths, profile/account/host/process/connection/tab/document identities and local server addresses are omitted."
+}
