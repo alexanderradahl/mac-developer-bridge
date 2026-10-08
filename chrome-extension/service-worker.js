@@ -1,7 +1,7 @@
 const NATIVE_HOST = "io.github.alexanderradahl.mac_developer_bridge";
-const VERSION = "0.2.16";
+const VERSION = "0.2.17";
 // Immutable identity of the executing release, sent on every native handshake.
-const LOADED_EXTENSION_BUILD_ID = "browser-drag-20261008.1";
+const LOADED_EXTENSION_BUILD_ID = "browser-drag-20261008.2";
 const NATIVE_INSTANCE_ID = crypto.randomUUID();
 const NATIVE_OPERATION_RETENTION_MS = 24 * 60 * 60 * 1000;
 const MAX_NATIVE_OPERATIONS = 5_000;
@@ -3648,6 +3648,12 @@ async function pageClick(selector, options = {}) {
 async function pageDrag(sourceSelector, targetSelector, options = {}) {
   let stage = "resolve";
   let actionDispatched = false;
+  let pointerDownDispatched = false;
+  let mouseDownDispatched = false;
+  let dragStartDispatched = false;
+  let pointerCancelDispatched = false;
+  let pointerUpDispatched = false;
+  let mouseUpDispatched = false;
   let dragStarted = false;
   let dropDispatched = false;
   let dragEndDispatched = false;
@@ -3703,6 +3709,57 @@ async function pageDrag(sourceSelector, targetSelector, options = {}) {
     const initialSourceRect = assertElement(source);
     assertElement(target);
     const sourcePoint = { x: initialSourceRect.left + initialSourceRect.width / 2, y: initialSourceRect.top + initialSourceRect.height / 2 };
+    // HTML drag backends may connect their sources on the ordinary mouse
+    // press (for example when switching from keyboard drag mode). Dispatch the
+    // initiation once, without click activation or foreground focus. Retain and
+    // revalidate both original nodes after every application callback.
+    const dispatchPrelude = (type, buttons) => {
+      assertElements();
+      stage = type;
+      const common = {
+        bubbles: true, cancelable: type !== "pointercancel", composed: true, view: window,
+        clientX: sourcePoint.x, clientY: sourcePoint.y, button: 0, buttons,
+        screenX: Number(window.screenX || 0) + sourcePoint.x,
+        screenY: Number(window.screenY || 0) + sourcePoint.y,
+        detail: ["mousedown", "mouseup"].includes(type) ? 1 : 0,
+      };
+      const event = type.startsWith("pointer")
+        ? new PointerEvent(type, { ...common, button: ["pointerdown", "pointerup", "pointercancel"].includes(type) ? 0 : -1, pointerId: 1, pointerType: "mouse", isPrimary: true, pressure: buttons ? 0.5 : 0 })
+        : new MouseEvent(type, common);
+      actionDispatched = true;
+      if (type === "pointerdown") pointerDownDispatched = true;
+      if (type === "mousedown") mouseDownDispatched = true;
+      if (type === "pointercancel") pointerCancelDispatched = true;
+      if (type === "pointerup") pointerUpDispatched = true;
+      if (type === "mouseup") mouseUpDispatched = true;
+      events.push(type);
+      const allowed = source.dispatchEvent(event);
+      assertElements();
+      return allowed;
+    };
+    const releaseCancelledPress = () => {
+      // Match the browser's non-drag release without click activation. Each
+      // dispatch still requires the original nodes and an unexpired deadline;
+      // mutation failures deliberately receive no further cleanup events.
+      dispatchPrelude("pointerup", 0);
+      if (mouseDownDispatched) dispatchPrelude("mouseup", 0);
+    };
+    if (typeof PointerEvent !== "function" || typeof MouseEvent !== "function") fail("CHROME_DRAG_UNSUPPORTED", "Mouse initiation events are unavailable in this document.");
+    for (const type of ["pointerover", "mouseover", "pointermove", "mousemove"]) dispatchPrelude(type, 0);
+    if (!dispatchPrelude("pointerdown", 1)) {
+      releaseCancelledPress();
+      stage = "pointerdown";
+      fail("CHROME_DRAG_CANCELLED", "The page cancelled the pointer press before dragstart. No mouse press or drop was dispatched.");
+    }
+    if (!dispatchPrelude("mousedown", 1)) {
+      releaseCancelledPress();
+      stage = "mousedown";
+      fail("CHROME_DRAG_CANCELLED", "The page cancelled the mouse press before dragstart. No drop was dispatched.");
+    }
+    // Allow queued backend reconnects to settle, then reject replacement,
+    // disabling or deadline expiry before dispatching any drag event.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assertElements();
     const transfer = new DataTransfer();
     // Chromium leaves operation setters inert on constructed DataTransfer
     // objects. Model only these two standard enum properties on this fresh
@@ -3733,6 +3790,7 @@ async function pageDrag(sourceSelector, targetSelector, options = {}) {
         dataTransfer: transfer,
       });
       actionDispatched = true;
+      if (type === "dragstart") dragStartDispatched = true;
       if (type === "drop") dropDispatched = true;
       if (type === "dragend") dragEndDispatched = true;
       events.push(type);
@@ -3742,9 +3800,17 @@ async function pageDrag(sourceSelector, targetSelector, options = {}) {
     };
     stage = "drag-start";
     const startAllowed = dispatch(source, "dragstart", sourcePoint, 1);
-    if (!startAllowed) fail("CHROME_DRAG_CANCELLED", "The page cancelled the drag before it started.");
+    if (!startAllowed) {
+      releaseCancelledPress();
+      stage = "drag-start";
+      fail("CHROME_DRAG_CANCELLED", "The page cancelled the drag before it started.");
+    }
     dragStarted = true;
     const sourceEffectAllowed = transfer.effectAllowed;
+    // Once HTML drag owns the gesture the browser cancels its pointer stream,
+    // rather than releasing it with pointerup/mouseup or click.
+    dispatchPrelude("pointercancel", 0);
+    stage = "drag-start";
     await new Promise((resolve) => setTimeout(resolve, 0));
     assertElements();
     target.scrollIntoView({ block: "center", inline: "center", behavior: "instant" });
@@ -3793,13 +3859,13 @@ async function pageDrag(sourceSelector, targetSelector, options = {}) {
     dispatch(source, "dragend", targetPoint, 0);
     await new Promise((resolve) => setTimeout(resolve, 0));
     return {
-      actionDispatched, dragStarted, dropDispatched, dragEndDispatched,
+      actionDispatched, pointerDownDispatched, mouseDownDispatched, dragStartDispatched, pointerCancelDispatched, pointerUpDispatched, mouseUpDispatched, dragStarted, dropDispatched, dragEndDispatched,
       targetAcceptedDrag: true, applicationAccepted: null, outcomeVerified: false,
       strategy: "html5", targetPosition: position, trusted: false,
       sourceSelector, targetSelector, events, title: document.title, url: location.href,
     };
   } catch (error) {
-    const details = { stage, actionDispatched, dragStarted, dropDispatched, dragEndDispatched, outcomeVerified: false };
+    const details = { stage, actionDispatched, pointerDownDispatched, mouseDownDispatched, dragStartDispatched, pointerCancelDispatched, pointerUpDispatched, mouseUpDispatched, dragStarted, dropDispatched, dragEndDispatched, outcomeVerified: false };
     error.details = { ...(error.details || {}), ...details };
     if (!options.errorsAsData) throw error;
     return { __mdbPageActionError: { code: error.code || "CHROME_DRAG_FAILED", ...details } };

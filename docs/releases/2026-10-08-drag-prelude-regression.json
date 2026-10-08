@@ -1,0 +1,534 @@
+{
+  "purpose": "HTML drag initiation compatibility regression; not a provider-acceptance receipt",
+  "baselineWorkerSha256": "8de8211b993f85bd2748bea2d2a250321bbcc7be6dd8f16d818ea177d75bd266",
+  "fixedWorkerSha256": "f12a79923fdf341dad6d489e1835e1bd8a409fdca50dc3aa1a838cfc741c9abd",
+  "baselineReproduction": {
+    "syntheticBackendTransitionPassed": false,
+    "syntheticFailure": {
+      "code": "CHROME_DRAG_CANCELLED",
+      "message": "The page cancelled the drag before it started.",
+      "details": {
+        "stage": "drag-start",
+        "actionDispatched": true,
+        "dragStarted": false,
+        "dropDispatched": false,
+        "dragEndDispatched": false,
+        "outcomeVerified": false
+      }
+    },
+    "nativeBackendTransitionPassed": true,
+    "nativePersistedSaves": 1
+  },
+  "nativeInitiationMeasurements": [
+    {
+      "scenario": "drag-native",
+      "trace": [
+        {
+          "type": "pointerover",
+          "target": "source",
+          "button": -1,
+          "buttons": 0,
+          "pointerId": 1,
+          "pointerType": "mouse",
+          "pressure": 0,
+          "defaultPrevented": false
+        },
+        {
+          "type": "mouseover",
+          "target": "source",
+          "button": 0,
+          "buttons": 0,
+          "defaultPrevented": false
+        },
+        {
+          "type": "pointermove",
+          "target": "source",
+          "button": -1,
+          "buttons": 0,
+          "pointerId": 1,
+          "pointerType": "mouse",
+          "pressure": 0,
+          "defaultPrevented": false
+        },
+        {
+          "type": "mousemove",
+          "target": "source",
+          "button": 0,
+          "buttons": 0,
+          "defaultPrevented": false
+        },
+        {
+          "type": "pointerdown",
+          "target": "source",
+          "button": 0,
+          "buttons": 1,
+          "pointerId": 1,
+          "pointerType": "mouse",
+          "pressure": 0.5,
+          "defaultPrevented": false
+        },
+        {
+          "type": "mousedown",
+          "target": "source",
+          "button": 0,
+          "buttons": 1,
+          "defaultPrevented": false
+        },
+        {
+          "type": "pointerover",
+          "target": "target",
+          "button": -1,
+          "buttons": 1,
+          "pointerId": 1,
+          "pointerType": "mouse",
+          "pressure": 0.5,
+          "defaultPrevented": false
+        },
+        {
+          "type": "mouseover",
+          "target": "target",
+          "button": 0,
+          "buttons": 1,
+          "defaultPrevented": false
+        },
+        {
+          "type": "pointermove",
+          "target": "target",
+          "button": -1,
+          "buttons": 1,
+          "pointerId": 1,
+          "pointerType": "mouse",
+          "pressure": 0.5,
+          "defaultPrevented": false
+        },
+        {
+          "type": "mousemove",
+          "target": "target",
+          "button": 0,
+          "buttons": 1,
+          "defaultPrevented": false
+        },
+        {
+          "type": "dragstart",
+          "target": "source",
+          "button": 0,
+          "buttons": 1,
+          "defaultPrevented": false
+        },
+        {
+          "type": "pointercancel",
+          "target": "target",
+          "button": 0,
+          "buttons": 0,
+          "pointerId": 1,
+          "pointerType": "mouse",
+          "pressure": 0,
+          "defaultPrevented": false
+        },
+        {
+          "type": "drag",
+          "target": "source",
+          "button": 0,
+          "buttons": 0,
+          "defaultPrevented": false
+        },
+        {
+          "type": "dragenter",
+          "target": "target",
+          "button": 0,
+          "buttons": 0,
+          "defaultPrevented": false
+        },
+        {
+          "type": "dragover",
+          "target": "target",
+          "button": 0,
+          "buttons": 0,
+          "defaultPrevented": false
+        },
+        {
+          "type": "drop",
+          "target": "target",
+          "button": 0,
+          "buttons": 0,
+          "defaultPrevented": false
+        },
+        {
+          "type": "dragend",
+          "target": "source",
+          "button": 0,
+          "buttons": 0,
+          "defaultPrevented": false
+        }
+      ]
+    },
+    {
+      "scenario": "drag-cancelled",
+      "trace": [
+        {
+          "type": "pointerover",
+          "target": "source",
+          "button": -1,
+          "buttons": 0,
+          "pointerId": 1,
+          "pointerType": "mouse",
+          "pressure": 0,
+          "defaultPrevented": false
+        },
+        {
+          "type": "mouseover",
+          "target": "source",
+          "button": 0,
+          "buttons": 0,
+          "defaultPrevented": false
+        },
+        {
+          "type": "pointermove",
+          "target": "source",
+          "button": -1,
+          "buttons": 0,
+          "pointerId": 1,
+          "pointerType": "mouse",
+          "pressure": 0,
+          "defaultPrevented": false
+        },
+        {
+          "type": "mousemove",
+          "target": "source",
+          "button": 0,
+          "buttons": 0,
+          "defaultPrevented": false
+        },
+        {
+          "type": "pointerdown",
+          "target": "source",
+          "button": 0,
+          "buttons": 1,
+          "pointerId": 1,
+          "pointerType": "mouse",
+          "pressure": 0.5,
+          "defaultPrevented": false
+        },
+        {
+          "type": "mousedown",
+          "target": "source",
+          "button": 0,
+          "buttons": 1,
+          "defaultPrevented": false
+        },
+        {
+          "type": "pointerover",
+          "target": "target",
+          "button": -1,
+          "buttons": 1,
+          "pointerId": 1,
+          "pointerType": "mouse",
+          "pressure": 0.5,
+          "defaultPrevented": false
+        },
+        {
+          "type": "mouseover",
+          "target": "target",
+          "button": 0,
+          "buttons": 1,
+          "defaultPrevented": false
+        },
+        {
+          "type": "pointermove",
+          "target": "target",
+          "button": -1,
+          "buttons": 1,
+          "pointerId": 1,
+          "pointerType": "mouse",
+          "pressure": 0.5,
+          "defaultPrevented": false
+        },
+        {
+          "type": "mousemove",
+          "target": "target",
+          "button": 0,
+          "buttons": 1,
+          "defaultPrevented": false
+        },
+        {
+          "type": "dragstart",
+          "target": "source",
+          "button": 0,
+          "buttons": 1,
+          "defaultPrevented": false
+        },
+        {
+          "type": "pointerup",
+          "target": "target",
+          "button": 0,
+          "buttons": 0,
+          "pointerId": 1,
+          "pointerType": "mouse",
+          "pressure": 0,
+          "defaultPrevented": false
+        },
+        {
+          "type": "mouseup",
+          "target": "target",
+          "button": 0,
+          "buttons": 0,
+          "defaultPrevented": false
+        },
+        {
+          "type": "click",
+          "target": "roles",
+          "button": 0,
+          "buttons": 0,
+          "pointerId": 1,
+          "pointerType": "mouse",
+          "pressure": 0,
+          "defaultPrevented": false
+        }
+      ]
+    },
+    {
+      "scenario": "drag-prelude-pointerdown-cancelled",
+      "trace": [
+        {
+          "type": "pointerover",
+          "target": "source",
+          "button": -1,
+          "buttons": 0,
+          "pointerId": 1,
+          "pointerType": "mouse",
+          "pressure": 0,
+          "defaultPrevented": false
+        },
+        {
+          "type": "mouseover",
+          "target": "source",
+          "button": 0,
+          "buttons": 0,
+          "defaultPrevented": false
+        },
+        {
+          "type": "pointermove",
+          "target": "source",
+          "button": -1,
+          "buttons": 0,
+          "pointerId": 1,
+          "pointerType": "mouse",
+          "pressure": 0,
+          "defaultPrevented": false
+        },
+        {
+          "type": "mousemove",
+          "target": "source",
+          "button": 0,
+          "buttons": 0,
+          "defaultPrevented": false
+        },
+        {
+          "type": "pointerdown",
+          "target": "source",
+          "button": 0,
+          "buttons": 1,
+          "pointerId": 1,
+          "pointerType": "mouse",
+          "pressure": 0.5,
+          "defaultPrevented": false
+        },
+        {
+          "type": "pointerover",
+          "target": "target",
+          "button": -1,
+          "buttons": 1,
+          "pointerId": 1,
+          "pointerType": "mouse",
+          "pressure": 0.5,
+          "defaultPrevented": false
+        },
+        {
+          "type": "mouseover",
+          "target": "target",
+          "button": 0,
+          "buttons": 1,
+          "defaultPrevented": false
+        },
+        {
+          "type": "pointermove",
+          "target": "target",
+          "button": -1,
+          "buttons": 1,
+          "pointerId": 1,
+          "pointerType": "mouse",
+          "pressure": 0.5,
+          "defaultPrevented": false
+        },
+        {
+          "type": "pointerup",
+          "target": "target",
+          "button": 0,
+          "buttons": 0,
+          "pointerId": 1,
+          "pointerType": "mouse",
+          "pressure": 0,
+          "defaultPrevented": false
+        },
+        {
+          "type": "click",
+          "target": "roles",
+          "button": 0,
+          "buttons": 0,
+          "pointerId": 1,
+          "pointerType": "mouse",
+          "pressure": 0,
+          "defaultPrevented": false
+        }
+      ]
+    },
+    {
+      "scenario": "drag-prelude-mousedown-cancelled",
+      "trace": [
+        {
+          "type": "pointerover",
+          "target": "source",
+          "button": -1,
+          "buttons": 0,
+          "pointerId": 1,
+          "pointerType": "mouse",
+          "pressure": 0,
+          "defaultPrevented": false
+        },
+        {
+          "type": "mouseover",
+          "target": "source",
+          "button": 0,
+          "buttons": 0,
+          "defaultPrevented": false
+        },
+        {
+          "type": "pointermove",
+          "target": "source",
+          "button": -1,
+          "buttons": 0,
+          "pointerId": 1,
+          "pointerType": "mouse",
+          "pressure": 0,
+          "defaultPrevented": false
+        },
+        {
+          "type": "mousemove",
+          "target": "source",
+          "button": 0,
+          "buttons": 0,
+          "defaultPrevented": false
+        },
+        {
+          "type": "pointerdown",
+          "target": "source",
+          "button": 0,
+          "buttons": 1,
+          "pointerId": 1,
+          "pointerType": "mouse",
+          "pressure": 0.5,
+          "defaultPrevented": false
+        },
+        {
+          "type": "mousedown",
+          "target": "source",
+          "button": 0,
+          "buttons": 1,
+          "defaultPrevented": false
+        },
+        {
+          "type": "pointerover",
+          "target": "target",
+          "button": -1,
+          "buttons": 1,
+          "pointerId": 1,
+          "pointerType": "mouse",
+          "pressure": 0.5,
+          "defaultPrevented": false
+        },
+        {
+          "type": "mouseover",
+          "target": "target",
+          "button": 0,
+          "buttons": 1,
+          "defaultPrevented": false
+        },
+        {
+          "type": "pointermove",
+          "target": "target",
+          "button": -1,
+          "buttons": 1,
+          "pointerId": 1,
+          "pointerType": "mouse",
+          "pressure": 0.5,
+          "defaultPrevented": false
+        },
+        {
+          "type": "mousemove",
+          "target": "target",
+          "button": 0,
+          "buttons": 1,
+          "defaultPrevented": false
+        },
+        {
+          "type": "pointerup",
+          "target": "target",
+          "button": 0,
+          "buttons": 0,
+          "pointerId": 1,
+          "pointerType": "mouse",
+          "pressure": 0,
+          "defaultPrevented": false
+        },
+        {
+          "type": "mouseup",
+          "target": "target",
+          "button": 0,
+          "buttons": 0,
+          "defaultPrevented": false
+        },
+        {
+          "type": "click",
+          "target": "roles",
+          "button": 0,
+          "buttons": 0,
+          "pointerId": 1,
+          "pointerType": "mouse",
+          "pressure": 0,
+          "defaultPrevented": false
+        }
+      ]
+    }
+  ],
+  "publicStaticSources": [
+    "https://discord.com/assets/web.d3978f1210c00a8f.js",
+    "https://discord.com/assets/933399.5793fe5eebec71ea.js"
+  ],
+  "diagnosis": {
+    "observed": "The prior action began with dragstart and omitted the ordinary mouse initiation. Public HTML5 backend code cancels a start when no eligible registered source begins. Public multi-backend configuration uses mousedown to switch to HTML5 and reconnect sources.",
+    "limit": "The public multi-backend defaults to HTML5. The omitted press is a proven generic compatibility gap, but does not establish the precise backend state or reason for the provider cancellation. No trusted-event, permission or canDrag check is bypassed.",
+    "providerRetryPerformed": false,
+    "installedBackgroundAcceptancePerformed": false
+  },
+  "regression": {
+    "passed": true,
+    "scenarioCount": 107,
+    "report": "2026-10-08-drag-prelude-browser-tests.json",
+    "noClick": true,
+    "noReplay": true,
+    "cancellationRetained": true,
+    "originalNodesRetained": true,
+    "deadlineRetained": true
+  },
+  "invariantCheck": {
+    "scenario": "drag-pointercancel-effect-escalation",
+    "passed": true,
+    "description": "Capture the source operation before pointercancel and retain the existing dragstart-only setter phase. A pointercancel callback trying to promote a retained DataTransfer from copy to move still yields no drop/save. This is an invariant/order clarification, not a reproduced bypass."
+  },
+  "release": {
+    "bridgeVersion": "0.3.7",
+    "extensionVersion": "0.2.17",
+    "extensionBuildId": "browser-drag-20261008.2",
+    "manifestOnlyVersionChanged": true
+  }
+}

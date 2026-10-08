@@ -22,6 +22,35 @@
     const source = document.getElementById('source'), target = document.getElementById('target');
     state.dragEvents = [];
     state.drops = 0;
+    state.initiationEvents = [];
+    state.pointerPressed = false;
+    state.mousePressed = false;
+    state.dragBackend = scenario.includes('backend-transition') ? 'keyboard' : 'html5';
+    const preludeTypes = ['pointerover', 'mouseover', 'pointermove', 'mousemove', 'pointerdown', 'mousedown'];
+    for (const type of [...preludeTypes, 'pointercancel', 'pointerup', 'mouseup', 'click']) document.addEventListener(type, event => {
+      if (type === 'pointerdown') state.pointerPressed = true;
+      if (type === 'mousedown') state.mousePressed = true;
+      if (['pointerup', 'pointercancel'].includes(type)) state.pointerPressed = false;
+      if (['mouseup', 'pointercancel'].includes(type)) state.mousePressed = false;
+      state.initiationEvents.push({ type, target: event.target.id, trusted: event.isTrusted,
+        constructor: event.constructor.name, buttons: event.buttons, button: event.button,
+        pointerId: event.pointerId, pointerType: event.pointerType, clientX: event.clientX, clientY: event.clientY });
+    }, true);
+    // A generic multi-backend regression: the mouse press transitions from a
+    // keyboard backend and reconnects the HTML drag source. This models public
+    // event semantics, not provider internals or evidence of a provider's state.
+    document.addEventListener('mousedown', () => { state.dragBackend = 'html5'; }, true);
+    const mutation = /^drag-prelude-(pointerover|mouseover|pointermove|mousemove|pointerdown|mousedown|pointercancel)-(source-replaced|target-replaced|source-disabled|target-disabled|deadline)(-async)?$/.exec(scenario);
+    if (mutation) source.addEventListener(mutation[1], () => {
+      const mutate = () => {
+        const element = mutation[2].startsWith('target-') ? target : source;
+        if (mutation[2].endsWith('replaced')) element.replaceWith(element.cloneNode(true));
+        if (mutation[2].endsWith('disabled')) element.setAttribute('aria-disabled', 'true');
+        if (mutation[2] === 'deadline') { const clock = Date.now; Date.now = () => clock() + 60_000; }
+      };
+      if (mutation[3]) queueMicrotask(mutate); else mutate();
+    });
+    for (const type of ['pointerdown', 'mousedown']) if (scenario === 'drag-prelude-' + type + '-cancelled') source.addEventListener(type, event => event.preventDefault());
     state.order = () => Array.from(document.querySelectorAll('#roles > div'), row => row.id);
     for (const type of ['dragstart', 'drag', 'dragenter', 'dragover', 'dragleave', 'drop', 'dragend']) {
       document.addEventListener(type, event => {
@@ -31,9 +60,17 @@
     if (scenario === 'drag-pointer-only') source.removeAttribute('draggable');
     if (scenario === 'drag-disabled') target.setAttribute('aria-disabled', 'true');
     source.addEventListener('dragstart', event => {
+      if (state.dragBackend !== 'html5') { event.preventDefault(); return; }
       if (scenario === 'drag-cancelled') { event.preventDefault(); return; }
       event.dataTransfer.setData('application/x-mdb-fixture-role', 'source');
-      event.dataTransfer.effectAllowed = 'move';
+      event.dataTransfer.effectAllowed = scenario === 'drag-pointercancel-effect-escalation' ? 'copy' : 'move';
+      if (scenario === 'drag-pointercancel-effect-escalation') {
+        const retainedTransfer = event.dataTransfer;
+        source.addEventListener('pointercancel', () => {
+          retainedTransfer.effectAllowed = 'move';
+          state.pointerCancelEffectAfterAttempt = retainedTransfer.effectAllowed;
+        }, { once: true });
+      }
     });
     target.addEventListener('dragover', event => {
       if (scenario === 'drag-not-accepted') return;

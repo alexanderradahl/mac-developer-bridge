@@ -151,7 +151,7 @@ try {
     else { blockedRequests.push(route.request().url()); await route.abort('blockedbyclient'); }
   });
 
-  for (const name of ['drag-native', 'drag-before', 'drag-after', 'drag-second-tab']) {
+  for (const name of ['drag-native', 'drag-before', 'drag-after', 'drag-second-tab', 'drag-backend-transition', 'drag-native-backend-transition']) {
     await scenario(name, async (page, call, record) => {
       await page.waitForSelector('#root[data-ready="true"]');
       const snapshot = success(await call('pageSnapshot', { maxElements: 50, maxTextChars: 2000 }));
@@ -165,10 +165,16 @@ try {
         // Headless Chromium can report focus for every page. The installed\n        // MDB loopback smoke separately proves genuine inactive-tab behavior.
       }
       let result;
-      if (name === 'drag-native') {
+      if (name.startsWith('drag-native')) {
         await page.dragAndDrop('#source', '#target', { targetPosition: { x: 50, y: 8 } });
       } else {
         result = success(await call('pageDrag', '#source', '#target', { targetPosition: name === 'drag-after' ? 'after' : 'before', deadlineMs: Date.now() + 3000 }));
+        assert.equal(result.pointerDownDispatched, true);
+        assert.equal(result.mouseDownDispatched, true);
+        assert.equal(result.dragStartDispatched, true);
+        assert.equal(result.pointerCancelDispatched, true);
+        assert.equal(result.pointerUpDispatched, false);
+        assert.equal(result.mouseUpDispatched, false);
         assert.equal(result.dropDispatched, true);
         assert.equal(result.dragEndDispatched, true);
         assert.equal(result.trusted, false);
@@ -177,9 +183,24 @@ try {
       }
       await page.waitForFunction(() => document.getElementById('drag-receipt').textContent.length > 0);
       const expected = name === 'drag-after' ? ['staff', 'target', 'source', 'last'] : ['staff', 'source', 'target', 'last'];
-      const observed = await page.evaluate(() => ({ order: fixtureState.order(), drops: fixtureState.drops, events: fixtureState.dragEvents, hasFocus: document.hasFocus() }));
+      const observed = await page.evaluate(() => ({ order: fixtureState.order(), drops: fixtureState.drops, events: fixtureState.dragEvents, initiation: fixtureState.initiationEvents, backend: fixtureState.dragBackend, pointerPressed: fixtureState.pointerPressed, mousePressed: fixtureState.mousePressed, hasFocus: document.hasFocus() }));
       assert.deepEqual(observed.order, expected);
       assert.equal(observed.drops, 1);
+      assert.equal(observed.backend, 'html5');
+      assert.equal(observed.pointerPressed, false);
+      assert.equal(observed.mousePressed, false);
+      assert.equal(observed.initiation.filter(event => event.type === 'mousedown').length, 1);
+      assert.equal(observed.initiation.filter(event => event.type === 'click').length, 0, 'Drag must never activate a click');
+      if (!name.startsWith('drag-native')) {
+        assert.deepEqual(observed.initiation.map(event => event.type), ['pointerover', 'mouseover', 'pointermove', 'mousemove', 'pointerdown', 'mousedown', 'pointercancel']);
+        assert.ok(observed.initiation.every(event => event.trusted === false));
+        const press = observed.initiation.find(event => event.type === 'pointerdown');
+        assert.equal(press.pointerId, 1);
+        assert.equal(press.pointerType, 'mouse');
+        assert.equal(press.buttons, 1);
+        assert.equal(press.button, 0);
+        for (const event of observed.initiation.filter(event => ['pointerover', 'pointermove'].includes(event.type))) assert.equal(event.button, -1);
+      }
       assert.equal(receipts.filter(item => item.scenario === name).length, 1, 'Exactly one application save');
       assert.equal(observed.events.filter(event => event.type === 'drop').length, 1);
 
@@ -191,10 +212,48 @@ try {
       return { persisted: true, saves: 1, secondTabOpen: name === 'drag-second-tab' };
     });
   }
+  // Every synchronous prelude callback is a mutation boundary. After press we
+  // also yield once so queued backend reconnects cannot evade retained-node,
+  // disabled-state or deadline checks before dragstart.
+  for (const type of ['pointerover', 'mouseover', 'pointermove', 'mousemove', 'pointerdown', 'mousedown', 'pointercancel']) {
+    const cases = ['source-replaced', 'target-replaced', 'source-disabled', 'target-disabled', 'deadline'];
+    if (['mousedown', 'pointercancel'].includes(type)) cases.push(...cases.map(value => value + '-async'));
+    if (['pointerdown', 'mousedown'].includes(type)) cases.push('cancelled');
+    for (const change of cases) {
+      const name = `drag-prelude-${type}-${change}`;
+      await scenario(name, async (page, call, record) => {
+        await page.waitForSelector('#root[data-ready="true"]');
+        const response = await call('pageDrag', '#source', '#target', { targetPosition: 'before', deadlineMs: Date.now() + 3000 });
+        const code = change.includes('replaced') ? 'CHROME_TARGET_CHANGED' : change.includes('disabled') ? 'CHROME_ELEMENT_DISABLED' : change.startsWith('deadline') ? 'CHROME_OPERATION_DEADLINE_EXCEEDED' : 'CHROME_DRAG_CANCELLED';
+        assert.equal(response.error?.code, code, JSON.stringify(response));
+        const details = response.error.details;
+        assert.equal(details.actionDispatched, true);
+        assert.equal(details.dragStartDispatched, type === 'pointercancel');
+        assert.equal(details.dragStarted, type === 'pointercancel');
+        assert.equal(details.dropDispatched, false);
+        assert.equal(details.pointerDownDispatched, ['pointerdown', 'mousedown', 'pointercancel'].includes(type));
+        assert.equal(details.mouseDownDispatched, ['mousedown', 'pointercancel'].includes(type));
+        assert.equal(details.pointerCancelDispatched, type === 'pointercancel');
+        assert.equal(details.pointerUpDispatched, change === 'cancelled');
+        assert.equal(details.mouseUpDispatched, change === 'cancelled' && type === 'mousedown');
+        const observed = await page.evaluate(() => ({ order: fixtureState.order(), drops: fixtureState.drops, events: fixtureState.dragEvents, initiation: fixtureState.initiationEvents }));
+        assert.deepEqual(observed.order, ['staff', 'target', 'source', 'last']);
+        assert.equal(observed.drops, 0);
+        assert.deepEqual(observed.events.map(event => event.type), type === 'pointercancel' ? ['dragstart'] : []);
+        assert.equal(observed.initiation.at(-1).type, change === 'cancelled' ? (type === 'mousedown' ? 'mouseup' : 'pointerup') : type);
+        assert.equal(observed.initiation.filter(event => event.type === type).length, 1, 'No press replay');
+        assert.equal(observed.initiation.filter(event => event.type === 'click').length, 0);
+        assert.equal(receipts.filter(item => item.scenario === name).length, 0);
+        record({ response, observed });
+        return { saves: 0, noDrop: true, noDragStart: type !== 'pointercancel', noRetargetOrRetry: true };
+      });
+    }
+  }
   for (const [name, code, options] of [
     ['drag-not-accepted', 'CHROME_DRAG_NOT_ACCEPTED', {}],
     ['drag-effect-none', 'CHROME_DRAG_NOT_ACCEPTED', {}],
     ['drag-effect-incompatible', 'CHROME_DRAG_NOT_ACCEPTED', {}],
+    ['drag-pointercancel-effect-escalation', 'CHROME_DRAG_NOT_ACCEPTED', {}],
     ['drag-cancelled', 'CHROME_DRAG_CANCELLED', {}],
     ['drag-replaced', 'CHROME_TARGET_CHANGED', {}],
     ['drag-disabled', 'CHROME_ELEMENT_DISABLED', {}],
@@ -214,6 +273,19 @@ try {
       assert.equal(receipts.filter(item => item.scenario === name).length, 0);
       if (['drag-disabled', 'drag-pointer-only', 'drag-deadline', 'drag-ambiguous'].includes(name)) assert.equal(observed.events.length, 0);
       if (name === 'drag-not-accepted') assert.equal(response.error.details.dragEndDispatched, true);
+      if (name === 'drag-pointercancel-effect-escalation') {
+        assert.equal(response.error.details.pointerCancelDispatched, true);
+        assert.equal(await page.evaluate(() => fixtureState.pointerCancelEffectAfterAttempt), 'copy', 'A callback cannot promote the completed dragstart transfer phase');
+      }
+      if (name === 'drag-cancelled') {
+        assert.equal(response.error.details.dragStartDispatched, true);
+        assert.equal(response.error.details.dragStarted, false);
+        assert.equal(response.error.details.pointerCancelDispatched, false);
+        assert.equal(response.error.details.pointerUpDispatched, true);
+        assert.equal(response.error.details.mouseUpDispatched, true);
+        assert.deepEqual(await page.evaluate(() => [fixtureState.pointerPressed, fixtureState.mousePressed]), [false, false]);
+        assert.equal(await page.evaluate(() => fixtureState.initiationEvents.filter(event => event.type === 'click').length), 0);
+      }
       record({ response, observed });
       return { saves: 0, noDrop: true };
     });
@@ -712,7 +784,7 @@ try {
   profileRemoved = await fs.stat(profilePath).then(() => false, error => error.code === 'ENOENT');
 }
 
-const passed = !fatalError && results.length === 57 && results.every(result => result.passed) && profileRemoved && browserClosed;
+const passed = !fatalError && results.length === 107 && results.every(result => result.passed) && profileRemoved && browserClosed;
 console.log(JSON.stringify({
   passed,
   browserVersion,
