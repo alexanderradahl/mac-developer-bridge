@@ -1,7 +1,7 @@
 const NATIVE_HOST = "io.github.alexanderradahl.mac_developer_bridge";
-const VERSION = "0.2.18";
+const VERSION = "0.2.19";
 // Immutable identity of the executing release, sent on every native handshake.
-const LOADED_EXTENSION_BUILD_ID = "browser-keyboard-20261008.1";
+const LOADED_EXTENSION_BUILD_ID = "browser-images-20261008.1";
 const NATIVE_INSTANCE_ID = crypto.randomUUID();
 const NATIVE_OPERATION_RETENTION_MS = 24 * 60 * 60 * 1000;
 const MAX_NATIVE_OPERATIONS = 5_000;
@@ -137,6 +137,8 @@ function errorPayload(error, code = "CHROME_EXTENSION_ERROR") {
         "focusAttempted", "focusEventCompletionUsed",
         "keyDownDispatched", "keyUpDispatched", "keyDownDefaultPrevented", "keyUpDefaultPrevented",
         "focusChanged", "keyUpTargetChanged", "keyEvents",
+        "fileAssigned", "inputEventDispatched", "changeEventDispatched",
+        "inputDefaultPrevented", "changeDefaultPrevented", "fileRetained", "fileCount", "fileSize", "fileSha256",
         "navigationObserved",
         "popupObservedCount",
         "outcomeVerified",
@@ -3302,7 +3304,7 @@ function pageSnapshot(maxTextChars, maxElements) {
     const type = element instanceof HTMLInputElement ? element.type : null;
     let value = null;
     if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement || element instanceof HTMLSelectElement) {
-      value = type === "password" ? "<redacted>" : String(element.value || "").slice(0, 20000);
+      value = type === "password" || type === "file" ? "<redacted>" : String(element.value || "").slice(0, 20000);
     }
     elements.push({
       selector: selectorFor(element),
@@ -3360,6 +3362,52 @@ function pageSnapshot(maxTextChars, maxElements) {
       value,
     });
   }
+  const visibleBox = (element) => {
+    const rect = element.getBoundingClientRect();
+    const style = getComputedStyle(element);
+    return rect.width > 0 && rect.height > 0 && style.visibility !== "hidden" && style.display !== "none" && style.opacity !== "0"
+      ? { x: rect.x, y: rect.y, width: rect.width, height: rect.height } : null;
+  };
+  const fileLimit = Math.min(32, maxElements);
+  const fileCandidates = [...document.querySelectorAll('input[type="file"]')];
+  const fileInputs = fileCandidates.slice(0, fileLimit).map(element => ({
+    selector: selectorFor(element),
+    tag: "input",
+    type: "file",
+    name: element.getAttribute("name")?.slice(0, 500) || null,
+    ariaLabel: element.getAttribute("aria-label")?.slice(0, 500) || null,
+    accept: element.accept.slice(0, 2000),
+    multiple: element.multiple,
+    directory: element.webkitdirectory || element.hasAttribute("webkitdirectory") || element.hasAttribute("directory"),
+    disabled: element.disabled || element.matches(":disabled") || element.getAttribute("aria-disabled") === "true",
+    visible: Boolean(visibleBox(element)),
+    labels: [...(element.labels || [])].slice(0, 8).map(label => ({
+      selector: selectorFor(label),
+      text: String(label.innerText || label.textContent || "").trim().slice(0, 500),
+      visible: Boolean(visibleBox(label)),
+    })),
+  }));
+  const imageLimit = Math.min(100, maxElements);
+  const imageCandidates = [...document.querySelectorAll("img")].filter(element => visibleBox(element));
+  const images = imageCandidates.slice(0, imageLimit).map(element => {
+    const value = element.currentSrc || element.src || "";
+    const sourceKind = value.startsWith("data:") ? "data" : value.startsWith("blob:") ? "blob" : /^https?:/.test(value) ? "url" : "other";
+    // A data: source contains image bytes; only URL metadata crosses snapshots.
+    const currentSrc = ["url", "blob"].includes(sourceKind) && value.length <= 4096 ? value : null;
+    return {
+      selector: selectorFor(element),
+      tag: "img",
+      alt: element.alt.slice(0, 1000),
+      currentSrc,
+      sourceKind,
+      sourceTruncated: value.length > 4096,
+      naturalWidth: element.naturalWidth,
+      naturalHeight: element.naturalHeight,
+      renderedWidth: element.getBoundingClientRect().width,
+      renderedHeight: element.getBoundingClientRect().height,
+      complete: element.complete,
+    };
+  });
   return {
     title: document.title,
     url: location.href,
@@ -3373,7 +3421,166 @@ function pageSnapshot(maxTextChars, maxElements) {
     } : null,
     elements,
     elementsTruncated: candidates.length > maxElements,
+    fileInputs,
+    fileInputsTruncated: fileCandidates.length > fileLimit,
+    images,
+    imagesTruncated: imageCandidates.length > imageLimit,
   };
+}
+
+async function pageSetFileInput(selector, file, options = {}) {
+  let stage = "resolve";
+  let actionDispatched = false;
+  let fileAssigned = false;
+  let inputEventDispatched = false;
+  let changeEventDispatched = false;
+  let inputDefaultPrevented = false;
+  let changeDefaultPrevented = false;
+  let targetReplaced = false;
+  let fileRetained = false;
+  let fileCount = 0;
+  const deadline = Number(options.deadlineMs);
+  const fail = (code, message) => { const error = new Error(message); error.code = code; throw error; };
+  const assertDeadline = () => {
+    if (Number.isFinite(deadline) && Date.now() >= deadline) fail("CHROME_OPERATION_DEADLINE_EXCEEDED", "The image-selection deadline elapsed; reconcile before another action.");
+  };
+  const metadata = () => ({
+    stage, actionDispatched, fileAssigned, inputEventDispatched, changeEventDispatched,
+    inputDefaultPrevented, changeDefaultPrevented, targetReplaced, fileRetained, fileCount,
+    fileSize: Number.isSafeInteger(file?.size) ? file.size : null,
+    fileSha256: typeof file?.sha256 === "string" && /^[a-f0-9]{64}$/.test(file.sha256) ? file.sha256 : null,
+    outcomeVerified: false,
+  });
+  try {
+    assertDeadline();
+    const documentAtStart = document;
+    const rootAtStart = document.documentElement;
+    const urlAtStart = location.href;
+    if (options.expectedUrl && options.expectedUrl !== urlAtStart) fail("CHROME_DOCUMENT_CHANGED", "The approved document URL changed.");
+    let matches;
+    try { matches = [...document.querySelectorAll(selector)]; }
+    catch { fail("CHROME_ELEMENT_NOT_FOUND", "The observed file selector is invalid."); }
+    if (!matches.length) fail("CHROME_ELEMENT_NOT_FOUND", "No element matches the observed file selector.");
+    if (matches.length !== 1) fail("CHROME_FILE_INPUT_AMBIGUOUS", "The image-selection target must match exactly one element.");
+    const element = matches[0];
+    if (!(element instanceof HTMLInputElement) || element.type !== "file") fail("CHROME_ELEMENT_NOT_FILE_INPUT", "The selected element is not a file input.");
+    const assertTarget = () => {
+      assertDeadline();
+      if (document !== documentAtStart || window.document !== documentAtStart || document.documentElement !== rootAtStart || location.href !== urlAtStart) {
+        fail("CHROME_DOCUMENT_CHANGED", "The original document changed during image selection.");
+      }
+      if (!element.isConnected || element.ownerDocument !== documentAtStart
+          || document.querySelectorAll(selector).length !== 1 || document.querySelector(selector) !== element) {
+        targetReplaced = true;
+        fail("CHROME_FILE_INPUT_REPLACED", "The original file input was replaced; no replacement target was selected.");
+      }
+      if (element.type !== "file") fail("CHROME_ELEMENT_NOT_FILE_INPUT", "The original input stopped accepting files.");
+      if (element.disabled || element.matches(":disabled") || element.getAttribute("aria-disabled") === "true") {
+        fail("CHROME_ELEMENT_DISABLED", "The file input is disabled.");
+      }
+      if (element.webkitdirectory || element.hasAttribute("webkitdirectory") || element.hasAttribute("directory")) {
+        fail("CHROME_FILE_DIRECTORY_UNSUPPORTED", "Directory selection is not supported.");
+      }
+    };
+    assertTarget();
+    stage = "validate-file";
+    if (!file || typeof file !== "object" || !/^[A-Za-z0-9][A-Za-z0-9._ -]{0,199}$/.test(file.name || "")
+        || !["image/png", "image/jpeg", "image/webp"].includes(file.mimeType)
+        || !Number.isSafeInteger(file.size) || file.size < 1 || file.size > 1024 * 1024
+        || !Number.isSafeInteger(file.lastModified) || file.lastModified < 0
+        || !/^[a-f0-9]{64}$/.test(file.sha256 || "")
+        || typeof file.base64 !== "string" || file.base64.length > 1398104
+        || file.base64.length % 4 !== 0 || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(file.base64)) {
+      fail("CHROME_FILE_PAYLOAD_INVALID", "The reviewed image payload is invalid.");
+    }
+    const extensions = { "image/png": [".png"], "image/jpeg": [".jpg", ".jpeg"], "image/webp": [".webp"] };
+    if (!extensions[file.mimeType].some(extension => file.name.toLowerCase().endsWith(extension))) {
+      fail("CHROME_FILE_PAYLOAD_INVALID", "The reviewed image extension does not match its MIME type.");
+    }
+    const binary = atob(file.base64);
+    if (binary.length !== file.size) fail("CHROME_FILE_PAYLOAD_INVALID", "The image byte length does not match its reviewed payload.");
+    const bytes = Uint8Array.from(binary, character => character.charCodeAt(0));
+    const signatureMatches = file.mimeType === "image/png"
+      ? bytes.length >= 24 && [137,80,78,71,13,10,26,10].every((value, index) => bytes[index] === value)
+        && String.fromCharCode(...bytes.slice(12,16)) === "IHDR"
+        && new DataView(bytes.buffer).getUint32(16) > 0 && new DataView(bytes.buffer).getUint32(20) > 0
+      : file.mimeType === "image/jpeg"
+        ? bytes.length >= 4 && bytes[0] === 255 && bytes[1] === 216 && bytes[2] === 255
+          && bytes[bytes.length - 2] === 255 && bytes[bytes.length - 1] === 217
+        : bytes.length >= 20 && String.fromCharCode(...bytes.slice(0,4)) === "RIFF"
+          && String.fromCharCode(...bytes.slice(8,12)) === "WEBP"
+          && ["VP8 ", "VP8L", "VP8X"].includes(String.fromCharCode(...bytes.slice(12,16)))
+          && new DataView(bytes.buffer).getUint32(4, true) + 8 === bytes.length;
+    if (!signatureMatches) fail("CHROME_FILE_PAYLOAD_INVALID", "The image signature does not match its reviewed MIME type.");
+    if (!globalThis.crypto?.subtle) fail("CHROME_FILE_PAYLOAD_INVALID", "The document cannot verify the reviewed image digest.");
+    const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
+    if ([...digest].map(value => value.toString(16).padStart(2, "0")).join("") !== file.sha256) {
+      fail("CHROME_FILE_PAYLOAD_INVALID", "The image digest does not match its reviewed payload.");
+    }
+    assertTarget();
+    const assertAccept = () => {
+      const accept = element.accept.trim().toLowerCase();
+      const tokens = accept.split(",").map(value => value.trim()).filter(Boolean);
+      if (accept && !tokens.some(token => token === file.mimeType || token === "image/*"
+          || token.startsWith(".") && file.name.toLowerCase().endsWith(token))) {
+        fail("CHROME_FILE_ACCEPT_MISMATCH", "The file input does not accept the reviewed image type.");
+      }
+    };
+    assertAccept();
+    if (typeof File !== "function" || typeof DataTransfer !== "function") fail("CHROME_FILE_PAYLOAD_INVALID", "The document does not support ordinary file selection.");
+    const selectedFile = new File([bytes], file.name, { type: file.mimeType, lastModified: file.lastModified });
+    const transfer = new DataTransfer();
+    transfer.items.add(selectedFile);
+    assertTarget();
+    assertAccept();
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "files")?.set;
+    if (typeof setter !== "function") fail("CHROME_FILE_PAYLOAD_INVALID", "The native file-input setter is unavailable.");
+    let assignedSelection = null;
+    const selectionMatches = () => element.files?.length === 1
+      && (!assignedSelection || element.files[0] === assignedSelection)
+      && element.files[0].name === file.name && element.files[0].size === file.size
+      && element.files[0].type === file.mimeType && element.files[0].lastModified === file.lastModified;
+    stage = "assign-files";
+    // Exactly one native FileList assignment. No target focus, picker, click,
+    // submit, selected-path readback, private application hook or retry.
+    actionDispatched = true;
+    setter.call(element, transfer.files);
+    fileAssigned = true;
+    assignedSelection = element.files?.[0] || null;
+    fileCount = element.files?.length || 0;
+    fileRetained = selectionMatches();
+    assertTarget();
+    if (!fileRetained) fail("CHROME_FILE_SELECTION_CHANGED", "The original input did not retain the reviewed file selection.");
+    stage = "input-event";
+    const input = new Event("input", { bubbles: true, composed: true, cancelable: false });
+    assertTarget();
+    inputEventDispatched = true;
+    element.dispatchEvent(input);
+    inputDefaultPrevented = input.defaultPrevented;
+    await Promise.resolve();
+    assertTarget();
+    assertAccept();
+    fileCount = element.files?.length || 0;
+    fileRetained = selectionMatches();
+    if (!fileRetained) fail("CHROME_FILE_SELECTION_CHANGED", "The application changed the selection before the change event.");
+    stage = "change-event";
+    const change = new Event("change", { bubbles: true, cancelable: false });
+    assertTarget();
+    changeEventDispatched = true;
+    element.dispatchEvent(change);
+    changeDefaultPrevented = change.defaultPrevented;
+    await Promise.resolve();
+    stage = "readback";
+    assertTarget();
+    fileCount = element.files?.length || 0;
+    fileRetained = selectionMatches();
+    return { ...metadata(), trusted: false, applicationAccepted: null };
+  } catch (error) {
+    const details = metadata();
+    error.details = { ...(error.details || {}), ...details };
+    if (!options.errorsAsData) throw error;
+    return { __mdbPageActionError: { code: error.code || "CHROME_FILE_INPUT_FAILED", ...details } };
+  }
 }
 
 async function pageClick(selector, options = {}) {
@@ -4513,7 +4720,7 @@ async function executeInTab(tabId, func, args, world = "ISOLATED", context = {})
     throw error;
   }
   const result = await chrome.scripting.executeScript({
-    target: { tabId },
+    target: { tabId, ...(context.expectedDocumentId ? { documentIds: [context.expectedDocumentId] } : {}) },
     injectImmediately: true,
     world,
     func,
@@ -4986,6 +5193,21 @@ async function dispatch(message) {
       return await observeTabAction(tab.id, () => executeInTab(tab.id, pageKeypress, [String(args.selector || ""), args.key, {
         modifiers: args.modifiers === undefined ? [] : args.modifiers, deadlineMs: message.deadlineMs, errorsAsData: true,
       }], "MAIN", { deadlineMs: message.deadlineMs, includeDocumentIdentity: true }), message.deadlineMs);
+    }
+
+    case "tabs.setFileInput": {
+      const tab = await getApprovedTab(args.tabId, compiled);
+      if (typeof args.expectedDocumentId !== "string" || !/^[A-Za-z0-9_-]{1,128}$/.test(args.expectedDocumentId)) {
+        const error = new Error("A fresh observed document ID is required for image selection.");
+        error.code = "CHROME_DOCUMENT_CHANGED";
+        error.details = { stage: "before-injection", actionDispatched: false };
+        throw error;
+      }
+      return await observeTabAction(tab.id, () => executeInTab(tab.id, pageSetFileInput, [
+        String(args.selector || ""), args.file, {
+          deadlineMs: message.deadlineMs, expectedUrl: tab.url, errorsAsData: true,
+        },
+      ], "MAIN", { deadlineMs: message.deadlineMs, includeDocumentIdentity: true, expectedDocumentId: args.expectedDocumentId }), message.deadlineMs);
     }
 
     case "tabs.fill": {

@@ -1,0 +1,1785 @@
+{
+  "schemaVersion": 1,
+  "title": "Image file-input release and combined-candidate browser acceptance",
+  "sourceCommit": "e73e7c17e23e52d0769abfb89d5832ec1a70f7a1",
+  "scope": "Isolated browser fixture tests only. This receipt does not assert installed provider acceptance.",
+  "browserVersion": "154.0.8037.98",
+  "platform": "darwin",
+  "architecture": "arm64",
+  "imagePreparationModuleSha256": "47f6e35164d390d6e08781cb105041a801c552e0edb562ad0c6d120f41f7cc31",
+  "candidates": {
+    "source": {
+      "workerSha256": "9c32328d3b8e76f24009f4980dd0b1615a7e0e72d2d02b8adef0fe589da9de7f",
+      "totalCases": 189,
+      "passedCases": 189,
+      "suites": [
+        {
+          "name": "image-input",
+          "caseCount": 43,
+          "passedCount": 43,
+          "failedCount": 0,
+          "rawReceiptSha256": "09b0ab063324d8d2f565f347c88e4d268eb3c5a16d95043c74ee468b701f0253",
+          "rawReceiptBytes": 163662,
+          "suiteSourceSha256": "e85387b7ba89bf0699eca1973c2e2c297dc8bc445b771882deaed5fba9edfd03",
+          "recordedWorkerSha256": "9c32328d3b8e76f24009f4980dd0b1615a7e0e72d2d02b8adef0fe589da9de7f",
+          "recordedWorkerSha256AtEnd": "9c32328d3b8e76f24009f4980dd0b1615a7e0e72d2d02b8adef0fe589da9de7f",
+          "browserVersion": "154.0.8037.98",
+          "nodeVersion": "v26.4.0",
+          "externalRequestAttempts": 0,
+          "isolatedBrowserClosed": true,
+          "temporaryProfileRemoved": true,
+          "fixtureServerClosedRecorded": true,
+          "cases": [
+            {
+              "name": "accepted-save",
+              "passed": true
+            },
+            {
+              "name": "native-setter",
+              "passed": true
+            },
+            {
+              "name": "unfocused-save",
+              "passed": true
+            },
+            {
+              "name": "prevent-default",
+              "passed": true
+            },
+            {
+              "name": "application-rejects",
+              "passed": true
+            },
+            {
+              "name": "missing-target",
+              "passed": true
+            },
+            {
+              "name": "ambiguous-target",
+              "passed": true
+            },
+            {
+              "name": "wrong-input-type",
+              "passed": true
+            },
+            {
+              "name": "disabled-target",
+              "passed": true
+            },
+            {
+              "name": "disabled-fieldset",
+              "passed": true
+            },
+            {
+              "name": "directory-target",
+              "passed": true
+            },
+            {
+              "name": "unaccepted-mime",
+              "passed": true
+            },
+            {
+              "name": "extension-accept",
+              "passed": true
+            },
+            {
+              "name": "mime-wildcard-one-file",
+              "passed": true
+            },
+            {
+              "name": "guard-replace",
+              "passed": true
+            },
+            {
+              "name": "guard-replace-microtask",
+              "passed": true
+            },
+            {
+              "name": "guard-disable",
+              "passed": true
+            },
+            {
+              "name": "guard-disable-microtask",
+              "passed": true
+            },
+            {
+              "name": "guard-type",
+              "passed": true
+            },
+            {
+              "name": "guard-type-microtask",
+              "passed": true
+            },
+            {
+              "name": "guard-clear",
+              "passed": true
+            },
+            {
+              "name": "guard-clear-microtask",
+              "passed": true
+            },
+            {
+              "name": "guard-same-name",
+              "passed": true
+            },
+            {
+              "name": "guard-same-name-microtask",
+              "passed": true
+            },
+            {
+              "name": "guard-duplicate",
+              "passed": true
+            },
+            {
+              "name": "guard-duplicate-microtask",
+              "passed": true
+            },
+            {
+              "name": "guard-url",
+              "passed": true
+            },
+            {
+              "name": "guard-url-microtask",
+              "passed": true
+            },
+            {
+              "name": "guard-root",
+              "passed": true
+            },
+            {
+              "name": "guard-root-microtask",
+              "passed": true
+            },
+            {
+              "name": "expected-document-url-mismatch",
+              "passed": true
+            },
+            {
+              "name": "expired-before-assignment",
+              "passed": true
+            },
+            {
+              "name": "guard-deadline",
+              "passed": true
+            },
+            {
+              "name": "guard-deadline-microtask",
+              "passed": true
+            },
+            {
+              "name": "payload-size-mismatch",
+              "passed": true
+            },
+            {
+              "name": "payload-hash-mismatch",
+              "passed": true
+            },
+            {
+              "name": "payload-invalid-base64",
+              "passed": true
+            },
+            {
+              "name": "payload-invalid-type",
+              "passed": true
+            },
+            {
+              "name": "payload-invalid-name",
+              "passed": true
+            },
+            {
+              "name": "error-as-data",
+              "passed": true
+            },
+            {
+              "name": "passive-image-file-snapshot",
+              "passed": true
+            },
+            {
+              "name": "populated-file-and-data-image-redaction",
+              "passed": true
+            },
+            {
+              "name": "bounded-image-file-snapshot",
+              "passed": true
+            }
+          ],
+          "imagePreparationModuleSha256": "47f6e35164d390d6e08781cb105041a801c552e0edb562ad0c6d120f41f7cc31",
+          "explicitSaveAndFreshReadback": [
+            {
+              "scenario": "accepted-save",
+              "exactReviewedFileReceived": true,
+              "fileInputAssignmentObserved": true,
+              "inputEvents": 1,
+              "changeEvents": 1,
+              "selectedImageDecoded": true,
+              "selectionMovedFocus": false,
+              "selectionInvokedNoClickOrSubmit": true,
+              "implicitSaveCount": 0,
+              "explicitSaveAttempts": 1,
+              "acceptedServerSaves": 1,
+              "reviewedFilePersistedInFreshDocument": true,
+              "newDocumentFileInputEmpty": true,
+              "imageNaturalDimensions": {
+                "width": 3,
+                "height": 2
+              },
+              "backgroundObservation": "Fresh isolated browser fixture."
+            },
+            {
+              "scenario": "native-setter",
+              "exactReviewedFileReceived": true,
+              "fileInputAssignmentObserved": true,
+              "inputEvents": 1,
+              "changeEvents": 1,
+              "selectedImageDecoded": true,
+              "selectionMovedFocus": false,
+              "selectionInvokedNoClickOrSubmit": true,
+              "implicitSaveCount": 0,
+              "explicitSaveAttempts": 1,
+              "acceptedServerSaves": 1,
+              "reviewedFilePersistedInFreshDocument": true,
+              "newDocumentFileInputEmpty": true,
+              "imageNaturalDimensions": {
+                "width": 3,
+                "height": 2
+              },
+              "backgroundObservation": "Fresh isolated browser fixture."
+            },
+            {
+              "scenario": "unfocused-save",
+              "exactReviewedFileReceived": true,
+              "fileInputAssignmentObserved": true,
+              "inputEvents": 1,
+              "changeEvents": 1,
+              "selectedImageDecoded": true,
+              "selectionMovedFocus": false,
+              "selectionInvokedNoClickOrSubmit": true,
+              "implicitSaveCount": 0,
+              "explicitSaveAttempts": 1,
+              "acceptedServerSaves": 1,
+              "reviewedFilePersistedInFreshDocument": true,
+              "newDocumentFileInputEmpty": true,
+              "imageNaturalDimensions": {
+                "width": 3,
+                "height": 2
+              },
+              "backgroundObservation": "Unfocused isolated test page; actual hidden-tab acceptance is a separate installed check."
+            }
+          ]
+        },
+        {
+          "name": "keyboard",
+          "caseCount": 39,
+          "passedCount": 39,
+          "failedCount": 0,
+          "rawReceiptSha256": "f8d28c3a536cbd503d112bdb2d9b7487cb19bb271ca1bfc5cb3a7d664b0eba4a",
+          "rawReceiptBytes": 194592,
+          "suiteSourceSha256": "e06c5ee8e558e47740ae3f98eca3f9fffe976ffa218cb88b8514e0ce4409c405",
+          "recordedWorkerSha256": "9c32328d3b8e76f24009f4980dd0b1615a7e0e72d2d02b8adef0fe589da9de7f",
+          "recordedWorkerSha256AtEnd": "9c32328d3b8e76f24009f4980dd0b1615a7e0e72d2d02b8adef0fe589da9de7f",
+          "browserVersion": "154.0.8037.98",
+          "nodeVersion": "v26.4.0",
+          "externalRequestAttempts": 0,
+          "isolatedBrowserClosed": true,
+          "temporaryProfileRemoved": true,
+          "fixtureServerClosedRecorded": null,
+          "cases": [
+            {
+              "name": "native-enter",
+              "passed": true
+            },
+            {
+              "name": "native-space",
+              "passed": true
+            },
+            {
+              "name": "guard-native-focus",
+              "passed": true
+            },
+            {
+              "name": "guard-native-focus-microtask",
+              "passed": true
+            },
+            {
+              "name": "guard-native-replace",
+              "passed": true
+            },
+            {
+              "name": "guard-native-replace-microtask",
+              "passed": true
+            },
+            {
+              "name": "native-unfocused-focus",
+              "passed": true
+            },
+            {
+              "name": "synthetic-enter",
+              "passed": true
+            },
+            {
+              "name": "synthetic-space",
+              "passed": true
+            },
+            {
+              "name": "synthetic-meta",
+              "passed": true
+            },
+            {
+              "name": "synthetic-second-tab",
+              "passed": true
+            },
+            {
+              "name": "native-cannot-drag",
+              "passed": true
+            },
+            {
+              "name": "native-cancel",
+              "passed": true
+            },
+            {
+              "name": "synthetic-cannot-drag",
+              "passed": true
+            },
+            {
+              "name": "synthetic-cancel",
+              "passed": true
+            },
+            {
+              "name": "guard-synthetic-focus",
+              "passed": true
+            },
+            {
+              "name": "guard-synthetic-focus-microtask",
+              "passed": true
+            },
+            {
+              "name": "guard-synthetic-replace",
+              "passed": true
+            },
+            {
+              "name": "guard-synthetic-replace-microtask",
+              "passed": true
+            },
+            {
+              "name": "guard-synthetic-disable",
+              "passed": true
+            },
+            {
+              "name": "guard-synthetic-disable-microtask",
+              "passed": true
+            },
+            {
+              "name": "guard-initial-focus-replace-sync",
+              "passed": true
+            },
+            {
+              "name": "guard-initial-focus-replace-microtask",
+              "passed": true
+            },
+            {
+              "name": "guard-initial-focus-disable-sync",
+              "passed": true
+            },
+            {
+              "name": "guard-initial-focus-disable-microtask",
+              "passed": true
+            },
+            {
+              "name": "guard-initial-focus-redirect-sync",
+              "passed": true
+            },
+            {
+              "name": "guard-initial-focus-redirect-microtask",
+              "passed": true
+            },
+            {
+              "name": "guard-initial-focusin-replace-sync",
+              "passed": true
+            },
+            {
+              "name": "guard-initial-focusin-replace-microtask",
+              "passed": true
+            },
+            {
+              "name": "guard-initial-focusin-disable-sync",
+              "passed": true
+            },
+            {
+              "name": "guard-initial-focusin-disable-microtask",
+              "passed": true
+            },
+            {
+              "name": "guard-initial-focusin-redirect-sync",
+              "passed": true
+            },
+            {
+              "name": "guard-initial-focusin-redirect-microtask",
+              "passed": true
+            },
+            {
+              "name": "guard-deadline-before",
+              "passed": true
+            },
+            {
+              "name": "guard-deadline-during-keydown",
+              "passed": true
+            },
+            {
+              "name": "guard-fault-keyup-constructor",
+              "passed": true
+            },
+            {
+              "name": "guard-fault-keyup-dispatch",
+              "passed": true
+            },
+            {
+              "name": "guard-post-keyup-focus",
+              "passed": true
+            },
+            {
+              "name": "snapshot-focused-element",
+              "passed": true
+            }
+          ]
+        },
+        {
+          "name": "existing-browser",
+          "caseCount": 107,
+          "passedCount": 107,
+          "failedCount": 0,
+          "rawReceiptSha256": "1fce1fb67ccbe6f9822c43c122bd9cebac8fa85abbad3581c45a92bd92ba6cc3",
+          "rawReceiptBytes": 217696,
+          "suiteSourceSha256": "d5f697abab1599526ffac974bd06efa8b1fdb78daf5b4d8689eaec4a5cbb3952",
+          "recordedWorkerSha256": "9c32328d3b8e76f24009f4980dd0b1615a7e0e72d2d02b8adef0fe589da9de7f",
+          "recordedWorkerSha256AtEnd": null,
+          "browserVersion": "154.0.8037.98",
+          "nodeVersion": "v26.4.0",
+          "externalRequestAttempts": 0,
+          "isolatedBrowserClosed": true,
+          "temporaryProfileRemoved": true,
+          "fixtureServerClosedRecorded": true,
+          "cases": [
+            {
+              "name": "drag-native",
+              "passed": true
+            },
+            {
+              "name": "drag-before",
+              "passed": true
+            },
+            {
+              "name": "drag-after",
+              "passed": true
+            },
+            {
+              "name": "drag-second-tab",
+              "passed": true
+            },
+            {
+              "name": "drag-backend-transition",
+              "passed": true
+            },
+            {
+              "name": "drag-native-backend-transition",
+              "passed": true
+            },
+            {
+              "name": "drag-prelude-pointerover-source-replaced",
+              "passed": true
+            },
+            {
+              "name": "drag-prelude-pointerover-target-replaced",
+              "passed": true
+            },
+            {
+              "name": "drag-prelude-pointerover-source-disabled",
+              "passed": true
+            },
+            {
+              "name": "drag-prelude-pointerover-target-disabled",
+              "passed": true
+            },
+            {
+              "name": "drag-prelude-pointerover-deadline",
+              "passed": true
+            },
+            {
+              "name": "drag-prelude-mouseover-source-replaced",
+              "passed": true
+            },
+            {
+              "name": "drag-prelude-mouseover-target-replaced",
+              "passed": true
+            },
+            {
+              "name": "drag-prelude-mouseover-source-disabled",
+              "passed": true
+            },
+            {
+              "name": "drag-prelude-mouseover-target-disabled",
+              "passed": true
+            },
+            {
+              "name": "drag-prelude-mouseover-deadline",
+              "passed": true
+            },
+            {
+              "name": "drag-prelude-pointermove-source-replaced",
+              "passed": true
+            },
+            {
+              "name": "drag-prelude-pointermove-target-replaced",
+              "passed": true
+            },
+            {
+              "name": "drag-prelude-pointermove-source-disabled",
+              "passed": true
+            },
+            {
+              "name": "drag-prelude-pointermove-target-disabled",
+              "passed": true
+            },
+            {
+              "name": "drag-prelude-pointermove-deadline",
+              "passed": true
+            },
+            {
+              "name": "drag-prelude-mousemove-source-replaced",
+              "passed": true
+            },
+            {
+              "name": "drag-prelude-mousemove-target-replaced",
+              "passed": true
+            },
+            {
+              "name": "drag-prelude-mousemove-source-disabled",
+              "passed": true
+            },
+            {
+              "name": "drag-prelude-mousemove-target-disabled",
+              "passed": true
+            },
+            {
+              "name": "drag-prelude-mousemove-deadline",
+              "passed": true
+            },
+            {
+              "name": "drag-prelude-pointerdown-source-replaced",
+              "passed": true
+            },
+            {
+              "name": "drag-prelude-pointerdown-target-replaced",
+              "passed": true
+            },
+            {
+              "name": "drag-prelude-pointerdown-source-disabled",
+              "passed": true
+            },
+            {
+              "name": "drag-prelude-pointerdown-target-disabled",
+              "passed": true
+            },
+            {
+              "name": "drag-prelude-pointerdown-deadline",
+              "passed": true
+            },
+            {
+              "name": "drag-prelude-pointerdown-cancelled",
+              "passed": true
+            },
+            {
+              "name": "drag-prelude-mousedown-source-replaced",
+              "passed": true
+            },
+            {
+              "name": "drag-prelude-mousedown-target-replaced",
+              "passed": true
+            },
+            {
+              "name": "drag-prelude-mousedown-source-disabled",
+              "passed": true
+            },
+            {
+              "name": "drag-prelude-mousedown-target-disabled",
+              "passed": true
+            },
+            {
+              "name": "drag-prelude-mousedown-deadline",
+              "passed": true
+            },
+            {
+              "name": "drag-prelude-mousedown-source-replaced-async",
+              "passed": true
+            },
+            {
+              "name": "drag-prelude-mousedown-target-replaced-async",
+              "passed": true
+            },
+            {
+              "name": "drag-prelude-mousedown-source-disabled-async",
+              "passed": true
+            },
+            {
+              "name": "drag-prelude-mousedown-target-disabled-async",
+              "passed": true
+            },
+            {
+              "name": "drag-prelude-mousedown-deadline-async",
+              "passed": true
+            },
+            {
+              "name": "drag-prelude-mousedown-cancelled",
+              "passed": true
+            },
+            {
+              "name": "drag-prelude-pointercancel-source-replaced",
+              "passed": true
+            },
+            {
+              "name": "drag-prelude-pointercancel-target-replaced",
+              "passed": true
+            },
+            {
+              "name": "drag-prelude-pointercancel-source-disabled",
+              "passed": true
+            },
+            {
+              "name": "drag-prelude-pointercancel-target-disabled",
+              "passed": true
+            },
+            {
+              "name": "drag-prelude-pointercancel-deadline",
+              "passed": true
+            },
+            {
+              "name": "drag-prelude-pointercancel-source-replaced-async",
+              "passed": true
+            },
+            {
+              "name": "drag-prelude-pointercancel-target-replaced-async",
+              "passed": true
+            },
+            {
+              "name": "drag-prelude-pointercancel-source-disabled-async",
+              "passed": true
+            },
+            {
+              "name": "drag-prelude-pointercancel-target-disabled-async",
+              "passed": true
+            },
+            {
+              "name": "drag-prelude-pointercancel-deadline-async",
+              "passed": true
+            },
+            {
+              "name": "drag-not-accepted",
+              "passed": true
+            },
+            {
+              "name": "drag-effect-none",
+              "passed": true
+            },
+            {
+              "name": "drag-effect-incompatible",
+              "passed": true
+            },
+            {
+              "name": "drag-pointercancel-effect-escalation",
+              "passed": true
+            },
+            {
+              "name": "drag-cancelled",
+              "passed": true
+            },
+            {
+              "name": "drag-replaced",
+              "passed": true
+            },
+            {
+              "name": "drag-disabled",
+              "passed": true
+            },
+            {
+              "name": "drag-pointer-only",
+              "passed": true
+            },
+            {
+              "name": "drag-deadline",
+              "passed": true
+            },
+            {
+              "name": "drag-over-deadline",
+              "passed": true
+            },
+            {
+              "name": "drag-ambiguous",
+              "passed": true
+            },
+            {
+              "name": "drag-after-drop-replaced",
+              "passed": true
+            },
+            {
+              "name": "ordinary-click",
+              "passed": true
+            },
+            {
+              "name": "mousedown-combobox",
+              "passed": true
+            },
+            {
+              "name": "passive-snapshot",
+              "passed": true
+            },
+            {
+              "name": "controlled-currency",
+              "passed": true
+            },
+            {
+              "name": "react-currency",
+              "passed": true
+            },
+            {
+              "name": "replace-accepted",
+              "passed": true
+            },
+            {
+              "name": "replace-rejected",
+              "passed": true
+            },
+            {
+              "name": "contenteditable",
+              "passed": true
+            },
+            {
+              "name": "contenteditable-rejected",
+              "passed": true
+            },
+            {
+              "name": "select",
+              "passed": true
+            },
+            {
+              "name": "select-rejected",
+              "passed": true
+            },
+            {
+              "name": "invalid-submit",
+              "passed": true
+            },
+            {
+              "name": "no-form-submit",
+              "passed": true
+            },
+            {
+              "name": "read-only",
+              "passed": true
+            },
+            {
+              "name": "focus-lock",
+              "passed": true
+            },
+            {
+              "name": "beforeinput-lock",
+              "passed": true
+            },
+            {
+              "name": "cancel-beforeinput",
+              "passed": true
+            },
+            {
+              "name": "suspended-raf",
+              "passed": true
+            },
+            {
+              "name": "hidden-first",
+              "passed": true
+            },
+            {
+              "name": "click-event-sequence",
+              "passed": true
+            },
+            {
+              "name": "mouse-sensitive-menu",
+              "passed": true
+            },
+            {
+              "name": "click-default-activation",
+              "passed": true
+            },
+            {
+              "name": "react-native-edit-reference",
+              "passed": true
+            },
+            {
+              "name": "react-native-edit-setter",
+              "passed": true
+            },
+            {
+              "name": "react-native-edit-insert-text",
+              "passed": true
+            },
+            {
+              "name": "insert-text-supported",
+              "passed": true
+            },
+            {
+              "name": "insert-text-unsupported",
+              "passed": true
+            },
+            {
+              "name": "insert-text-cancelled",
+              "passed": true
+            },
+            {
+              "name": "insert-text-command-failure",
+              "passed": true
+            },
+            {
+              "name": "insert-text-rejected",
+              "passed": true
+            },
+            {
+              "name": "dom-click-direct-menu",
+              "passed": true
+            },
+            {
+              "name": "dom-click-default-activation",
+              "passed": true
+            },
+            {
+              "name": "dom-click-refused",
+              "passed": true
+            },
+            {
+              "name": "react-text-input-existing-strategy",
+              "passed": true
+            },
+            {
+              "name": "react-text-input-accept",
+              "passed": true
+            },
+            {
+              "name": "react-text-input-dom-cancelled",
+              "passed": true
+            },
+            {
+              "name": "react-text-input-react-cancelled",
+              "passed": true
+            },
+            {
+              "name": "text-input-value-change",
+              "passed": true
+            },
+            {
+              "name": "text-input-replaced",
+              "passed": true
+            },
+            {
+              "name": "text-input-handler-edit",
+              "passed": true
+            },
+            {
+              "name": "text-input-handler-same-value",
+              "passed": true
+            },
+            {
+              "name": "active-focus-blur-native",
+              "passed": true
+            }
+          ]
+        }
+      ]
+    },
+    "combined": {
+      "workerSha256": "d0554141ec5b955929e280860757aa0b77fb6d13c852b03ee8ff460a0c41f92f",
+      "totalCases": 189,
+      "passedCases": 189,
+      "suites": [
+        {
+          "name": "image-input",
+          "caseCount": 43,
+          "passedCount": 43,
+          "failedCount": 0,
+          "rawReceiptSha256": "d9009e12e91f0c09cfa80400afd7a5da6bb3234e27f6f503c4cd81678360db17",
+          "rawReceiptBytes": 163669,
+          "suiteSourceSha256": "e85387b7ba89bf0699eca1973c2e2c297dc8bc445b771882deaed5fba9edfd03",
+          "recordedWorkerSha256": "d0554141ec5b955929e280860757aa0b77fb6d13c852b03ee8ff460a0c41f92f",
+          "recordedWorkerSha256AtEnd": "d0554141ec5b955929e280860757aa0b77fb6d13c852b03ee8ff460a0c41f92f",
+          "browserVersion": "154.0.8037.98",
+          "nodeVersion": "v26.4.0",
+          "externalRequestAttempts": 0,
+          "isolatedBrowserClosed": true,
+          "temporaryProfileRemoved": true,
+          "fixtureServerClosedRecorded": true,
+          "cases": [
+            {
+              "name": "accepted-save",
+              "passed": true
+            },
+            {
+              "name": "native-setter",
+              "passed": true
+            },
+            {
+              "name": "unfocused-save",
+              "passed": true
+            },
+            {
+              "name": "prevent-default",
+              "passed": true
+            },
+            {
+              "name": "application-rejects",
+              "passed": true
+            },
+            {
+              "name": "missing-target",
+              "passed": true
+            },
+            {
+              "name": "ambiguous-target",
+              "passed": true
+            },
+            {
+              "name": "wrong-input-type",
+              "passed": true
+            },
+            {
+              "name": "disabled-target",
+              "passed": true
+            },
+            {
+              "name": "disabled-fieldset",
+              "passed": true
+            },
+            {
+              "name": "directory-target",
+              "passed": true
+            },
+            {
+              "name": "unaccepted-mime",
+              "passed": true
+            },
+            {
+              "name": "extension-accept",
+              "passed": true
+            },
+            {
+              "name": "mime-wildcard-one-file",
+              "passed": true
+            },
+            {
+              "name": "guard-replace",
+              "passed": true
+            },
+            {
+              "name": "guard-replace-microtask",
+              "passed": true
+            },
+            {
+              "name": "guard-disable",
+              "passed": true
+            },
+            {
+              "name": "guard-disable-microtask",
+              "passed": true
+            },
+            {
+              "name": "guard-type",
+              "passed": true
+            },
+            {
+              "name": "guard-type-microtask",
+              "passed": true
+            },
+            {
+              "name": "guard-clear",
+              "passed": true
+            },
+            {
+              "name": "guard-clear-microtask",
+              "passed": true
+            },
+            {
+              "name": "guard-same-name",
+              "passed": true
+            },
+            {
+              "name": "guard-same-name-microtask",
+              "passed": true
+            },
+            {
+              "name": "guard-duplicate",
+              "passed": true
+            },
+            {
+              "name": "guard-duplicate-microtask",
+              "passed": true
+            },
+            {
+              "name": "guard-url",
+              "passed": true
+            },
+            {
+              "name": "guard-url-microtask",
+              "passed": true
+            },
+            {
+              "name": "guard-root",
+              "passed": true
+            },
+            {
+              "name": "guard-root-microtask",
+              "passed": true
+            },
+            {
+              "name": "expected-document-url-mismatch",
+              "passed": true
+            },
+            {
+              "name": "expired-before-assignment",
+              "passed": true
+            },
+            {
+              "name": "guard-deadline",
+              "passed": true
+            },
+            {
+              "name": "guard-deadline-microtask",
+              "passed": true
+            },
+            {
+              "name": "payload-size-mismatch",
+              "passed": true
+            },
+            {
+              "name": "payload-hash-mismatch",
+              "passed": true
+            },
+            {
+              "name": "payload-invalid-base64",
+              "passed": true
+            },
+            {
+              "name": "payload-invalid-type",
+              "passed": true
+            },
+            {
+              "name": "payload-invalid-name",
+              "passed": true
+            },
+            {
+              "name": "error-as-data",
+              "passed": true
+            },
+            {
+              "name": "passive-image-file-snapshot",
+              "passed": true
+            },
+            {
+              "name": "populated-file-and-data-image-redaction",
+              "passed": true
+            },
+            {
+              "name": "bounded-image-file-snapshot",
+              "passed": true
+            }
+          ],
+          "imagePreparationModuleSha256": "47f6e35164d390d6e08781cb105041a801c552e0edb562ad0c6d120f41f7cc31",
+          "explicitSaveAndFreshReadback": [
+            {
+              "scenario": "accepted-save",
+              "exactReviewedFileReceived": true,
+              "fileInputAssignmentObserved": true,
+              "inputEvents": 1,
+              "changeEvents": 1,
+              "selectedImageDecoded": true,
+              "selectionMovedFocus": false,
+              "selectionInvokedNoClickOrSubmit": true,
+              "implicitSaveCount": 0,
+              "explicitSaveAttempts": 1,
+              "acceptedServerSaves": 1,
+              "reviewedFilePersistedInFreshDocument": true,
+              "newDocumentFileInputEmpty": true,
+              "imageNaturalDimensions": {
+                "width": 3,
+                "height": 2
+              },
+              "backgroundObservation": "Fresh isolated browser fixture."
+            },
+            {
+              "scenario": "native-setter",
+              "exactReviewedFileReceived": true,
+              "fileInputAssignmentObserved": true,
+              "inputEvents": 1,
+              "changeEvents": 1,
+              "selectedImageDecoded": true,
+              "selectionMovedFocus": false,
+              "selectionInvokedNoClickOrSubmit": true,
+              "implicitSaveCount": 0,
+              "explicitSaveAttempts": 1,
+              "acceptedServerSaves": 1,
+              "reviewedFilePersistedInFreshDocument": true,
+              "newDocumentFileInputEmpty": true,
+              "imageNaturalDimensions": {
+                "width": 3,
+                "height": 2
+              },
+              "backgroundObservation": "Fresh isolated browser fixture."
+            },
+            {
+              "scenario": "unfocused-save",
+              "exactReviewedFileReceived": true,
+              "fileInputAssignmentObserved": true,
+              "inputEvents": 1,
+              "changeEvents": 1,
+              "selectedImageDecoded": true,
+              "selectionMovedFocus": false,
+              "selectionInvokedNoClickOrSubmit": true,
+              "implicitSaveCount": 0,
+              "explicitSaveAttempts": 1,
+              "acceptedServerSaves": 1,
+              "reviewedFilePersistedInFreshDocument": true,
+              "newDocumentFileInputEmpty": true,
+              "imageNaturalDimensions": {
+                "width": 3,
+                "height": 2
+              },
+              "backgroundObservation": "Unfocused isolated test page; actual hidden-tab acceptance is a separate installed check."
+            }
+          ]
+        },
+        {
+          "name": "keyboard",
+          "caseCount": 39,
+          "passedCount": 39,
+          "failedCount": 0,
+          "rawReceiptSha256": "b6b4125892e4079ee8a8f842e745da2594beac854175de576572c3e39cf79b6a",
+          "rawReceiptBytes": 194621,
+          "suiteSourceSha256": "e06c5ee8e558e47740ae3f98eca3f9fffe976ffa218cb88b8514e0ce4409c405",
+          "recordedWorkerSha256": "d0554141ec5b955929e280860757aa0b77fb6d13c852b03ee8ff460a0c41f92f",
+          "recordedWorkerSha256AtEnd": "d0554141ec5b955929e280860757aa0b77fb6d13c852b03ee8ff460a0c41f92f",
+          "browserVersion": "154.0.8037.98",
+          "nodeVersion": "v26.4.0",
+          "externalRequestAttempts": 0,
+          "isolatedBrowserClosed": true,
+          "temporaryProfileRemoved": true,
+          "fixtureServerClosedRecorded": null,
+          "cases": [
+            {
+              "name": "native-enter",
+              "passed": true
+            },
+            {
+              "name": "native-space",
+              "passed": true
+            },
+            {
+              "name": "guard-native-focus",
+              "passed": true
+            },
+            {
+              "name": "guard-native-focus-microtask",
+              "passed": true
+            },
+            {
+              "name": "guard-native-replace",
+              "passed": true
+            },
+            {
+              "name": "guard-native-replace-microtask",
+              "passed": true
+            },
+            {
+              "name": "native-unfocused-focus",
+              "passed": true
+            },
+            {
+              "name": "synthetic-enter",
+              "passed": true
+            },
+            {
+              "name": "synthetic-space",
+              "passed": true
+            },
+            {
+              "name": "synthetic-meta",
+              "passed": true
+            },
+            {
+              "name": "synthetic-second-tab",
+              "passed": true
+            },
+            {
+              "name": "native-cannot-drag",
+              "passed": true
+            },
+            {
+              "name": "native-cancel",
+              "passed": true
+            },
+            {
+              "name": "synthetic-cannot-drag",
+              "passed": true
+            },
+            {
+              "name": "synthetic-cancel",
+              "passed": true
+            },
+            {
+              "name": "guard-synthetic-focus",
+              "passed": true
+            },
+            {
+              "name": "guard-synthetic-focus-microtask",
+              "passed": true
+            },
+            {
+              "name": "guard-synthetic-replace",
+              "passed": true
+            },
+            {
+              "name": "guard-synthetic-replace-microtask",
+              "passed": true
+            },
+            {
+              "name": "guard-synthetic-disable",
+              "passed": true
+            },
+            {
+              "name": "guard-synthetic-disable-microtask",
+              "passed": true
+            },
+            {
+              "name": "guard-initial-focus-replace-sync",
+              "passed": true
+            },
+            {
+              "name": "guard-initial-focus-replace-microtask",
+              "passed": true
+            },
+            {
+              "name": "guard-initial-focus-disable-sync",
+              "passed": true
+            },
+            {
+              "name": "guard-initial-focus-disable-microtask",
+              "passed": true
+            },
+            {
+              "name": "guard-initial-focus-redirect-sync",
+              "passed": true
+            },
+            {
+              "name": "guard-initial-focus-redirect-microtask",
+              "passed": true
+            },
+            {
+              "name": "guard-initial-focusin-replace-sync",
+              "passed": true
+            },
+            {
+              "name": "guard-initial-focusin-replace-microtask",
+              "passed": true
+            },
+            {
+              "name": "guard-initial-focusin-disable-sync",
+              "passed": true
+            },
+            {
+              "name": "guard-initial-focusin-disable-microtask",
+              "passed": true
+            },
+            {
+              "name": "guard-initial-focusin-redirect-sync",
+              "passed": true
+            },
+            {
+              "name": "guard-initial-focusin-redirect-microtask",
+              "passed": true
+            },
+            {
+              "name": "guard-deadline-before",
+              "passed": true
+            },
+            {
+              "name": "guard-deadline-during-keydown",
+              "passed": true
+            },
+            {
+              "name": "guard-fault-keyup-constructor",
+              "passed": true
+            },
+            {
+              "name": "guard-fault-keyup-dispatch",
+              "passed": true
+            },
+            {
+              "name": "guard-post-keyup-focus",
+              "passed": true
+            },
+            {
+              "name": "snapshot-focused-element",
+              "passed": true
+            }
+          ]
+        },
+        {
+          "name": "existing-browser",
+          "caseCount": 107,
+          "passedCount": 107,
+          "failedCount": 0,
+          "rawReceiptSha256": "c23cd727f00f6b5a7cb0194d0079e153ed66759d0df7a8ffdf919e7fad1cf464",
+          "rawReceiptBytes": 217704,
+          "suiteSourceSha256": "d5f697abab1599526ffac974bd06efa8b1fdb78daf5b4d8689eaec4a5cbb3952",
+          "recordedWorkerSha256": "d0554141ec5b955929e280860757aa0b77fb6d13c852b03ee8ff460a0c41f92f",
+          "recordedWorkerSha256AtEnd": null,
+          "browserVersion": "154.0.8037.98",
+          "nodeVersion": "v26.4.0",
+          "externalRequestAttempts": 0,
+          "isolatedBrowserClosed": true,
+          "temporaryProfileRemoved": true,
+          "fixtureServerClosedRecorded": true,
+          "cases": [
+            {
+              "name": "drag-native",
+              "passed": true
+            },
+            {
+              "name": "drag-before",
+              "passed": true
+            },
+            {
+              "name": "drag-after",
+              "passed": true
+            },
+            {
+              "name": "drag-second-tab",
+              "passed": true
+            },
+            {
+              "name": "drag-backend-transition",
+              "passed": true
+            },
+            {
+              "name": "drag-native-backend-transition",
+              "passed": true
+            },
+            {
+              "name": "drag-prelude-pointerover-source-replaced",
+              "passed": true
+            },
+            {
+              "name": "drag-prelude-pointerover-target-replaced",
+              "passed": true
+            },
+            {
+              "name": "drag-prelude-pointerover-source-disabled",
+              "passed": true
+            },
+            {
+              "name": "drag-prelude-pointerover-target-disabled",
+              "passed": true
+            },
+            {
+              "name": "drag-prelude-pointerover-deadline",
+              "passed": true
+            },
+            {
+              "name": "drag-prelude-mouseover-source-replaced",
+              "passed": true
+            },
+            {
+              "name": "drag-prelude-mouseover-target-replaced",
+              "passed": true
+            },
+            {
+              "name": "drag-prelude-mouseover-source-disabled",
+              "passed": true
+            },
+            {
+              "name": "drag-prelude-mouseover-target-disabled",
+              "passed": true
+            },
+            {
+              "name": "drag-prelude-mouseover-deadline",
+              "passed": true
+            },
+            {
+              "name": "drag-prelude-pointermove-source-replaced",
+              "passed": true
+            },
+            {
+              "name": "drag-prelude-pointermove-target-replaced",
+              "passed": true
+            },
+            {
+              "name": "drag-prelude-pointermove-source-disabled",
+              "passed": true
+            },
+            {
+              "name": "drag-prelude-pointermove-target-disabled",
+              "passed": true
+            },
+            {
+              "name": "drag-prelude-pointermove-deadline",
+              "passed": true
+            },
+            {
+              "name": "drag-prelude-mousemove-source-replaced",
+              "passed": true
+            },
+            {
+              "name": "drag-prelude-mousemove-target-replaced",
+              "passed": true
+            },
+            {
+              "name": "drag-prelude-mousemove-source-disabled",
+              "passed": true
+            },
+            {
+              "name": "drag-prelude-mousemove-target-disabled",
+              "passed": true
+            },
+            {
+              "name": "drag-prelude-mousemove-deadline",
+              "passed": true
+            },
+            {
+              "name": "drag-prelude-pointerdown-source-replaced",
+              "passed": true
+            },
+            {
+              "name": "drag-prelude-pointerdown-target-replaced",
+              "passed": true
+            },
+            {
+              "name": "drag-prelude-pointerdown-source-disabled",
+              "passed": true
+            },
+            {
+              "name": "drag-prelude-pointerdown-target-disabled",
+              "passed": true
+            },
+            {
+              "name": "drag-prelude-pointerdown-deadline",
+              "passed": true
+            },
+            {
+              "name": "drag-prelude-pointerdown-cancelled",
+              "passed": true
+            },
+            {
+              "name": "drag-prelude-mousedown-source-replaced",
+              "passed": true
+            },
+            {
+              "name": "drag-prelude-mousedown-target-replaced",
+              "passed": true
+            },
+            {
+              "name": "drag-prelude-mousedown-source-disabled",
+              "passed": true
+            },
+            {
+              "name": "drag-prelude-mousedown-target-disabled",
+              "passed": true
+            },
+            {
+              "name": "drag-prelude-mousedown-deadline",
+              "passed": true
+            },
+            {
+              "name": "drag-prelude-mousedown-source-replaced-async",
+              "passed": true
+            },
+            {
+              "name": "drag-prelude-mousedown-target-replaced-async",
+              "passed": true
+            },
+            {
+              "name": "drag-prelude-mousedown-source-disabled-async",
+              "passed": true
+            },
+            {
+              "name": "drag-prelude-mousedown-target-disabled-async",
+              "passed": true
+            },
+            {
+              "name": "drag-prelude-mousedown-deadline-async",
+              "passed": true
+            },
+            {
+              "name": "drag-prelude-mousedown-cancelled",
+              "passed": true
+            },
+            {
+              "name": "drag-prelude-pointercancel-source-replaced",
+              "passed": true
+            },
+            {
+              "name": "drag-prelude-pointercancel-target-replaced",
+              "passed": true
+            },
+            {
+              "name": "drag-prelude-pointercancel-source-disabled",
+              "passed": true
+            },
+            {
+              "name": "drag-prelude-pointercancel-target-disabled",
+              "passed": true
+            },
+            {
+              "name": "drag-prelude-pointercancel-deadline",
+              "passed": true
+            },
+            {
+              "name": "drag-prelude-pointercancel-source-replaced-async",
+              "passed": true
+            },
+            {
+              "name": "drag-prelude-pointercancel-target-replaced-async",
+              "passed": true
+            },
+            {
+              "name": "drag-prelude-pointercancel-source-disabled-async",
+              "passed": true
+            },
+            {
+              "name": "drag-prelude-pointercancel-target-disabled-async",
+              "passed": true
+            },
+            {
+              "name": "drag-prelude-pointercancel-deadline-async",
+              "passed": true
+            },
+            {
+              "name": "drag-not-accepted",
+              "passed": true
+            },
+            {
+              "name": "drag-effect-none",
+              "passed": true
+            },
+            {
+              "name": "drag-effect-incompatible",
+              "passed": true
+            },
+            {
+              "name": "drag-pointercancel-effect-escalation",
+              "passed": true
+            },
+            {
+              "name": "drag-cancelled",
+              "passed": true
+            },
+            {
+              "name": "drag-replaced",
+              "passed": true
+            },
+            {
+              "name": "drag-disabled",
+              "passed": true
+            },
+            {
+              "name": "drag-pointer-only",
+              "passed": true
+            },
+            {
+              "name": "drag-deadline",
+              "passed": true
+            },
+            {
+              "name": "drag-over-deadline",
+              "passed": true
+            },
+            {
+              "name": "drag-ambiguous",
+              "passed": true
+            },
+            {
+              "name": "drag-after-drop-replaced",
+              "passed": true
+            },
+            {
+              "name": "ordinary-click",
+              "passed": true
+            },
+            {
+              "name": "mousedown-combobox",
+              "passed": true
+            },
+            {
+              "name": "passive-snapshot",
+              "passed": true
+            },
+            {
+              "name": "controlled-currency",
+              "passed": true
+            },
+            {
+              "name": "react-currency",
+              "passed": true
+            },
+            {
+              "name": "replace-accepted",
+              "passed": true
+            },
+            {
+              "name": "replace-rejected",
+              "passed": true
+            },
+            {
+              "name": "contenteditable",
+              "passed": true
+            },
+            {
+              "name": "contenteditable-rejected",
+              "passed": true
+            },
+            {
+              "name": "select",
+              "passed": true
+            },
+            {
+              "name": "select-rejected",
+              "passed": true
+            },
+            {
+              "name": "invalid-submit",
+              "passed": true
+            },
+            {
+              "name": "no-form-submit",
+              "passed": true
+            },
+            {
+              "name": "read-only",
+              "passed": true
+            },
+            {
+              "name": "focus-lock",
+              "passed": true
+            },
+            {
+              "name": "beforeinput-lock",
+              "passed": true
+            },
+            {
+              "name": "cancel-beforeinput",
+              "passed": true
+            },
+            {
+              "name": "suspended-raf",
+              "passed": true
+            },
+            {
+              "name": "hidden-first",
+              "passed": true
+            },
+            {
+              "name": "click-event-sequence",
+              "passed": true
+            },
+            {
+              "name": "mouse-sensitive-menu",
+              "passed": true
+            },
+            {
+              "name": "click-default-activation",
+              "passed": true
+            },
+            {
+              "name": "react-native-edit-reference",
+              "passed": true
+            },
+            {
+              "name": "react-native-edit-setter",
+              "passed": true
+            },
+            {
+              "name": "react-native-edit-insert-text",
+              "passed": true
+            },
+            {
+              "name": "insert-text-supported",
+              "passed": true
+            },
+            {
+              "name": "insert-text-unsupported",
+              "passed": true
+            },
+            {
+              "name": "insert-text-cancelled",
+              "passed": true
+            },
+            {
+              "name": "insert-text-command-failure",
+              "passed": true
+            },
+            {
+              "name": "insert-text-rejected",
+              "passed": true
+            },
+            {
+              "name": "dom-click-direct-menu",
+              "passed": true
+            },
+            {
+              "name": "dom-click-default-activation",
+              "passed": true
+            },
+            {
+              "name": "dom-click-refused",
+              "passed": true
+            },
+            {
+              "name": "react-text-input-existing-strategy",
+              "passed": true
+            },
+            {
+              "name": "react-text-input-accept",
+              "passed": true
+            },
+            {
+              "name": "react-text-input-dom-cancelled",
+              "passed": true
+            },
+            {
+              "name": "react-text-input-react-cancelled",
+              "passed": true
+            },
+            {
+              "name": "text-input-value-change",
+              "passed": true
+            },
+            {
+              "name": "text-input-replaced",
+              "passed": true
+            },
+            {
+              "name": "text-input-handler-edit",
+              "passed": true
+            },
+            {
+              "name": "text-input-handler-same-value",
+              "passed": true
+            },
+            {
+              "name": "active-focus-blur-native",
+              "passed": true
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "interpretation": [
+    "Image selection and provider acceptance are separate observations; each successful fixture save was an explicit subsequent action.",
+    "Each successful fixture received the exact reviewed file, saved once, and retained it in a fresh document.",
+    "No account pages or owner browser profile were involved.",
+    "The keyboard receipt records browser/profile cleanup; its runner awaits fixture server close before serializing the receipt but has no separate serverClosed field.",
+    "The legacy browser receipt records the worker hash at startup only; its complete retained run passed all 107 cases."
+  ]
+}

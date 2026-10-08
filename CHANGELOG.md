@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.9 — 2026-10-08
+
+- Add `chrome_set_file_input` for one explicit regular non-symlink PNG, JPEG or WebP image up to 1 MiB, with reviewed SHA-256/MIME/signature checks and exact document/input targeting.
+- Send one ordinary FileList assignment and input/change pair; preserve deadlines, URL grants, profile binding and durable no-replay status without opening a picker, selecting Chrome or submitting.
+- Expose bounded passive image dimensions/sources and native file-input labels in snapshots while redacting selected paths and data-image bytes.
+- Add isolated file validation and real-browser upload/persistence tests plus a public local MCP caller for stale tool catalogues. No extension permissions or runtime dependencies added.
+
 ## 0.3.8 — 2026-10-08
 
 - Add bounded background `chrome_keypress` with exact initial focus, ordinary current-focus key release, explicit modifiers and partial-dispatch receipts.

@@ -1,0 +1,243 @@
+{
+  "schemaVersion": 1,
+  "verifiedAt": "2026-10-08T19:26:04.215Z",
+  "sourceCommit": "e73e7c17e23e52d0769abfb89d5832ec1a70f7a1",
+  "baseCommit": "6f85becad3e9f4a4b3a55c1068bf4b3ec0c4acb1",
+  "bridgeVersion": "0.3.9",
+  "extensionVersion": "0.2.19",
+  "extensionBuildId": "browser-images-20261008.1",
+  "scope": [
+    {
+      "path": "CHANGELOG.md",
+      "sourceSha256": "ccecd7c30d5b5e6a121800ff2d73ec90276ef3fb845442fac04c1e14d6535ebd",
+      "installedCombinedSha256": "ccecd7c30d5b5e6a121800ff2d73ec90276ef3fb845442fac04c1e14d6535ebd"
+    },
+    {
+      "path": "README.md",
+      "sourceSha256": "4e4906ea44c169a68cb02327ce5f66e9f331ec8fd38c884c62d85b3f3abe0c4e",
+      "installedCombinedSha256": "4e4906ea44c169a68cb02327ce5f66e9f331ec8fd38c884c62d85b3f3abe0c4e"
+    },
+    {
+      "path": "bridge.mjs",
+      "sourceSha256": "db96ed12714943bd3866e14df1b3a1433e382ce16af841759f16078922d0ff1b",
+      "installedCombinedSha256": "db96ed12714943bd3866e14df1b3a1433e382ce16af841759f16078922d0ff1b"
+    },
+    {
+      "path": "chrome-extension/manifest.json",
+      "sourceSha256": "ccf7af875f3b0e25148a01e569dce01a3ff26f24d4242f70bf6ffbc1ebec3ecb",
+      "installedCombinedSha256": "ccf7af875f3b0e25148a01e569dce01a3ff26f24d4242f70bf6ffbc1ebec3ecb"
+    },
+    {
+      "path": "chrome-extension/service-worker.js",
+      "sourceSha256": "9c32328d3b8e76f24009f4980dd0b1615a7e0e72d2d02b8adef0fe589da9de7f",
+      "installedCombinedSha256": "d0554141ec5b955929e280860757aa0b77fb6d13c852b03ee8ff460a0c41f92f"
+    },
+    {
+      "path": "lib/chrome-extension-client.mjs",
+      "sourceSha256": "c0f0c269aad05c6e454b99f768a17227a90b5982bb87776e54df5598d6d4630d",
+      "installedCombinedSha256": "c0f0c269aad05c6e454b99f768a17227a90b5982bb87776e54df5598d6d4630d"
+    },
+    {
+      "path": "lib/chrome-image-file.mjs",
+      "sourceSha256": "47f6e35164d390d6e08781cb105041a801c552e0edb562ad0c6d120f41f7cc31",
+      "installedCombinedSha256": "47f6e35164d390d6e08781cb105041a801c552e0edb562ad0c6d120f41f7cc31"
+    },
+    {
+      "path": "package.json",
+      "sourceSha256": "c03df83982bd19352e7cf8e0b4f997c1e63412fa8289dcc74dc2771a9f08aaa2",
+      "installedCombinedSha256": "c03df83982bd19352e7cf8e0b4f997c1e63412fa8289dcc74dc2771a9f08aaa2"
+    },
+    {
+      "path": "scripts/mcp-call.mjs",
+      "sourceSha256": "d18581cbea7e4542c178f62bb6010596b93a049bf6443d1886f3503b53bb0137",
+      "installedCombinedSha256": "d18581cbea7e4542c178f62bb6010596b93a049bf6443d1886f3503b53bb0137"
+    },
+    {
+      "path": "tests/chrome-background.mjs",
+      "sourceSha256": "56b674e6617f635cbda5f0df05dc375458e7dd59bfce663f11cf455f58c3a9d6",
+      "installedCombinedSha256": "56b674e6617f635cbda5f0df05dc375458e7dd59bfce663f11cf455f58c3a9d6"
+    },
+    {
+      "path": "tests/chrome-workspace-capacity.mjs",
+      "sourceSha256": "bc5e551ab18aa3fe68383221024f33aad9ad2244ed821a56f2a967e7932edcc9",
+      "installedCombinedSha256": "bc5e551ab18aa3fe68383221024f33aad9ad2244ed821a56f2a967e7932edcc9"
+    },
+    {
+      "path": "tests/chrome-image-file-input.mjs",
+      "sourceSha256": "c54bb1cd75bf1538acdab643a6b317c8a540c67cc951df0894a1c6563970380e",
+      "installedCombinedSha256": "c54bb1cd75bf1538acdab643a6b317c8a540c67cc951df0894a1c6563970380e"
+    },
+    {
+      "path": "tests/chrome-image-file-real-browser.mjs",
+      "sourceSha256": "e85387b7ba89bf0699eca1973c2e2c297dc8bc445b771882deaed5fba9edfd03",
+      "installedCombinedSha256": "e85387b7ba89bf0699eca1973c2e2c297dc8bc445b771882deaed5fba9edfd03"
+    },
+    {
+      "path": "tests/fixtures/chrome-image-file-input.html",
+      "sourceSha256": "9302cbde66b8de7e8db676d2cd963551e9e577efe86bb67682e1dc12a5c21ccc",
+      "installedCombinedSha256": "9302cbde66b8de7e8db676d2cd963551e9e577efe86bb67682e1dc12a5c21ccc"
+    }
+  ],
+  "fullRegression": {
+    "command": "npm test",
+    "exitCode": 0,
+    "signal": null,
+    "stdoutSha256": "b397764feb2740a6e8b13d7f96f60226723eeabee97d5645c2dd0f5d26de0169",
+    "stdoutBytes": 14120,
+    "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderrBytes": 0
+  },
+  "syntaxGate": {
+    "command": "npm run check",
+    "passed": true,
+    "recordedBeforeSourceCommit": true
+  },
+  "diffGate": {
+    "command": "git diff --check",
+    "passed": true,
+    "recordedBeforeSourceCommit": true
+  },
+  "unit": {
+    "passed": 26,
+    "total": 26,
+    "cases": [
+      {
+        "name": "prepare-image/png",
+        "passed": true
+      },
+      {
+        "name": "prepare-image/jpeg",
+        "passed": true
+      },
+      {
+        "name": "prepare-image/webp",
+        "passed": true
+      },
+      {
+        "name": "relative-path",
+        "passed": true
+      },
+      {
+        "name": "empty-path",
+        "passed": true
+      },
+      {
+        "name": "missing-file",
+        "passed": true
+      },
+      {
+        "name": "directory",
+        "passed": true
+      },
+      {
+        "name": "symlink",
+        "passed": true
+      },
+      {
+        "name": "explicit-mime-required",
+        "passed": true
+      },
+      {
+        "name": "unsupported-mime",
+        "passed": true
+      },
+      {
+        "name": "mime-does-not-match-signature",
+        "passed": true
+      },
+      {
+        "name": "active-format-is-not-a-raster-image",
+        "passed": true
+      },
+      {
+        "name": "empty-file",
+        "passed": true
+      },
+      {
+        "name": "symlink-in-parent-component",
+        "passed": true
+      },
+      {
+        "name": "non-normalized-path",
+        "passed": true
+      },
+      {
+        "name": "raster-with-mismatched-extension",
+        "passed": true
+      },
+      {
+        "name": "truncated-png-header",
+        "passed": true
+      },
+      {
+        "name": "mismatched-review-hash",
+        "passed": true
+      },
+      {
+        "name": "malformed-review-hash",
+        "passed": true
+      },
+      {
+        "name": "review-hash-required",
+        "passed": true
+      },
+      {
+        "name": "exact-byte-cap-and-transport-budget",
+        "passed": true
+      },
+      {
+        "name": "one-byte-over-cap",
+        "passed": true
+      },
+      {
+        "name": "audit-redacts-public-caller",
+        "passed": true
+      },
+      {
+        "name": "audit-redacts-internal-wire",
+        "passed": true
+      },
+      {
+        "name": "file-diagnostics-retain-only-bounded-public-fields",
+        "passed": true
+      },
+      {
+        "name": "upload-fingerprint-binds-reviewed-file-and-document",
+        "passed": true
+      }
+    ],
+    "temporaryDirectoryRemoved": true
+  },
+  "contract": {
+    "singleRegularNonSymlinkImage": true,
+    "maxBytes": 1048576,
+    "mimeTypes": [
+      "image/png",
+      "image/jpeg",
+      "image/webp"
+    ],
+    "expectedSha256Required": true,
+    "documentAndUniqueNodePinned": true,
+    "normalProfileUrlGrantChecks": true,
+    "acceptAndDisabledChecks": true,
+    "absoluteDeadlineChecks": true,
+    "fileListAssignments": 1,
+    "inputEvents": 1,
+    "changeEvents": 1,
+    "clicksOrSubmits": 0,
+    "automaticReplay": false,
+    "nativePicker": false,
+    "foregroundFocus": false,
+    "permissionExpansion": false,
+    "localPathAudited": false,
+    "imageBytesAudited": false,
+    "imageBytesInStatus": false,
+    "passiveImageAndFileInputMetadata": true
+  },
+  "notes": [
+    "Browser acceptance for both source and combined installed candidate is recorded separately.",
+    "The installed combined worker preserves four concurrent existing user changes, so its worker hash intentionally differs from the isolated source worker.",
+    "Image selection confirms local DOM FileList assignment only; applications still require separate explicit save and fresh readback.",
+    "The runtime activation status poll briefly failed during the single supervised child replacement. Read-only reconciliation verified the new loaded runtime and all preserved files/configuration; no mutation was repeated."
+  ]
+}

@@ -101,11 +101,12 @@ Git, package managers, Vercel CLI, database CLIs, AppleScript, browser CLIs, bui
 | `chrome_tabs` | List tabs in the real signed-in Chrome profile without activating Chrome; scoped only when Strict approvals is on |
 | `chrome_open` | Lease an idle tab from the persistent `MDB` group and open a URL without creating a new tab |
 | `chrome_navigate` | Navigate an approved tab without selecting it |
-| `chrome_snapshot` | Read visible text, interactive elements and the actual DOM-focused element from an approved tab |
+| `chrome_snapshot` | Read visible controls, focused element, image sources/dimensions and file-input metadata from an approved tab |
 | `chrome_click` | Click an element in an approved tab without foregrounding Chrome |
 | `chrome_drag` | Drag one explicit HTML draggable control to an approved target, with durable operation status |
 | `chrome_keypress` | Send one explicit non-text DOM key sequence without selecting Chrome, with durable operation status |
 | `chrome_fill` | Fill and verify the current editable control, with explicit blur commit and optional numeric normalization |
+| `chrome_set_file_input` | Assign one explicit reviewed image to a pinned native file input; no picker, focus or implicit save |
 | `chrome_operation_status` | Read retained action lifecycle metadata after an uncertain result, without replaying the action |
 | `chrome_close` | Release an `MDB` workspace tab back to the idle pool, or close a non-workspace background tab |
 | `shell_exec` | Run any foreground shell command, optionally with cwd, env, stdin, timeout, and output cap |
@@ -165,6 +166,19 @@ A normal workflow is:
 
 Profile binding is always enforced. In relaxed mode the extension permits normal HTTP/HTTPS sites without a per-site grant. In Strict mode, each `chrome-background` approval is stored as its own mode-0600 file under `$DATA_DIR/chrome-background-grants/`, expires after at most 15 minutes, and is merged with other still-live approvals. Expired files are pruned automatically and URL patterns are enforced inside Chrome. Federated personal-browser providers keep their separate single-use behavior.
 
+
+
+### Selecting a reviewed image without a file picker (0.3.9)
+
+`chrome_snapshot` includes bounded `fileInputs` metadata, including hidden native inputs and their associated labels, plus visible `images` with their source and natural/rendered dimensions. It does not read selected paths or image bytes, and data-URL image bytes are omitted.
+
+Use `chrome_set_file_input` only for one explicit reviewed PNG, JPEG or WebP file of at most 1 MiB. Required arguments are `tab_id`, the exact unique `selector`, `expected_document_id` from a fresh snapshot, an absolute canonical `local_path`, `mime_type`, `expected_sha256`, and a unique `operation_id`. The file must be regular, contain no symlink path components, and match its extension, signature and reviewed digest. The browser re-verifies the payload, pins the observed document, and checks input acceptance, original node identity and deadlines.
+
+The action makes one ordinary FileList assignment and sends one synthetic input/change pair. It does not open a picker, focus, click, submit, retry, or call private application APIs. An upload handler can begin a network upload immediately when it sees the events; crop/Save controls still need separate observed actions. Returned assignment and event flags describe browser work, while `fileRetained` describes the final native control. Application acceptance and saved persistence require fresh provider readback. Reconcile an uncertain operation with `chrome_operation_status`; never replay it automatically.
+
+Upload audits whitelist metadata and redact the local path; image bytes are never retained in the audit, durable operation journal or upload result. The existing URL grants, profile binding, native transport bounds and extension permissions are unchanged.
+
+If the connected tool catalogue has not refreshed, `node scripts/mcp-call.mjs` accepts one ordinary JSON-RPC `tools/list` or `tools/call` request on stdin and invokes the local public MCP endpoint. It uses the configured local transport credential in-process, disallows redirects and performs no retries. It does not call the extension socket or alter approvals.
 
 #### Browser action results and timeout reconciliation (0.3.4)
 
