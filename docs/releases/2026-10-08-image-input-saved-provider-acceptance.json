@@ -1,0 +1,78 @@
+{
+  "schemaVersion": 1,
+  "title": "Saved-provider image acceptance",
+  "recordedAt": "2026-10-08T19:38:13.295Z",
+  "sourceCommit": "e73e7c17e23e52d0769abfb89d5832ec1a70f7a1",
+  "bridgeVersion": "0.3.9",
+  "extensionVersion": "0.2.19",
+  "extensionBuildId": "browser-images-20261008.1",
+  "evidenceSource": "Completed installed-provider acceptance reported by the task owner.",
+  "selection": {
+    "transport": "Installed public MCP",
+    "tool": "chrome_set_file_input",
+    "successfulSelections": 5,
+    "formatCounts": {
+      "image/png": 4,
+      "image/jpeg": 1
+    },
+    "everyFileStrictlyBelowBytes": 1048576,
+    "reviewedDigestAndDocumentPinMatched": true,
+    "selectionsPerFile": 1,
+    "inputEventsPerSelection": 1,
+    "changeEventsPerSelection": 1,
+    "replays": 0
+  },
+  "normalUiSaves": {
+    "coverCrop": 1,
+    "creatorSettings": 1,
+    "creatorSettingsPersisted": [
+      "profile",
+      "cover"
+    ],
+    "coreTierSaves": 3,
+    "separateThemeSaveBeforeImageWork": 1
+  },
+  "freshDocumentReadback": {
+    "remoteImageCount": 5,
+    "images": [
+      {
+        "role": "profile",
+        "width": 620,
+        "height": 620
+      },
+      {
+        "role": "cover",
+        "width": 1200,
+        "height": 300
+      },
+      {
+        "role": "core-tier",
+        "count": 3,
+        "width": 400,
+        "height": 174
+      }
+    ],
+    "newDocumentsConfirmedPersistence": true,
+    "finalMembershipDocumentsChecked": 2,
+    "allThreeTierImagesPresentInBothFinalMembershipDocuments": true
+  },
+  "visualReview": {
+    "method": "Download each remote image through ordinary HTTPS and inspect against the approved asset.",
+    "imagesChecked": 5,
+    "allMatchedApprovedAssets": true,
+    "clippingObserved": false,
+    "mismatchObserved": false
+  },
+  "preservedMembershipDisplay": {
+    "priceLabels": [
+      "$5",
+      "$10",
+      "$20"
+    ],
+    "discordBenefitIndicators": 3,
+    "highlightedTier": "Town Regular"
+  },
+  "publicationState": "unpublished",
+  "acceptanceScope": "Saved visual assets and membership display only.",
+  "privacy": "Account, tab, document and operation identifiers; local paths; URLs; tokens; and image payloads are omitted."
+}
