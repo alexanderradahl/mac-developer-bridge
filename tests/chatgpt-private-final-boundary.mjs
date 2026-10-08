@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 import assert from 'node:assert/strict';
 const source=fs.readFileSync(new URL('../chrome-extension/service-worker.js',import.meta.url),'utf8');
-const start=source.indexOf('  const expectedWorkerJobId =');
+const start=source.indexOf('  function parseWorkerReportJson',source.indexOf('async function pageChatgptRuntimeConversationStart('));
 const end=source.indexOf('\n\n  if (location.origin',start);
 assert.ok(start>0&&end>start);
 const accepts=vm.runInNewContext('(function(prompt,text){'+source.slice(start,end)+'; return applicableWorkerFinal(text);})');

@@ -2139,6 +2139,33 @@ async function pageChatgptRuntimeConversationStart(input) {
 
   // Mato worker progress text is not a terminal response. Wait for its exact
   // final report before considering DOM stability or reloading the page.
+  function parseWorkerReportJson(text) {
+    // Match the runtime's syntax-only JSON repair. Escape literal control
+    // characters inside JSON strings; never repair structure, keys or identity.
+    // Parsed string values remain identical, including their newline characters.
+    const raw = String(text || '').trim();
+    let quoted = false;
+    let escaped = false;
+    let repaired = '';
+    for (const ch of raw) {
+      if (escaped) {
+        repaired += ch;
+        escaped = false;
+      } else if (quoted && ch === '\\') {
+        repaired += ch;
+        escaped = true;
+      } else if (ch === '"') {
+        repaired += ch;
+        quoted = !quoted;
+      } else if (quoted && ch.charCodeAt(0) < 32) {
+        repaired += '\\u' + ch.charCodeAt(0).toString(16).padStart(4, '0');
+      } else {
+        repaired += ch;
+      }
+    }
+    return JSON.parse(repaired);
+  }
+
   const expectedWorkerJobId = (prompt.includes('runtime_report_version') || prompt.includes('MATO_JOB_RESULT:'))
     ? (prompt.match(/JOB ID:\s*[`*]*([a-zA-Z0-9._-]+)/)?.[1] || null) : null;
   const privateReportMarker = expectedWorkerJobId && prompt.trim().endsWith('MATO_JOB_RESULT: ' + expectedWorkerJobId)
@@ -2147,7 +2174,7 @@ async function pageChatgptRuntimeConversationStart(input) {
     if (!expectedWorkerJobId) return true;
     if (privateReportMarker) return String(text || '').trim().split(/\r?\n/).at(-1) === privateReportMarker;
     try {
-      const value = JSON.parse(String(text || '').trim());
+      const value = parseWorkerReportJson(text);
       return value?.runtime_report_version === 'community-runtime-report-v1'
         && value.report?.job_id === expectedWorkerJobId
         && value.report?.schema_version === 1
@@ -3623,6 +3650,33 @@ async function executeInTab(tabId, func, args, world = "ISOLATED") {
   return result?.[0]?.result ?? null;
 }
 
+function parseWorkerReportJson(text) {
+  // Match the runtime's syntax-only JSON repair. Escape literal control
+  // characters inside JSON strings; never repair structure, keys or identity.
+  // Parsed string values remain identical, including their newline characters.
+  const raw = String(text || '').trim();
+  let quoted = false;
+  let escaped = false;
+  let repaired = '';
+  for (const ch of raw) {
+    if (escaped) {
+      repaired += ch;
+      escaped = false;
+    } else if (quoted && ch === '\\') {
+      repaired += ch;
+      escaped = true;
+    } else if (ch === '"') {
+      repaired += ch;
+      quoted = !quoted;
+    } else if (quoted && ch.charCodeAt(0) < 32) {
+      repaired += '\\u' + ch.charCodeAt(0).toString(16).padStart(4, '0');
+    } else {
+      repaired += ch;
+    }
+  }
+  return JSON.parse(repaired);
+}
+
 function hasVerifiedNativeTerminalResult(result) {
   return Boolean(
     result && result.ok !== false && result.complete === true
@@ -3934,7 +3988,7 @@ async function dispatch(message) {
           let persistedExactWorkerReport = false;
           if (result.worker_report_job_id && persisted.assistant_text === result.assistant_text) {
             try {
-              const envelope = JSON.parse(persisted.assistant_text);
+              const envelope = parseWorkerReportJson(persisted.assistant_text);
               persistedExactWorkerReport = envelope?.runtime_report_version === "community-runtime-report-v1"
                 && envelope.report?.job_id === result.worker_report_job_id
                 && envelope.report?.schema_version === 1
