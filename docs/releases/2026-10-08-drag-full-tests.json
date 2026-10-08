@@ -1,0 +1,40 @@
+{
+  "passed": true,
+  "results": [
+    {
+      "command": [
+        "npm",
+        "run",
+        "check"
+      ],
+      "exitCode": 0,
+      "durationMs": 260
+    },
+    {
+      "command": [
+        "npm",
+        "test"
+      ],
+      "exitCode": 0,
+      "durationMs": 138449
+    },
+    {
+      "command": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "exitCode": 0,
+      "durationMs": 50
+    }
+  ],
+  "sourceStable": true,
+  "files": {
+    "bridge.mjs": "3dddc38a17e13997449b45c025a5e78243ab8edc07612a6d1458582132946f82",
+    "lib/chrome-extension-client.mjs": "ffcbc4218ca1dd69e75d89249803348688a13d61810576ad819995e7605dcfd7",
+    "chrome-extension/service-worker.js": "8de8211b993f85bd2748bea2d2a250321bbcc7be6dd8f16d818ea177d75bd266",
+    "package.json": "ca7762d80f91115e8bac236578d7214e12eb7f0d4ad9bcd3f102c263bd21bd41",
+    "chrome-extension/manifest.json": "b593cd26a1e18d0e5b283ccece766d28680a4f6f5ef44612bea558d552732fad"
+  },
+  "finishedAt": "2026-10-08T02:57:37.675927+00:00"
+}

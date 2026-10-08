@@ -1,0 +1,45 @@
+{
+  "schemaVersion": 1,
+  "verifiedAt": "2026-10-08T06:55:38.945448+00:00",
+  "release": {
+    "sourceCommit": "ae6fdb8bb3f05fdb833d825ee232fe00679b0c9d",
+    "bridgeVersion": "0.3.6",
+    "extensionVersion": "0.2.16",
+    "extensionBuildId": "browser-drag-20261008.1"
+  },
+  "passed": true,
+  "method": "One public MCP chrome_drag on an owned loopback fixture, followed by durable operation reconciliation and a new-document reload.",
+  "observed": {
+    "publicMcpOnly": true,
+    "browserEvaluateUsed": false,
+    "hasFocus": false,
+    "visibilityState": "hidden",
+    "persistedPosts": 1,
+    "orderAfterReload": [
+      "staff",
+      "member-bot",
+      "regular",
+      "last"
+    ],
+    "freshDocumentAfterReload": true,
+    "syntheticEvents": [
+      "dragstart",
+      "drag",
+      "dragenter",
+      "dragover",
+      "drop",
+      "dragend"
+    ],
+    "noForegroundActivation": true,
+    "operationState": "completed",
+    "operationOutcome": "succeeded",
+    "operationDispatched": true,
+    "operationCompletedAt": "2026-10-08T06:51:41.467Z"
+  },
+  "cleanup": {
+    "ownedFixtureTabReleased": true,
+    "ownedLoopbackServerStopped": true,
+    "completedAt": "2026-10-08T06:56:42.362129+00:00"
+  },
+  "limits": "This fixture establishes supported inactive-tab HTML5 drag behavior and server persistence. It does not establish acceptance by arbitrary provider applications; the separately attempted Discord role drag was cancelled at drag-start and requires its own diagnosis and acceptance check."
+}

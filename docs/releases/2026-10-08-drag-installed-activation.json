@@ -1,0 +1,126 @@
+{
+  "schemaVersion": 1,
+  "installedAt": "2026-10-08T06:45:50.815747+00:00",
+  "verifiedAt": "2026-10-08T06:55:38.945448+00:00",
+  "release": {
+    "sourceCommit": "ae6fdb8bb3f05fdb833d825ee232fe00679b0c9d",
+    "bridgeVersion": "0.3.6",
+    "extensionVersion": "0.2.16",
+    "extensionBuildId": "browser-drag-20261008.1"
+  },
+  "passed": true,
+  "files": [
+    {
+      "path": "CHANGELOG.md",
+      "previousInstalledSha256": "5a1a8164329a173276d51325478690782d4c804944850c4d84e20b8db4bddf4c",
+      "releaseSha256": "84b3abf91833f801b87f7c3001ab51106d811bed49a32ed5960210b0b401eff2",
+      "installedSha256": "84b3abf91833f801b87f7c3001ab51106d811bed49a32ed5960210b0b401eff2",
+      "preservedConcurrentChanges": false
+    },
+    {
+      "path": "README.md",
+      "previousInstalledSha256": "bc2a49b27bf29a9d72a8c503d93ece0f79f5da3908696832b60d97eebc704770",
+      "releaseSha256": "792ee15372e84782d899ad70addfdcfffa49d8df33b1e01a846f15935441a809",
+      "installedSha256": "792ee15372e84782d899ad70addfdcfffa49d8df33b1e01a846f15935441a809",
+      "preservedConcurrentChanges": false
+    },
+    {
+      "path": "bridge.mjs",
+      "previousInstalledSha256": "dc9e5e55dc938665193206190b48a53da24916597eededebe0d9b0efb2040942",
+      "releaseSha256": "3dddc38a17e13997449b45c025a5e78243ab8edc07612a6d1458582132946f82",
+      "installedSha256": "3dddc38a17e13997449b45c025a5e78243ab8edc07612a6d1458582132946f82",
+      "preservedConcurrentChanges": false
+    },
+    {
+      "path": "chrome-extension/manifest.json",
+      "previousInstalledSha256": "0eb5100feeaaaf80496dddd6db38d293d3e1d58d8d04580b8299b1871020c47a",
+      "releaseSha256": "b593cd26a1e18d0e5b283ccece766d28680a4f6f5ef44612bea558d552732fad",
+      "installedSha256": "b593cd26a1e18d0e5b283ccece766d28680a4f6f5ef44612bea558d552732fad",
+      "preservedConcurrentChanges": false
+    },
+    {
+      "path": "chrome-extension/service-worker.js",
+      "previousInstalledSha256": "0be005d64592fa0b6207d4aad3ef5ce4c183d6794be97e32a7a20afdcc7f5b3a",
+      "releaseSha256": "8de8211b993f85bd2748bea2d2a250321bbcc7be6dd8f16d818ea177d75bd266",
+      "installedSha256": "5d7e9a84a68e8b5a2107ecdab0609ba18f54a6485c781f2d8f55b6117ae8e750",
+      "preservedConcurrentChanges": true
+    },
+    {
+      "path": "docs/browser-action-reliability.md",
+      "previousInstalledSha256": "049509b077ba655d22cef112cbc5fff6e32ea42ab06f3c1d7018a6502c2051f3",
+      "releaseSha256": "5e8b13727d6569a823a59b4b4560e1c9b192a85ad2963838b3b9a9fd72f8e041",
+      "installedSha256": "5e8b13727d6569a823a59b4b4560e1c9b192a85ad2963838b3b9a9fd72f8e041",
+      "preservedConcurrentChanges": false
+    },
+    {
+      "path": "lib/chrome-extension-client.mjs",
+      "previousInstalledSha256": "f2f0c42b41e89d3c383395544217b6c1280fc5bf1ccc8be97eacaeb42d8176bc",
+      "releaseSha256": "ffcbc4218ca1dd69e75d89249803348688a13d61810576ad819995e7605dcfd7",
+      "installedSha256": "ffcbc4218ca1dd69e75d89249803348688a13d61810576ad819995e7605dcfd7",
+      "preservedConcurrentChanges": false
+    },
+    {
+      "path": "package.json",
+      "previousInstalledSha256": "71da5f2a5c2512526c33f646d0d0b7958099f77b7cc09710bc5fe54e15349b02",
+      "releaseSha256": "ca7762d80f91115e8bac236578d7214e12eb7f0d4ad9bcd3f102c263bd21bd41",
+      "installedSha256": "ca7762d80f91115e8bac236578d7214e12eb7f0d4ad9bcd3f102c263bd21bd41",
+      "preservedConcurrentChanges": false
+    },
+    {
+      "path": "tests/chrome-action-correctness.mjs",
+      "previousInstalledSha256": "c358f6cd035bf7a598b19a60b35fd92350cde9a7e4f2d9fb7c400deb9f1cc435",
+      "releaseSha256": "1f284805f656188e37d382c7ef72e55531222654eb50d8b1596dc1b5035891c0",
+      "installedSha256": "1f284805f656188e37d382c7ef72e55531222654eb50d8b1596dc1b5035891c0",
+      "preservedConcurrentChanges": false
+    },
+    {
+      "path": "tests/chrome-actions-real-browser.mjs",
+      "previousInstalledSha256": "a0f033d0a75d9cdf92412e2a82594a29fcc31c3e88c82c58d6cfc5d860411300",
+      "releaseSha256": "01d79aa8c32fad8f0a2a6c44dec4982dcb55ae2075a866e5eb122f514ef9f9b7",
+      "installedSha256": "01d79aa8c32fad8f0a2a6c44dec4982dcb55ae2075a866e5eb122f514ef9f9b7",
+      "preservedConcurrentChanges": false
+    },
+    {
+      "path": "tests/chrome-background.mjs",
+      "previousInstalledSha256": "f9e440313999cabcacaa6b78f4344533e8043c754e38287aa3917d9b4ce16d7a",
+      "releaseSha256": "1c36828a5ad8885de3de3faccc302d227c9ba0bec7e17a4ef13dcdc72722c2ea",
+      "installedSha256": "1c36828a5ad8885de3de3faccc302d227c9ba0bec7e17a4ef13dcdc72722c2ea",
+      "preservedConcurrentChanges": false
+    },
+    {
+      "path": "tests/chrome-workspace-capacity.mjs",
+      "previousInstalledSha256": "99b0989d594cd24c64b5614a656d38fb741968da3181eedaa4ae588c8e22ec9c",
+      "releaseSha256": "3b2925b2d52e95e4de3bf9a5b12ea29ac89a7fe937b800d04cce4aec950f7adc",
+      "installedSha256": "3b2925b2d52e95e4de3bf9a5b12ea29ac89a7fe937b800d04cce4aec950f7adc",
+      "preservedConcurrentChanges": false
+    },
+    {
+      "path": "tests/fixtures/chrome-actions.html",
+      "previousInstalledSha256": "b09786671c7a2684d3648e146cc0b7a9274a961c8f13263308eafd805c5b8aa2",
+      "releaseSha256": "e0fc3816ccde7a3c61dd17327c09a7d5ba08c978e672cb2d8c372b9f8f5983e2",
+      "installedSha256": "e0fc3816ccde7a3c61dd17327c09a7d5ba08c978e672cb2d8c372b9f8f5983e2",
+      "preservedConcurrentChanges": false
+    }
+  ],
+  "activation": {
+    "bridgeLoadedBuildId": "3dddc38a17e13997449b45c025a5e78243ab8edc07612a6d1458582132946f82",
+    "nativeHostLoadedBuildId": "d072ffa4c0ce2f573070b08aa68e5c8eb0a03f8537d223cc4e8f7cef9e97f4dd",
+    "extensionConnected": true,
+    "extensionReady": true,
+    "loadedBridgeMatchesInstalledSource": true,
+    "journalHealthy": true,
+    "onlyExistingBridgeChildRestarted": true,
+    "existingSupervisorParentPreserved": true
+  },
+  "preservation": {
+    "untouchedTrackedFiles": 67,
+    "configurationFiles": 5,
+    "configurationBytesAndModesPreserved": true,
+    "unrelatedSourcePreserved": true,
+    "preservedConcurrentMatoHunks": 4,
+    "foregroundApprovalPresent": false,
+    "personalBrowserApprovalPresent": false,
+    "profileBindingMatches": true
+  },
+  "scope": "Guarded installation and activation of the tested drag release; private runtime paths, process identifiers, profile identity and configuration values are omitted. Provider application acceptance is recorded separately."
+}

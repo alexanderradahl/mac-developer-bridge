@@ -1,0 +1,77 @@
+{
+  "schemaVersion": 1,
+  "receiptType": "installed-activation-independent-verification",
+  "result": "PASS",
+  "checkedAt": "2026-10-08T07:49:30.461249+00:00",
+  "scope": "Installed bridge and extension activation, file/configuration preservation, and reported runtime identity. Application acceptance is verified separately.",
+  "release": {
+    "sourceCommit": "1b6e4c9926d7ab780424aff99949d454254852aa",
+    "sourceDocsHeadAtReview": "7720530b87cb0840b8ad4608eccb5d9a95bd83e9",
+    "pullRequest": "https://github.com/alexanderradahl/mac-developer-bridge/pull/22",
+    "bridgeVersion": "0.3.7",
+    "extensionVersion": "0.2.17",
+    "extensionBuildId": "browser-drag-20261008.2"
+  },
+  "preActivationValidation": {
+    "sourceRealBrowserCasesPassed": 107,
+    "combinedCandidateRealBrowserCasesPassed": 107,
+    "fullGatePassed": true,
+    "sourceReceipt": "2026-10-08-drag-prelude-browser-tests.json",
+    "combinedReceipt": "2026-10-08-drag-prelude-combined-browser-tests.json",
+    "fullGateReceipt": "2026-10-08-drag-prelude-full-tests.json"
+  },
+  "activationGuards": {
+    "unrelatedNativeOperationsDeferredInstallationBeforeWrites": true,
+    "privateBackupsTakenBeforeWrites": true,
+    "quiescenceRecheckedAfterBackupsImmediatelyBeforeWrites": true,
+    "expectedSourceCandidateAndLiveHashesChecked": true,
+    "perFileAtomicReplacement": true,
+    "supervisorPreserved": true,
+    "extensionReloadAndBridgeChildRestartCompleted": true,
+    "permissionsExpanded": false,
+    "reviewerPerformedRuntimeMutation": false
+  },
+  "installedVerification": {
+    "installedFilesVerified": 11,
+    "untouchedTrackedFilesPreserved": 68,
+    "configurationFilesPreserved": 5,
+    "fileHashesAndModesVerified": true,
+    "stableRuntimeFieldsCompared": 30,
+    "changedStableRuntimeFields": [],
+    "changedBackgroundPolicyFields": [],
+    "extensionIdentityPreserved": true,
+    "profilePreserved": true,
+    "profileMatchesBinding": true,
+    "generationHandshakeMatches": true,
+    "extensionReady": true,
+    "journalHealthy": true
+  },
+  "hashEvidence": {
+    "bridge": {
+      "reportedExecutingSha256": "66c570be8d3fd757d72199d77e5304dbf17397b06faaebacadcdedd4574d2592",
+      "matchesInstalledFile": true
+    },
+    "extension": {
+      "installedWorkerSha256": "6adbd0d6fcf89b648481a7b505fc9752299286bbca0fd37355b1536bb3d9a5c3",
+      "installedBytesMatchTestedCombinedCandidate": true,
+      "runtimeEvidence": "The extension reports its loaded version/build and matching profile handshake. This is not an executing service-worker SHA-256 attestation."
+    },
+    "nativeHost": {
+      "reportedExecutingFingerprintSha256": "f1f76704e70861b94abbf8bb2b32884b3e20e51e21c63101b1c459163e4cc03e",
+      "recomputedFingerprintMatches": true,
+      "fingerprintInputs": [
+        "scripts/chrome-native-host.mjs",
+        "lib/chrome-operation-registry.mjs",
+        "lib/chrome-extension-client.mjs"
+      ],
+      "nativeScriptAndRegistryPreserved": true,
+      "fingerprintChangeExplainedByReviewedClient": true
+    }
+  },
+  "separateAcceptance": {
+    "ownedInactiveFixtureReceipt": "2026-10-08-drag-prelude-installed-background-acceptance.json",
+    "discord": "Not established by this activation receipt. Discord role-reorder acceptance requires separate provider verification.",
+    "paidMembershipDelivery": "Not tested by this activation receipt."
+  },
+  "sanitization": "Private filesystem paths, profile/account/host/process/connection/tab/document identities and local server addresses are omitted."
+}

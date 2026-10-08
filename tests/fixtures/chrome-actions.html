@@ -16,7 +16,90 @@
   const receipt = (body) => fetch('/receipt', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ scenario, ...body }) });
   const nativeValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value');
 
-  if (scenario === 'ordinary-click') {
+  if (scenario.startsWith('drag-')) {
+    root.innerHTML = '<div id="roles"><div id="staff">Staff</div><div id="target">Regular</div><div id="source" draggable="true">Member bot</div><div id="last">Last</div></div><output id="drag-receipt"></output>';
+    for (const row of root.querySelectorAll('#roles > div')) row.style.cssText = 'padding:16px;margin:8px;border:1px solid;width:240px;height:28px';
+    const source = document.getElementById('source'), target = document.getElementById('target');
+    state.dragEvents = [];
+    state.drops = 0;
+    state.initiationEvents = [];
+    state.pointerPressed = false;
+    state.mousePressed = false;
+    state.dragBackend = scenario.includes('backend-transition') ? 'keyboard' : 'html5';
+    const preludeTypes = ['pointerover', 'mouseover', 'pointermove', 'mousemove', 'pointerdown', 'mousedown'];
+    for (const type of [...preludeTypes, 'pointercancel', 'pointerup', 'mouseup', 'click']) document.addEventListener(type, event => {
+      if (type === 'pointerdown') state.pointerPressed = true;
+      if (type === 'mousedown') state.mousePressed = true;
+      if (['pointerup', 'pointercancel'].includes(type)) state.pointerPressed = false;
+      if (['mouseup', 'pointercancel'].includes(type)) state.mousePressed = false;
+      state.initiationEvents.push({ type, target: event.target.id, trusted: event.isTrusted,
+        constructor: event.constructor.name, buttons: event.buttons, button: event.button,
+        pointerId: event.pointerId, pointerType: event.pointerType, clientX: event.clientX, clientY: event.clientY });
+    }, true);
+    // A generic multi-backend regression: the mouse press transitions from a
+    // keyboard backend and reconnects the HTML drag source. This models public
+    // event semantics, not provider internals or evidence of a provider's state.
+    document.addEventListener('mousedown', () => { state.dragBackend = 'html5'; }, true);
+    const mutation = /^drag-prelude-(pointerover|mouseover|pointermove|mousemove|pointerdown|mousedown|pointercancel)-(source-replaced|target-replaced|source-disabled|target-disabled|deadline)(-async)?$/.exec(scenario);
+    if (mutation) source.addEventListener(mutation[1], () => {
+      const mutate = () => {
+        const element = mutation[2].startsWith('target-') ? target : source;
+        if (mutation[2].endsWith('replaced')) element.replaceWith(element.cloneNode(true));
+        if (mutation[2].endsWith('disabled')) element.setAttribute('aria-disabled', 'true');
+        if (mutation[2] === 'deadline') { const clock = Date.now; Date.now = () => clock() + 60_000; }
+      };
+      if (mutation[3]) queueMicrotask(mutate); else mutate();
+    });
+    for (const type of ['pointerdown', 'mousedown']) if (scenario === 'drag-prelude-' + type + '-cancelled') source.addEventListener(type, event => event.preventDefault());
+    state.order = () => Array.from(document.querySelectorAll('#roles > div'), row => row.id);
+    for (const type of ['dragstart', 'drag', 'dragenter', 'dragover', 'dragleave', 'drop', 'dragend']) {
+      document.addEventListener(type, event => {
+        state.dragEvents.push({ type, target: event.target.id, trusted: event.isTrusted });
+      }, true);
+    }
+    if (scenario === 'drag-pointer-only') source.removeAttribute('draggable');
+    if (scenario === 'drag-disabled') target.setAttribute('aria-disabled', 'true');
+    source.addEventListener('dragstart', event => {
+      if (state.dragBackend !== 'html5') { event.preventDefault(); return; }
+      if (scenario === 'drag-cancelled') { event.preventDefault(); return; }
+      event.dataTransfer.setData('application/x-mdb-fixture-role', 'source');
+      event.dataTransfer.effectAllowed = scenario === 'drag-pointercancel-effect-escalation' ? 'copy' : 'move';
+      if (scenario === 'drag-pointercancel-effect-escalation') {
+        const retainedTransfer = event.dataTransfer;
+        source.addEventListener('pointercancel', () => {
+          retainedTransfer.effectAllowed = 'move';
+          state.pointerCancelEffectAfterAttempt = retainedTransfer.effectAllowed;
+        }, { once: true });
+      }
+    });
+    target.addEventListener('dragover', event => {
+      if (scenario === 'drag-not-accepted') return;
+      event.preventDefault();
+      if (scenario === 'drag-effect-incompatible') event.dataTransfer.effectAllowed = 'all';
+      if (scenario === 'drag-before') target.style.marginTop = '120px';
+      event.dataTransfer.dropEffect = scenario === 'drag-effect-none' ? 'none' : scenario === 'drag-effect-incompatible' ? 'copy' : 'move';
+      if (scenario === 'drag-replaced') target.replaceWith(target.cloneNode(true));
+      if (scenario === 'drag-over-deadline') {
+        const clock = Date.now;
+        Date.now = () => clock() + 60_000;
+      }
+    });
+    target.addEventListener('drop', async event => {
+      event.preventDefault();
+      if (event.dataTransfer.getData('application/x-mdb-fixture-role') !== 'source') throw new Error('Application drag identity missing');
+      ++state.drops;
+      const rect = target.getBoundingClientRect();
+      document.getElementById('roles').insertBefore(source, event.clientY < rect.top + rect.height / 2 ? target : target.nextSibling);
+      const order = state.order();
+      if (scenario === 'drag-after-drop-replaced') source.replaceWith(source.cloneNode(true));
+      const response = await receipt({ order, drops: state.drops });
+      document.getElementById('drag-receipt').textContent = JSON.stringify(await response.json());
+    });
+    fetch('/saved-order?scenario=' + encodeURIComponent(scenario)).then(response => response.json()).then(saved => {
+      if (saved.order) for (const id of saved.order) document.getElementById('roles').append(document.getElementById(id));
+      root.dataset.ready = 'true';
+    });
+  } else if (scenario === 'ordinary-click') {
     root.innerHTML = '<button id="save">Save</button><div id="unrelated"></div><output id="saved">0</output>';
     document.getElementById('save').addEventListener('mousedown', () => {
       const popup = document.createElement('div');

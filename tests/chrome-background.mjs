@@ -137,7 +137,7 @@ function startFakeExtensionHost() {
     ready(profile = { signedIn: true, email: "bound@example.com", id: "123456789012345678901" }) {
       child.stdin.write(frameNative({
         type: "ready",
-        version: "0.2.15",
+        version: "0.2.17",
         instanceId: "fixture-extension-instance",
         connectionGeneration: "fixture-connection-1",
         buildId: "browser-reliability-20261007-fixture",
@@ -219,14 +219,14 @@ try {
   assert.ok(manifest.permissions.includes("tabGroups"));
   assert.ok(manifest.permissions.includes("storage"));
   assert.ok(manifest.icons?.["16"] && manifest.icons?.["128"]);
-  assert.equal(manifest.version, "0.2.15");
+  assert.equal(manifest.version, "0.2.17");
   assert.equal(manifest.permissions.includes("debugger"), false, "realistic click support must not require Chrome debugger permission");
   await Promise.all([16, 32, 48, 128].map(async (size) => {
     const stat = await fs.stat(path.join(root, "chrome-extension", "icons", `icon-${size}.png`));
     assert.ok(stat.size > 0, `expected non-empty ${size}px extension icon`);
   }));
   const workerSource = await fs.readFile(path.join(root, "chrome-extension", "service-worker.js"), "utf8");
-  assert.match(workerSource, /const VERSION = "0\.2\.15"/);
+  assert.match(workerSource, /const VERSION = "0\.2\.17"/);
   assert.match(workerSource, /WORKSPACE_GROUP_TITLE = "MDB"/);
   assert.match(workerSource, /chrome\.tabs\.group/);
   assert.match(workerSource, /chrome\.tabGroups\.query/);
@@ -332,6 +332,12 @@ try {
   assert.ok(clickSchema?.properties.operation_id);
   assert.deepEqual(clickSchema.properties.click_strategy.enum, ["adaptive-pointer", "dom-click"]);
   assert.equal(clickSchema.properties.click_strategy.default, "adaptive-pointer");
+  const dragSchema = toolByName.get("chrome_drag")?.inputSchema;
+  assert.deepEqual(dragSchema.required, ["tab_id", "source_selector", "target_selector"]);
+  assert.deepEqual(dragSchema.properties.target_position.enum, ["before", "center", "after"]);
+  assert.equal(dragSchema.additionalProperties, false);
+  assert.equal(toolByName.get("chrome_drag").annotations.readOnlyHint, false);
+  assert.equal(toolByName.get("chrome_drag").annotations.idempotentHint, false);
   const statusTool = toolByName.get("chrome_operation_status");
   assert.deepEqual(statusTool?.inputSchema.required, ["operation_id"]);
   assert.equal(statusTool.annotations.readOnlyHint, true);
@@ -576,6 +582,39 @@ try {
   const duplicateDomClick = await bridgeTool(bridge, "chrome_click", domClickArgs);
   assert.equal(duplicateDomClick.result.isError, false, duplicateDomClick.result.content[0].text);
   assert.equal(host.seen.length, beforeClick + 2, "same-ID dom-click must not be replayed");
+
+  const beforeDrag = host.seen.length;
+  const dragArgs = { tab_id: 42, source_selector: "#source", target_selector: "#target", target_position: "before", operation_id: "drag-contract-20261008" };
+  const drag = await bridgeTool(bridge, "chrome_drag", dragArgs);
+  assert.equal(drag.result.isError, false, drag.result.content[0].text);
+  assert.equal(host.seen.length, beforeDrag + 1);
+  assert.equal(host.seen.at(-1).method, "tabs.drag");
+  assert.deepEqual(host.seen.at(-1).args, { tabId: 42, sourceSelector: "#source", targetSelector: "#target", targetPosition: "before" });
+  assert.deepEqual(new Set(host.seen.at(-1).allowedUrlPatterns), new Set(["http://*:*/*", "https://*:*/*"]));
+  const duplicateDrag = await bridgeTool(bridge, "chrome_drag", dragArgs);
+  assert.equal(duplicateDrag.result.isError, false);
+  assert.equal(host.seen.length, beforeDrag + 1, "same-ID drag must not be replayed");
+  const conflictingDrag = await bridgeTool(bridge, "chrome_drag", { ...dragArgs, target_position: "after" });
+  assert.equal(conflictingDrag.result.structuredContent.code, "CHROME_OPERATION_ID_CONFLICT");
+  assert.equal(host.seen.length, beforeDrag + 1);
+  for (const [index, changes] of [{ source_selector: "" }, { target_selector: 9 }, { target_position: "top" }, { tab_id: -1 }].entries()) {
+    const rejected = await bridgeTool(bridge, "chrome_drag", { ...dragArgs, ...changes, operation_id: "drag-invalid-20261008-" + index });
+    assert.equal(rejected.result.isError, true);
+    assert.equal(host.seen.length, beforeDrag + 1);
+  }
+  host.respond("tabs.drag", () => ({ ok: false, error: {
+    code: "CHROME_TARGET_CHANGED", message: "private drag detail",
+    details: { stage: "drop", actionDispatched: true, pointerDownDispatched: true, mouseDownDispatched: true, dragStartDispatched: true, pointerCancelDispatched: true, pointerUpDispatched: false, mouseUpDispatched: false, dragStarted: true, dropDispatched: true, dragEndDispatched: false, privatePayload: "must not leak" },
+  } }));
+  const dragFailure = await bridgeTool(bridge, "chrome_drag", { ...dragArgs, operation_id: "drag-error-20261008" });
+  host.clearResponse("tabs.drag");
+  for (const field of ["pointerDownDispatched", "mouseDownDispatched", "dragStartDispatched"]) assert.equal(dragFailure.result.structuredContent.details[field], true);
+  assert.equal(dragFailure.result.structuredContent.details.pointerCancelDispatched, true);
+  assert.equal(dragFailure.result.structuredContent.details.pointerUpDispatched, false);
+  assert.equal(dragFailure.result.structuredContent.details.mouseUpDispatched, false);
+  assert.equal(dragFailure.result.structuredContent.details.dropDispatched, true);
+  assert.equal(dragFailure.result.structuredContent.details.dragEndDispatched, false);
+  assert.doesNotMatch(JSON.stringify(dragFailure), /private drag detail|must not leak/);
 
   const errorCanary = "MDB-ERROR-CANARY-9f2c6e03";
   host.respond("tabs.fill", () => ({

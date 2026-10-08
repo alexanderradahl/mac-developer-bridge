@@ -1,0 +1,48 @@
+{
+  "passed": true,
+  "results": [
+    {
+      "command": [
+        "npm",
+        "run",
+        "check"
+      ],
+      "exitCode": 0,
+      "durationMs": 230
+    },
+    {
+      "command": [
+        "npm",
+        "test"
+      ],
+      "exitCode": 0,
+      "durationMs": 138047
+    },
+    {
+      "command": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "exitCode": 0,
+      "durationMs": 41
+    }
+  ],
+  "sourceStable": true,
+  "files": {
+    "bridge.mjs": "66c570be8d3fd757d72199d77e5304dbf17397b06faaebacadcdedd4574d2592",
+    "package.json": "a18d5344f36ea914d054006e49e1bf8958bbe63db79617482dfa743c39a850b9",
+    "chrome-extension/manifest.json": "14041b9cc53b89058c339556c5d86947529e6ce65d11e31c8e9711cdb0ff2e49",
+    "chrome-extension/service-worker.js": "f12a79923fdf341dad6d489e1835e1bd8a409fdca50dc3aa1a838cfc741c9abd",
+    "lib/chrome-extension-client.mjs": "1e269943736bb38a103a565c1734b704b7a3704e704df4f23651896bfa8fb78c",
+    "tests/chrome-background.mjs": "4aec92126a6326d198844d492c27af45ea129490ea8f26063baab458ca1d0adf",
+    "tests/chrome-workspace-capacity.mjs": "793d985fd89a8d9f06fe07739fd6585f7e2a2d2f2d9bbe19de97158fcb417676",
+    "tests/chrome-actions-real-browser.mjs": "d5f697abab1599526ffac974bd06efa8b1fdb78daf5b4d8689eaec4a5cbb3952",
+    "tests/fixtures/chrome-actions.html": "89a0bc519c04fcc935e1b531df101a9bc95fd159e04b48eb1eb2264a0fdc6642",
+    "tests/chrome-drag-installed-smoke.mjs": "020b8728bef340c8db206b38f020dacb89a4266cacdaffd2e0e6a51dba1a4e55"
+  },
+  "bridgeVersion": "0.3.7",
+  "extensionVersion": "0.2.17",
+  "extensionBuildId": "browser-drag-20261008.2",
+  "finishedAt": "2026-10-08T07:30:31.146176+00:00"
+}

@@ -1,4 +1,4 @@
-# Browser action reliability: bridge 0.3.4 / extension 0.2.15
+# Browser action reliability: bridge 0.3.6 / extension 0.2.16
 
 ## Purpose and scope
 
@@ -13,6 +13,7 @@ Initial repair development began at `94704cf6858f7ac5e315181a1b2d4a54e9df64b0`. 
 | Snapshot | Visible text, controls and passive constraint-validity properties | Whether a business workflow is complete |
 | Click | Event dispatch, control-associated activation and bounded popup observation | Saved account settings, created memberships or other durable effects |
 | Fill | The current connected control retains the intended value under the selected comparison; optional blur commit | The application's domain-level acceptance |
+| Drag | Original source and target identities, target drop acceptance, dispatched drop/end events | Persisted order or other application change; synthetic events are untrusted |
 | Submit | Whether a submit event was observed or HTML validation blocked it | Server acceptance and persistence |
 | Operation status | Recorded dispatch and eventual browser execution outcome | Whether the site's business operation succeeded |
 
@@ -168,3 +169,9 @@ The installed-extension acceptance page exposed a difference from an active head
 For an actual target transition in an unfocused document, the fill path now observes the native event family and supplies only absent events. It checks the target, current focus, editability and deadline between callbacks. Native events are not duplicated, synthetic events remain untrusted, and the call does not activate the tab or window. The existing adaptive-click focus sites use the same bounded target-focus principle; direct DOM click mode still has no focus prelude.
 
 Action receipts expose whether focus or blur event fallback was used. A retained DOM value still does not establish that the provider saved its application state; verify a fresh provider readback. The release receipts separate active-page regressions, installed inactive-page acceptance, and provider outcomes.
+
+## Explicit HTML5 drag support
+
+The October 8 update adds `chrome_drag` and passive discovery of explicit draggable controls. It retains URL/profile approvals and durable operation identities. The implementation sends one bounded HTML drag sequence, refuses ambiguous, disabled, replaced or pointer-only elements, requires target acceptance, and reports whether a drop was dispatched even when subsequent reconciliation fails. No extension permissions, arbitrary evaluation, caller-supplied drag payloads, credential access or foreground approval behavior change.
+
+The isolated browser suite includes a native Chromium drag baseline and application-owned role ordering persisted through an HTTP receipt and fresh reload. It checks inactive-tab operation, before/after positioning, cancelled and rejected drags, ambiguous and disabled controls, element replacement, and deadlines before and during the action. A post-drop replacement must report the known dispatched drop without repeating it. Public MCP tests verify approved URL propagation, one dispatch per operation ID, conflicting reuse rejection, argument validation and sanitized outcome diagnostics.

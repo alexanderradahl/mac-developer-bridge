@@ -103,6 +103,7 @@ Git, package managers, Vercel CLI, database CLIs, AppleScript, browser CLIs, bui
 | `chrome_navigate` | Navigate an approved tab without selecting it |
 | `chrome_snapshot` | Read visible text and interactive elements from an approved tab |
 | `chrome_click` | Click an element in an approved tab without foregrounding Chrome |
+| `chrome_drag` | Drag one explicit HTML draggable control to an approved target, with durable operation status |
 | `chrome_fill` | Fill and verify the current editable control, with explicit blur commit and optional numeric normalization |
 | `chrome_operation_status` | Read retained action lifecycle metadata after an uncertain result, without replaying the action |
 | `chrome_close` | Release an `MDB` workspace tab back to the idle pool, or close a non-workspace background tab |
@@ -739,3 +740,11 @@ It does **not** remove the data directory, so these survive an uninstall — inc
 - `oauth-client-id`, `mcp-http.pid`, `cloudflared.pid`, `jobs/`, and the audit log
 
 Delete `~/Library/Application Support/MacDeveloperBridge` as well if you want the credentials gone. It also does not stop a running front end; run `scripts/disable.sh` first.
+
+### HTML drag controls
+
+`chrome_snapshot` exposes explicit HTML draggable controls with `draggable: true`. `chrome_drag` takes `tab_id`, unique `source_selector` and `target_selector`, optional `target_position` (`before`, `center`, or `after`), and a caller-owned `operation_id`. It uses one mouse hover/press initiation followed by an HTML5 drag sequence with a fresh empty DataTransfer; only the page supplies its own application data. The target must accept `dragover` before a drop is dispatched. It never retries, retargets a replaced element, supplies files, or falls back to pointer-only or foreground automation.
+
+The press is never replayed and never activates a click. An accepted dragstart ends the pointer stream with pointercancel; an ordinary cancelled press/start receives only the corresponding pointerup/mouseup while the original nodes and deadline are still valid. Replacement, disabling or expiry stops further dispatch. Separate press, drag-start, cleanup and drop flags survive public error diagnostics.
+
+Drag events are synthetic and do not create browser user activation. A successful dispatch is not evidence that the application saved its change. Read the page again and reload when appropriate. If a call times out or returns a target-change error after a drop, inspect `chrome_operation_status` and the page before any new action; `dropDispatched` and `dragEndDispatched` preserve that uncertainty. Native dialogs, file pickers and pointer-only drag widgets remain separate capabilities.
