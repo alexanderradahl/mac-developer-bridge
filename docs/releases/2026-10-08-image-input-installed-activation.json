@@ -1,0 +1,49 @@
+{
+  "schemaVersion": 1,
+  "verifiedAt": "2026-10-08T19:25:04.019Z",
+  "phase": "verified-installed-reconciled",
+  "sourceCommit": "e73e7c17e23e52d0769abfb89d5832ec1a70f7a1",
+  "manifestSha256": "7d1433d91ef2d9ebe5a980507b7bc4908f88b3edaf99ea6900e64ff70eb44206",
+  "bridgeVersion": "0.3.9",
+  "bridgeBuildId": "db96ed12714943bd3866e14df1b3a1433e382ce16af841759f16078922d0ff1b",
+  "nativeHostBuildId": "5992dce73797c7b6aeb22cbbe96552b29a279c4d2204cb909fa297ca2b97a546",
+  "extensionVersion": "0.2.19",
+  "extensionBuildId": "browser-images-20261008.1",
+  "scope": 14,
+  "untouched": 120,
+  "configurationExisting": 5,
+  "configurationAbsent": 2,
+  "filesPreserved": true,
+  "configurationPreserved": true,
+  "stableRuntimePreserved": true,
+  "permissionsPreserved": true,
+  "supervisorPreserved": true,
+  "extensionReady": true,
+  "profileMatched": true,
+  "journalHealthy": true,
+  "reconciliation": {
+    "initialPhase": "bridge-child-restart",
+    "initialError": "Public MCP request failed",
+    "method": "Read-only public status and exact file/config/runtime comparison; no repeat reload or restart",
+    "extensionReloads": 1,
+    "bridgeChildRestarts": 1
+  },
+  "accountActionsPerformedByActivation": false,
+  "acceptanceLimit": "This receipt verifies runtime identity, exact deployment bytes and preservation. Installed public-tool fixture and provider image persistence are separate acceptance steps.",
+  "publicMcpCatalogue": {
+    "listed": true,
+    "tool": "chrome_set_file_input",
+    "requiredArguments": [
+      "tab_id",
+      "selector",
+      "expected_document_id",
+      "local_path",
+      "mime_type",
+      "expected_sha256",
+      "operation_id"
+    ],
+    "statusTool": "chrome_operation_status",
+    "transport": "Existing configured public MCP HTTP transport",
+    "probeReadOnly": true
+  }
+}
