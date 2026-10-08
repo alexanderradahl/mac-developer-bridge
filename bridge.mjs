@@ -12,7 +12,9 @@ import { fileURLToPath } from "node:url";
 import { createFederation, consumePersonalApproval } from "./lib/federation.mjs";
 import { backgroundChromeCall, backgroundChromeStatus, backgroundChromeOperationStatus, safeChromeDiagnostics } from "./lib/chrome-extension-client.mjs";
 
-const BRIDGE_VERSION = "0.3.8";
+import { prepareChromeImageFile } from "./lib/chrome-image-file.mjs";
+
+const BRIDGE_VERSION = "0.3.9";
 const SERVER_NAME = "mac-developer-bridge";
 const SERVER_TITLE = "Mac Developer Bridge";
 const MODERN_PROTOCOL = "2026-07-28";
@@ -475,6 +477,21 @@ function redactString(input) {
 // hash prefix keep the record useful for correlating a session without keeping the
 // secret.
 function auditSafeArguments(tool, args) {
+  if (tool === "chrome_set_file_input") {
+    // Neither a private local path nor image bytes belong in any audit mode.
+    const mimeType = args?.mime_type ?? args?.file?.mimeType;
+    const digest = args?.expected_sha256 ?? args?.file?.sha256;
+    return {
+      tab_id: args?.tab_id ?? args?.tabId,
+      selector: args?.selector,
+      expected_document_id: args?.expected_document_id ?? args?.expectedDocumentId,
+      mime_type: ["image/png", "image/jpeg", "image/webp"].includes(mimeType) ? mimeType : null,
+      expected_sha256: typeof digest === "string" && /^[a-f0-9]{64}$/.test(digest) ? digest : null,
+      image_size: Number.isSafeInteger(args?.file?.size) && args.file.size <= 1024 * 1024 ? args.file.size : null,
+      operation_id: args?.operation_id,
+      local_path: "[REDACTED_LOCAL_IMAGE_PATH]",
+    };
+  }
   if (tool === "chrome_fill" && typeof args?.value === "string") {
     const bytes = Buffer.byteLength(args.value, "utf8");
     return { ...args, value: `[REDACTED ${bytes} bytes]` };
@@ -901,7 +918,7 @@ const TOOLS = [
   {
     name: "chrome_snapshot",
     title: "Read Chrome page in background",
-    description: "Read visible text, interactive controls and passive validity from an MDB Chrome tab without activating Chrome or triggering form validation. Password input values are redacted. Strict approvals restrict readable URLs to active scoped grants.",
+    description: "Read visible text, controls, passive validity, visible image sources/dimensions and bounded file-input metadata from an MDB Chrome tab without activating Chrome or triggering form validation. Hidden file inputs expose ordinary control metadata and associated labels, never selected paths or bytes. Password values are redacted. Strict approvals restrict readable URLs to active scoped grants.",
     inputSchema: {
       type: "object",
       properties: {
@@ -984,6 +1001,26 @@ const TOOLS = [
         operation_id: { type: "string", minLength: 8, maxLength: 128, pattern: "^[A-Za-z0-9][A-Za-z0-9_.:-]{7,127}$", description: "Optional stable ID for this exact fill request. Query its status after an uncertain timeout." },
       },
       required: ["tab_id", "selector", "value"],
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
+  },
+  {
+    name: "chrome_set_file_input",
+    title: "Select one reviewed image in a Chrome file input",
+    description: "Assign one explicit local PNG, JPEG or WebP image of at most 1 MiB to an exact observed file input in the expected Chrome document. The absolute regular non-symlink file must match the supplied SHA-256, MIME and extension. Sends one synthetic input/change pair without opening a picker, focusing, clicking or submitting. Existing URL grants and profile checks apply. Selection may start the website's own upload; read the resulting page and reconcile the operation ID before further action. Does not prove saved application acceptance.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        tab_id: { type: "integer", minimum: 0 },
+        selector: { type: "string", minLength: 1, maxLength: 10000 },
+        expected_document_id: { type: "string", minLength: 1, maxLength: 128, pattern: "^[A-Za-z0-9_-]+$", description: "Exact documentId from a fresh chrome_snapshot. A replacement document is never targeted." },
+        local_path: { type: "string", minLength: 1, maxLength: 4096, description: "Absolute normalized path to one reviewed regular non-symlink image. No URLs, directories or discovery." },
+        mime_type: { type: "string", enum: ["image/png", "image/jpeg", "image/webp"] },
+        expected_sha256: { type: "string", pattern: "^[a-f0-9]{64}$", description: "SHA-256 of the reviewed exact image bytes." },
+        operation_id: { type: "string", minLength: 8, maxLength: 128, pattern: "^[A-Za-z0-9][A-Za-z0-9_.:-]{7,127}$", description: "Stable ID for this exact image selection. Never automatically replay an uncertain upload." },
+      },
+      required: ["tab_id", "selector", "expected_document_id", "local_path", "mime_type", "expected_sha256", "operation_id"],
       additionalProperties: false,
     },
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
@@ -3790,6 +3827,23 @@ async function dispatchTool(name, args) {
       const fillArgs = { tabId, selector, value, submit, commit, normalization };
       if (inputStrategy !== "set-value") fillArgs.inputStrategy = inputStrategy;
       return await callBackgroundChrome(name, "tabs.fill", fillArgs, { operationId: chromeOperationId(args) });
+    }
+
+    case "chrome_set_file_input": {
+      const tabId = requireInteger(args, "tab_id", 0, 2_147_483_647);
+      const selector = requireString(args, "selector");
+      const expectedDocumentId = requireString(args, "expected_document_id");
+      if (selector.length > 10_000) throw new Error("'selector' must be at most 10000 characters");
+      if (!/^[A-Za-z0-9_-]{1,128}$/.test(expectedDocumentId)) throw new Error("'expected_document_id' must identify the observed document");
+      const operationId = chromeOperationId(args, { required: true });
+      const file = await prepareChromeImageFile({
+        localPath: requireString(args, "local_path"),
+        expectedSha256: requireString(args, "expected_sha256"),
+        mimeType: requireString(args, "mime_type"),
+      });
+      return await callBackgroundChrome(name, "tabs.setFileInput", {
+        tabId, selector, expectedDocumentId, file,
+      }, { operationId });
     }
 
     case "chrome_operation_status": {

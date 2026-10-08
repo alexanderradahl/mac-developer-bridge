@@ -137,7 +137,7 @@ function startFakeExtensionHost() {
     ready(profile = { signedIn: true, email: "bound@example.com", id: "123456789012345678901" }) {
       child.stdin.write(frameNative({
         type: "ready",
-        version: "0.2.18",
+        version: "0.2.19",
         instanceId: "fixture-extension-instance",
         connectionGeneration: "fixture-connection-1",
         buildId: "browser-reliability-20261007-fixture",
@@ -219,14 +219,14 @@ try {
   assert.ok(manifest.permissions.includes("tabGroups"));
   assert.ok(manifest.permissions.includes("storage"));
   assert.ok(manifest.icons?.["16"] && manifest.icons?.["128"]);
-  assert.equal(manifest.version, "0.2.18");
+  assert.equal(manifest.version, "0.2.19");
   assert.equal(manifest.permissions.includes("debugger"), false, "realistic click support must not require Chrome debugger permission");
   await Promise.all([16, 32, 48, 128].map(async (size) => {
     const stat = await fs.stat(path.join(root, "chrome-extension", "icons", `icon-${size}.png`));
     assert.ok(stat.size > 0, `expected non-empty ${size}px extension icon`);
   }));
   const workerSource = await fs.readFile(path.join(root, "chrome-extension", "service-worker.js"), "utf8");
-  assert.match(workerSource, /const VERSION = "0\.2\.18"/);
+  assert.match(workerSource, /const VERSION = "0\.2\.19"/);
   assert.match(workerSource, /WORKSPACE_GROUP_TITLE = "MDB"/);
   assert.match(workerSource, /chrome\.tabs\.group/);
   assert.match(workerSource, /chrome\.tabGroups\.query/);
