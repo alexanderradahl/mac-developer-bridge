@@ -2136,10 +2136,13 @@ async function pageChatgptRuntimeConversationStart(input) {
 
   // Mato worker progress text is not a terminal response. Wait for its exact
   // final report before considering DOM stability or reloading the page.
-  const expectedWorkerJobId = prompt.includes('runtime_report_version')
+  const expectedWorkerJobId = (prompt.includes('runtime_report_version') || prompt.includes('MATO_JOB_RESULT:'))
     ? (prompt.match(/JOB ID:\s*[`*]*([a-zA-Z0-9._-]+)/)?.[1] || null) : null;
+  const privateReportMarker = expectedWorkerJobId && prompt.trim().endsWith('MATO_JOB_RESULT: ' + expectedWorkerJobId)
+    ? 'MATO_JOB_RESULT: ' + expectedWorkerJobId : null;
   const applicableWorkerFinal = (text) => {
     if (!expectedWorkerJobId) return true;
+    if (privateReportMarker) return String(text || '').trim().split(/\r?\n/).at(-1) === privateReportMarker;
     try {
       const value = JSON.parse(String(text || '').trim());
       return value?.runtime_report_version === 'community-runtime-report-v1'
@@ -3934,6 +3937,12 @@ async function dispatch(message) {
                 && envelope.report?.schema_version === 1
                 && ["completed", "blocked", "uncertain"].includes(envelope.report?.operational_status);
             } catch {}
+            if (!persistedExactWorkerReport && String(persisted.assistant_text || '').trim().split(/\r?\n/).at(-1)
+                === "MATO_JOB_RESULT: " + result.worker_report_job_id) {
+              // This proves only the saved final marker. The private report and
+              // every claimed action remain subject to the runtime validators.
+              persistedExactWorkerReport = true;
+            }
           }
           result = {
             ...result,
