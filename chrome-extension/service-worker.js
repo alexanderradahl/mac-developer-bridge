@@ -1,7 +1,7 @@
 const NATIVE_HOST = "io.github.alexanderradahl.mac_developer_bridge";
-const VERSION = "0.2.17";
+const VERSION = "0.2.18";
 // Immutable identity of the executing release, sent on every native handshake.
-const LOADED_EXTENSION_BUILD_ID = "browser-drag-20261008.2";
+const LOADED_EXTENSION_BUILD_ID = "browser-keyboard-20261008.1";
 const NATIVE_INSTANCE_ID = crypto.randomUUID();
 const NATIVE_OPERATION_RETENTION_MS = 24 * 60 * 60 * 1000;
 const MAX_NATIVE_OPERATIONS = 5_000;
@@ -131,6 +131,12 @@ function errorPayload(error, code = "CHROME_EXTENSION_ERROR") {
         "popupObserved",
         "popupOutcome",
         "clickDispatched",
+        "pointerDownDispatched", "mouseDownDispatched", "dragStartDispatched",
+        "pointerCancelDispatched", "pointerUpDispatched", "mouseUpDispatched",
+        "dragStarted", "dropDispatched", "dragEndDispatched",
+        "focusAttempted", "focusEventCompletionUsed",
+        "keyDownDispatched", "keyUpDispatched", "keyDownDefaultPrevented", "keyUpDefaultPrevented",
+        "focusChanged", "keyUpTargetChanged", "keyEvents",
         "navigationObserved",
         "popupObservedCount",
         "outcomeVerified",
@@ -138,7 +144,9 @@ function errorPayload(error, code = "CHROME_EXTENSION_ERROR") {
         "frameId",
         "documentId",
       ].includes(key)
-      && (["string", "number", "boolean"].includes(typeof value) || value === null)))
+      && (key === "keyEvents"
+        ? Array.isArray(value) && value.length <= 4 && value.every(type => ["focus", "focusin", "keydown", "keyup"].includes(type))
+        : ["string", "number", "boolean"].includes(typeof value) || value === null)))
     : null;
   return {
     code: error?.code || code,
@@ -3317,6 +3325,7 @@ function pageSnapshot(maxTextChars, maxElements) {
       href: element instanceof HTMLAnchorElement ? element.href : null,
       disabled: Boolean(element.disabled) || element.matches(":disabled") || element.getAttribute("aria-disabled") === "true",
       draggable: element instanceof HTMLElement && element.draggable === true,
+      focused: element === document.activeElement,
       readOnly: Boolean(element.readOnly) || element.getAttribute("aria-readonly") === "true",
       inputMode: element.getAttribute("inputmode"),
       min: element.getAttribute("min"),
@@ -3356,6 +3365,12 @@ function pageSnapshot(maxTextChars, maxElements) {
     url: location.href,
     bodyText,
     bodyTextTruncated: (document.body?.innerText || "").length > maxTextChars,
+    focusedElement: document.activeElement instanceof Element ? {
+      selector: selectorFor(document.activeElement),
+      tag: document.activeElement.tagName.toLowerCase(),
+      role: document.activeElement.getAttribute("role"),
+      ariaLabel: document.activeElement.getAttribute("aria-label"),
+    } : null,
     elements,
     elementsTruncated: candidates.length > maxElements,
   };
@@ -3869,6 +3884,166 @@ async function pageDrag(sourceSelector, targetSelector, options = {}) {
     error.details = { ...(error.details || {}), ...details };
     if (!options.errorsAsData) throw error;
     return { __mdbPageActionError: { code: error.code || "CHROME_DRAG_FAILED", ...details } };
+  }
+}
+
+async function pageKeypress(selector, key, options = {}) {
+  let stage = "resolve";
+  let actionDispatched = false;
+  let focusAttempted = false;
+  let focusEventCompletionUsed = false;
+  let keyDownDispatched = false;
+  let keyUpDispatched = false;
+  let keyDownDefaultPrevented = null;
+  let keyUpDefaultPrevented = null;
+  let focusChanged = false;
+  let keyUpTargetChanged = false;
+  const keyEvents = [];
+  const deadline = Number(options.deadlineMs);
+  const fail = (code, message) => { const error = new Error(message); error.code = code; throw error; };
+  const assertDeadline = () => {
+    if (Number.isFinite(deadline) && Date.now() >= deadline) fail("CHROME_OPERATION_DEADLINE_EXCEEDED", "The keyboard deadline elapsed; reconcile before another action.");
+  };
+  try {
+    assertDeadline();
+    const keyCodes = { d: "KeyD", ArrowUp: "ArrowUp", ArrowDown: "ArrowDown", ArrowLeft: "ArrowLeft", ArrowRight: "ArrowRight", Enter: "Enter", Space: "Space", Escape: "Escape" };
+    if (!Object.hasOwn(keyCodes, key)) fail("CHROME_KEY_INVALID", "Unsupported non-text keyboard action.");
+    const modifiers = options.modifiers === undefined ? [] : options.modifiers;
+    if (!Array.isArray(modifiers) || modifiers.length > 4 || new Set(modifiers).size !== modifiers.length
+        || modifiers.some(value => !["Control", "Meta", "Shift", "Alt"].includes(value))) fail("CHROME_KEY_MODIFIERS_INVALID", "Keyboard modifiers must be distinct Control, Meta, Shift or Alt names.");
+    if (typeof KeyboardEvent !== "function") fail("CHROME_KEY_UNSUPPORTED", "Keyboard events are unavailable in this document.");
+    let matches;
+    try { matches = document.querySelectorAll(selector); } catch { fail("CHROME_SELECTOR_INVALID", "The keyboard selector is not valid CSS."); }
+    if (!matches.length) fail("CHROME_ELEMENT_NOT_FOUND", "No element matches the keyboard selector.");
+    if (matches.length !== 1) fail("CHROME_SELECTOR_NOT_UNIQUE", "The keyboard selector must identify exactly one element.");
+    const target = matches[0];
+    const originalDocument = document;
+    const assertElement = (element) => {
+      assertDeadline();
+      if (document !== originalDocument || !(element instanceof HTMLElement) || !element.isConnected || element.ownerDocument !== originalDocument) {
+        fail("CHROME_TARGET_CHANGED", "A keyboard element changed document or was replaced; no replacement is retargeted.");
+      }
+      if (element.disabled || element.matches(":disabled") || element.closest('[inert],[aria-disabled="true"]')) fail("CHROME_ELEMENT_DISABLED", "A keyboard element is disabled.");
+      if (element instanceof HTMLInputElement && element.type === "file") fail("CHROME_FOREGROUND_REQUIRED", "Background keyboard actions do not operate native file pickers.");
+      const rect = element.getBoundingClientRect(), style = getComputedStyle(element);
+      if (rect.width <= 0 || rect.height <= 0 || style.display === "none" || style.visibility === "hidden" || style.opacity === "0") fail("CHROME_ELEMENT_NOT_VISIBLE", "A keyboard element is not visible.");
+    };
+    const assertOriginal = () => assertElement(target);
+    const assertFocusedOriginal = () => {
+      assertOriginal();
+      if (document.activeElement !== target) fail("CHROME_FOCUS_CHANGED", "The intended keyboard target does not have DOM focus.");
+    };
+    assertOriginal();
+    const activeBefore = document.activeElement;
+    if (activeBefore !== target) {
+      stage = "focus";
+      const focusTypes = ["focus", "focusin"];
+      const observed = new Set();
+      const observe = event => { if (event.target === target) observed.add(event.type); };
+      for (const type of focusTypes) {
+        target.addEventListener(type, observe, true);
+        document.addEventListener(type, observe, true);
+      }
+      try {
+        focusAttempted = true;
+        actionDispatched = true;
+        target.focus({ preventScroll: true });
+        assertFocusedOriginal();
+        // Chromium may change activeElement but withhold focus events in an
+        // inactive document. Complete only missing events after that real
+        // transition, never fake focus or refocus a page-selected keyup target.
+        if (typeof document.hasFocus === "function" && !document.hasFocus()) {
+          const relatedTarget = activeBefore instanceof Element
+            && activeBefore !== document.body && activeBefore !== document.documentElement ? activeBefore : null;
+          for (const type of focusTypes) {
+            if (observed.has(type)) continue;
+            assertFocusedOriginal();
+            const focusEvent = new FocusEvent(type, { bubbles: type === "focusin", composed: true, relatedTarget });
+            assertFocusedOriginal();
+            focusEventCompletionUsed = true;
+            keyEvents.push(type);
+            target.dispatchEvent(focusEvent);
+            assertFocusedOriginal();
+          }
+        }
+      } finally {
+        for (const type of focusTypes) {
+          target.removeEventListener(type, observe, true);
+          document.removeEventListener(type, observe, true);
+        }
+      }
+    }
+    // Focus handlers may queue a replacement or redirect. Never refocus after
+    // that callback, and never send the key to a freshly queried node.
+    await new Promise(resolve => setTimeout(resolve, 0));
+    assertFocusedOriginal();
+    const eventOptions = {
+      key: key === "Space" ? " " : key, code: keyCodes[key],
+      ctrlKey: modifiers.includes("Control"), metaKey: modifiers.includes("Meta"),
+      shiftKey: modifiers.includes("Shift"), altKey: modifiers.includes("Alt"),
+      bubbles: true, cancelable: true, composed: true, view: window,
+      location: 0, repeat: false, isComposing: false,
+    };
+    stage = "keydown";
+    const down = new KeyboardEvent("keydown", eventOptions);
+    assertFocusedOriginal();
+    actionDispatched = true;
+    keyDownDispatched = true;
+    keyEvents.push("keydown");
+    try { target.dispatchEvent(down); }
+    finally {
+      keyDownDefaultPrevented = down.defaultPrevented;
+      focusChanged ||= document.activeElement !== target;
+    }
+    stage = "after-keydown";
+    assertOriginal();
+    await new Promise(resolve => setTimeout(resolve, 0));
+    focusChanged ||= document.activeElement !== target;
+    assertOriginal();
+    // Keydown handlers legitimately move focus (menus and accessible drag
+    // backends do so). Native keyup follows that exact current focused node.
+    // Retain it directly, require the same document, and never refocus it.
+    const releaseTarget = document.activeElement;
+    keyUpTargetChanged = releaseTarget !== target;
+    assertElement(releaseTarget);
+    stage = "keyup";
+    const up = new KeyboardEvent("keyup", eventOptions);
+    assertOriginal();
+    assertElement(releaseTarget);
+    if (document.activeElement !== releaseTarget) fail("CHROME_FOCUS_CHANGED", "DOM focus changed before the keyboard release.");
+    keyUpDispatched = true;
+    keyEvents.push("keyup");
+    try { releaseTarget.dispatchEvent(up); }
+    finally {
+      keyUpDefaultPrevented = up.defaultPrevented;
+      focusChanged ||= document.activeElement !== target;
+    }
+    stage = "after-keyup";
+    assertOriginal();
+    await new Promise(resolve => setTimeout(resolve, 0));
+    focusChanged ||= document.activeElement !== target;
+    assertOriginal();
+    const describe = element => element instanceof Element ? {
+      tag: element.tagName.toLowerCase(), id: element.id || null,
+      role: element.getAttribute("role"), ariaLabel: element.getAttribute("aria-label"),
+    } : null;
+    return {
+      actionDispatched, focusAttempted, focusEventCompletionUsed,
+      keyDownDispatched, keyUpDispatched, keyDownDefaultPrevented, keyUpDefaultPrevented,
+      focusChanged, keyUpTargetChanged, selector, key, modifiers,
+      keyUpTarget: describe(releaseTarget), focusedElement: describe(document.activeElement),
+      events: keyEvents, keyEvents, trusted: false, strategy: "dom-keypress",
+      applicationAccepted: null, outcomeVerified: false, title: document.title, url: location.href,
+    };
+  } catch (error) {
+    const details = {
+      stage, actionDispatched, focusAttempted, focusEventCompletionUsed,
+      keyDownDispatched, keyUpDispatched, keyDownDefaultPrevented, keyUpDefaultPrevented,
+      focusChanged, keyUpTargetChanged, keyEvents, outcomeVerified: false,
+    };
+    error.details = { ...(error.details || {}), ...details };
+    if (!options.errorsAsData) throw error;
+    return { __mdbPageActionError: { code: error.code || "CHROME_KEYPRESS_FAILED", ...details } };
   }
 }
 
@@ -4804,6 +4979,13 @@ async function dispatch(message) {
           deadlineMs: message.deadlineMs, errorsAsData: true,
         },
       ], "MAIN", { deadlineMs: message.deadlineMs, includeDocumentIdentity: true }), message.deadlineMs);
+    }
+
+    case "tabs.keypress": {
+      const tab = await getApprovedTab(args.tabId, compiled);
+      return await observeTabAction(tab.id, () => executeInTab(tab.id, pageKeypress, [String(args.selector || ""), args.key, {
+        modifiers: args.modifiers === undefined ? [] : args.modifiers, deadlineMs: message.deadlineMs, errorsAsData: true,
+      }], "MAIN", { deadlineMs: message.deadlineMs, includeDocumentIdentity: true }), message.deadlineMs);
     }
 
     case "tabs.fill": {

@@ -1,0 +1,83 @@
+{
+  "schemaVersion": 1,
+  "receiptType": "installed-keyboard-activation-independent-verification",
+  "result": "PASS",
+  "checkedAt": "2026-10-08T08:31:03.748205+00:00",
+  "scope": "Installed bridge and extension activation, runtime identity, and source/configuration preservation. Application acceptance is separate.",
+  "release": {
+    "sourceCommit": "0ff53e9a07dbbc0e321ab90be3f01b20cdd7598d",
+    "pullRequest": "https://github.com/alexanderradahl/mac-developer-bridge/pull/23",
+    "bridgeVersion": "0.3.8",
+    "extensionVersion": "0.2.18",
+    "extensionBuildId": "browser-keyboard-20261008.1"
+  },
+  "validation": {
+    "releasedKeyboardCasesPassed": 39,
+    "releasedExistingBrowserCasesPassed": 107,
+    "combinedKeyboardCasesPassed": 39,
+    "combinedExistingBrowserCasesPassed": 107,
+    "fullReleaseGatePassed": true,
+    "sourceReceipt": "2026-10-08-keyboard-browser-tests.json",
+    "existingBrowserReceipt": "2026-10-08-keyboard-existing-browser-tests.json",
+    "releaseGateReceipt": "2026-10-08-keyboard-release-validation.json",
+    "combinedKeyboardReportSha256": "1055ca4589e499cd924f8841641a1520b8232c381455b0bfe8812b89db573d6c",
+    "combinedExistingBrowserReportSha256": "bb7eb9cc670adce32c09560bf7f997c78830b8e56662d6de3d1a33b0774fc55a"
+  },
+  "installation": {
+    "filesVerified": 13,
+    "untouchedTrackedAndUntrackedFilesPreserved": 116,
+    "configurationFilesPreserved": 5,
+    "explicitApprovalAbsencesPreserved": 2,
+    "hashesAndModesVerified": true,
+    "releaseBytesMatchCommittedSource": true,
+    "originalBackupsMatchExpectedBytes": true,
+    "preexistingWorkerHunksPreservedExactly": 4,
+    "stableRuntimeFieldsCompared": 30,
+    "changedStableRuntimeFields": [],
+    "changedBackgroundPolicyFields": [],
+    "extensionIdentityPreserved": true,
+    "profilePreserved": true,
+    "profileMatchesBinding": true,
+    "permissionsExpanded": false
+  },
+  "activation": {
+    "unrelatedNativeWorkAllowedToFinish": true,
+    "quiescenceRecheckedAtMutationBoundary": true,
+    "singleReloadReceiptVerified": true,
+    "singleBridgeChildRestartReceiptVerified": true,
+    "httpSupervisorPreserved": true,
+    "generationHandshakeMatches": true,
+    "extensionReady": true,
+    "journalHealthy": true,
+    "reviewerPerformedRuntimeMutation": false
+  },
+  "hashEvidence": {
+    "bridge": {
+      "reportedExecutingSha256": "92bb711ce97b83494f74b767ae9f393d6e3e1c97ecc962a7556fb0050169600f",
+      "matchesInstalledFile": true
+    },
+    "extension": {
+      "sourceWorkerSha256": "90408ed6ba91047730ad053e7bad5a196450267193912022b16bdb72f47ed89e",
+      "installedCombinedWorkerSha256": "8bcd6c3b35334f8b89285f67d18d93ada1f196bc300b99023b95317eaaa7be11",
+      "matchesTestedCombinedCandidate": true,
+      "runtimeEvidence": "Reported loaded version/build and matching profile handshake; installed worker bytes separately match the tested combined candidate, not an executing service-worker hash attestation."
+    },
+    "nativeHost": {
+      "reportedExecutingFingerprintSha256": "a5882c2e89edb905c5cadd71dbf90edaa7de26cf47769d6e7d618c5b48ff0f6e",
+      "recomputedFingerprintMatches": true,
+      "fingerprintInputs": [
+        "scripts/chrome-native-host.mjs",
+        "lib/chrome-operation-registry.mjs",
+        "lib/chrome-extension-client.mjs"
+      ],
+      "nativeScriptAndRegistryPreserved": true,
+      "fingerprintChangeExplainedByReviewedClient": true
+    }
+  },
+  "acceptanceBoundary": {
+    "ownedInactiveFixture": "Separate verification; not established by this activation receipt.",
+    "discord": "Actual Discord role-reorder acceptance is separate and is not established by activation or candidate tests.",
+    "paidMembershipDelivery": "Not tested by this receipt."
+  },
+  "sanitization": "Private filesystem paths and account, profile, host, process, connection, tab and document identifiers are omitted."
+}

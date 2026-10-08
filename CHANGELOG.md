@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.8 — 2026-10-08
+
+- Add bounded background `chrome_keypress` with exact initial focus, ordinary current-focus key release, explicit modifiers and partial-dispatch receipts.
+- Expose passive focused-element discovery and preserve old drag diagnostics through the renderer/public error projections.
+- Verify the published accessible drag backend against native keyboard behavior, cancellation, canDrag denial and persisted single reorders in isolated fixtures. Installed/provider acceptance remains a separate check; no new extension permissions or runtime dependencies.
+
 ## 0.3.6 — 2026-10-08
 
 - Add a bounded `chrome_drag` action for explicit HTML5 draggable controls and passive draggable discovery in snapshots.

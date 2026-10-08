@@ -1,0 +1,146 @@
+{
+  "passed": true,
+  "sourceStable": true,
+  "sourceHashes": {
+    "bridge.mjs": "92bb711ce97b83494f74b767ae9f393d6e3e1c97ecc962a7556fb0050169600f",
+    "chrome-extension/service-worker.js": "90408ed6ba91047730ad053e7bad5a196450267193912022b16bdb72f47ed89e",
+    "chrome-extension/manifest.json": "8ee1a592f24eeaf9d87acadd1eb3d68ea88b9df4ab7389c260c61d2dec460bfe",
+    "lib/chrome-extension-client.mjs": "6d16df6ce0e8ca7c88cca920f4c298180e08b805362627e8a1bdd1c0f0950bbc",
+    "package.json": "dba1afbebc23591480ca2cb3401c87b371d61b5ce48cc28b0aea8bac46934f8d",
+    "tests/chrome-action-correctness.mjs": "156bed5e0e627c15d8e0218a63b2fd9e1cc71b2b2b19b0ffaaad5d032431da95",
+    "tests/chrome-background.mjs": "1cce942922cd223e423d2107bd09b432121f4365ff0700de4c84563abfbc9a8d",
+    "tests/chrome-workspace-capacity.mjs": "1f95bf3532aa323cfdee12b8f9d76ae2863a29a656e5a27df98c8d958595563b",
+    "tests/chrome-keyboard-real-browser.mjs": "e06c5ee8e558e47740ae3f98eca3f9fffe976ffa218cb88b8514e0ce4409c405",
+    "tests/chrome-keyboard-installed-smoke.mjs": "6b13049e3a04f9c5edb518526453a2f853bd0e403f334970a821aea6d44d99d3",
+    "tests/fixtures/chrome-keyboard-dnd.mjs": "a586afb3d9cf5769dbe72c179218039cefebab6b783f00aa3d6d8f298e2e8499",
+    "tests/chrome-actions-real-browser.mjs": "d5f697abab1599526ffac974bd06efa8b1fdb78daf5b4d8689eaec4a5cbb3952",
+    "tests/fixtures/chrome-actions.html": "89a0bc519c04fcc935e1b531df101a9bc95fd159e04b48eb1eb2264a0fdc6642",
+    "tests/fixtures/chrome-react-currency.mjs": "daff8c471f1b3c2ec49d220e8a32b36d8950dd7b98b08d7b393cf5cd9b44e2ac"
+  },
+  "generatedAt": "2026-10-08T08:23:04.302889+00:00",
+  "release": {
+    "bridge": "0.3.8",
+    "extension": "0.2.18",
+    "buildId": "browser-keyboard-20261008.1"
+  },
+  "scope": "Reviewed isolated source release. No installed hidden-tab or provider acceptance claimed.",
+  "commands": [
+    {
+      "command": "npm run check && npm test && git diff --check",
+      "passed": true,
+      "exitCode": null,
+      "exitStatusCapture": "Detached job metadata exposes running state and logs but not process exit status. Final mock installer completion marker follows every preceding npm test under an && chain; stderr is empty.",
+      "runningAtReadback": false,
+      "stdoutSha256": "f6f33973e27ea743ec552690931dd90d5c07e2e242189dda1f988783e2f940c8",
+      "stderrBytes": 0,
+      "completionMarkers": [
+        "smoke test passed",
+        "integration test passed",
+        "poisoned repository adversarial test passed",
+        "chatgpt responses adapter test passed",
+        "http test passed",
+        "oauth test passed",
+        "pty test passed",
+        "federation test passed",
+        "chatgpt conversation page test passed",
+        "chatgpt runtime page test passed",
+        "chatgpt conversation runs test passed",
+        "Transport reliability: 16 behavioral groups passed.",
+        "background Chrome test passed",
+        "Installation diagnostics: missing, installed and malformed states passed; no native host executed",
+        "mock macOS installer test passed"
+      ],
+      "structuredGroups": [
+        {
+          "passed": true,
+          "defaultPoolSize": 8,
+          "maxPoolSize": 32,
+          "autoGrowStep": 4,
+          "pressureSequence": [
+            12,
+            12,
+            16
+          ]
+        },
+        {
+          "passed": true,
+          "scenarios": [
+            "suspended-background-frame",
+            "hidden-first-visible-submit",
+            "hidden-only-fails-closed",
+            "explicit-native-edit-validation-before-focus",
+            "one-native-edit-and-one-blur-commit",
+            "cancel-focus-selection-readonly-deadline-replacement-fail-without-replay",
+            "explicit-legacy-text-intent-before-one-native-edit",
+            "legacy-intent-cancellation-and-reentrant-mutation-fail-without-another-edit",
+            "inactive-native-focus-transitions-commit-model-once",
+            "native-focus-events-never-duplicated-and-foreground-path-unchanged",
+            "reentrant-focus-handlers-stop-before-remaining-event-edit-or-submit"
+          ]
+        },
+        {
+          "passed": true,
+          "scenarios": [
+            "renderer-through-public-drag-flags-survive-with-private-data-redacted",
+            "renderer-through-public-keyboard-partial-flags-and-bounded-event-trace",
+            "expired-before-injection",
+            "safe-renderer-error-and-document-identity",
+            "missing-renderer-receipt-is-uncertain",
+            "opener-correlated-popup-close-and-navigation-without-urls",
+            "popup-observation-is-bounded",
+            "failure-keeps-safe-observation-and-cleans-listeners",
+            "coherent-pointer-click-with-mouse-fallback-without-HTMLElement-click",
+            "explicit-dom-click-one-activation-without-pointer-or-focus-prelude",
+            "direct-click-disabled-expired-detached-invalid-fail-before-action",
+            "inactive-adaptive-focus-events-once-with-direct-mode-unchanged",
+            "adaptive-focus-handler-mutations-stop-before-remaining-pointer-events"
+          ]
+        },
+        {
+          "passed": true,
+          "scenarios": [
+            "method-scoped-validated-conversation-locator",
+            "real-host-and-client-retain-safe-chatgpt-handoff",
+            "lifecycle-status-contains-no-handoff-url-or-result",
+            "generic-browser-errors-cannot-export-chatgpt-locators"
+          ]
+        }
+      ]
+    },
+    {
+      "command": "npm run check && git diff --check",
+      "passed": true,
+      "exitCode": 0,
+      "stderrBytes": 0
+    }
+  ],
+  "browserReceipts": [
+    {
+      "path": "docs/releases/2026-10-08-keyboard-browser-tests.json",
+      "passed": true,
+      "caseCount": 39
+    },
+    {
+      "path": "docs/releases/2026-10-08-keyboard-existing-browser-tests.json",
+      "passed": true,
+      "caseCount": 107
+    }
+  ],
+  "rendererProjectionRegression": {
+    "before": {
+      "passed": false,
+      "test": "renderer-through-public-drag-flags-survive-with-private-data-redacted",
+      "assertion": "renderer/public projection retains pointerDownDispatched",
+      "actual": "undefined",
+      "expected": true,
+      "exitCode": 1
+    },
+    "after": {
+      "passed": true,
+      "dragFlagsRetained": 9,
+      "privatePayloadRedacted": true,
+      "keyboardPartialFlagsAndBoundedTrace": true
+    },
+    "interpretation": "Concrete renderer diagnostics loss reproduced and fixed; this does not establish why the provider cancelled a prior HTML drag."
+  }
+}

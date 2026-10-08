@@ -1,0 +1,245 @@
+{
+  "schemaVersion": 1,
+  "receiptType": "installed-keyboard-inactive-background-fixture-acceptance",
+  "result": "PASS",
+  "checkedAt": "2026-10-08T08:31:18.557Z",
+  "scope": "The installed public MCP chrome_keypress action operated an owned local fixture using the unmodified published accessible drag backend. Application acceptance was verified through its server receipt and a fresh document.",
+  "release": {
+    "sourceCommit": "0ff53e9a07dbbc0e321ab90be3f01b20cdd7598d",
+    "bridgeVersion": "0.3.8",
+    "extensionVersion": "0.2.18",
+    "extensionBuildId": "browser-keyboard-20261008.1",
+    "installedCombinedWorkerSha256": "8bcd6c3b35334f8b89285f67d18d93ada1f196bc300b99023b95317eaaa7be11"
+  },
+  "activationReceipt": "2026-10-08-keyboard-installed-activation.json",
+  "fixtureDependencies": {
+    "react": "19.2.0",
+    "react-dom": "19.2.0",
+    "react-dnd": "16.0.1",
+    "react-dnd-html5-backend": "16.0.1",
+    "react-dnd-multi-backend": "9.0.0",
+    "react-dnd-accessible-backend": "2.1.0"
+  },
+  "operations": [
+    {
+      "sequence": 1,
+      "publicMcpTool": "chrome_keypress",
+      "key": "d",
+      "modifiers": [
+        "Meta"
+      ],
+      "keyDownDispatched": true,
+      "keyUpDispatched": true,
+      "keyDownDefaultPrevented": true,
+      "keyUpDefaultPrevented": false,
+      "focusAttempted": true,
+      "focusEventCompletionUsed": true,
+      "focusChanged": false,
+      "keyUpTargetChanged": false,
+      "keyUpTargetFixtureId": "member-bot",
+      "explicitHelperEvents": [
+        "focus",
+        "focusin",
+        "keydown",
+        "keyup"
+      ],
+      "trusted": false,
+      "applicationAccepted": null,
+      "outcomeVerified": false,
+      "durableState": "completed",
+      "durableOutcome": "succeeded",
+      "retryable": false
+    },
+    {
+      "sequence": 2,
+      "publicMcpTool": "chrome_keypress",
+      "key": "ArrowUp",
+      "modifiers": [],
+      "keyDownDispatched": true,
+      "keyUpDispatched": true,
+      "keyDownDefaultPrevented": true,
+      "keyUpDefaultPrevented": false,
+      "focusAttempted": false,
+      "focusEventCompletionUsed": false,
+      "focusChanged": true,
+      "keyUpTargetChanged": true,
+      "keyUpTargetFixtureId": "regular",
+      "explicitHelperEvents": [
+        "keydown",
+        "keyup"
+      ],
+      "trusted": false,
+      "applicationAccepted": null,
+      "outcomeVerified": false,
+      "durableState": "completed",
+      "durableOutcome": "succeeded",
+      "retryable": false
+    },
+    {
+      "sequence": 3,
+      "publicMcpTool": "chrome_keypress",
+      "key": "Enter",
+      "modifiers": [],
+      "keyDownDispatched": true,
+      "keyUpDispatched": true,
+      "keyDownDefaultPrevented": true,
+      "keyUpDefaultPrevented": false,
+      "focusAttempted": false,
+      "focusEventCompletionUsed": false,
+      "focusChanged": true,
+      "keyUpTargetChanged": true,
+      "keyUpTargetFixtureId": "member-bot",
+      "explicitHelperEvents": [
+        "keydown",
+        "keyup"
+      ],
+      "trusted": false,
+      "applicationAccepted": null,
+      "outcomeVerified": false,
+      "durableState": "completed",
+      "durableOutcome": "succeeded",
+      "retryable": false
+    }
+  ],
+  "eventEvidence": {
+    "allEventsHiddenAndUnfocused": true,
+    "allEventsUntrusted": true,
+    "observedEventCount": 9,
+    "initialMissingFocusNotificationsCompletedOnce": true,
+    "applicationSelectedReleaseTargetsWereNotRefocused": true,
+    "helperKeydownCount": 3,
+    "helperKeyupCount": 3,
+    "applicationCreatedTransitionCloneCount": 1,
+    "cloneExplanation": "MultiBackend creates one additional d KeyboardEvent when switching to the accessible backend. It is observed separately from the helper's single keydown/keyup per operation and matches the native-reference fixture.",
+    "observed": [
+      {
+        "type": "focus",
+        "key": null,
+        "targetFixtureId": "member-bot",
+        "transitionCountBefore": 0,
+        "trusted": false,
+        "hasFocus": false,
+        "visibilityState": "hidden"
+      },
+      {
+        "type": "focusin",
+        "key": null,
+        "targetFixtureId": "member-bot",
+        "transitionCountBefore": 0,
+        "trusted": false,
+        "hasFocus": false,
+        "visibilityState": "hidden"
+      },
+      {
+        "type": "keydown",
+        "key": "d",
+        "targetFixtureId": "member-bot",
+        "transitionCountBefore": 0,
+        "trusted": false,
+        "hasFocus": false,
+        "visibilityState": "hidden"
+      },
+      {
+        "type": "keydown",
+        "key": "d",
+        "targetFixtureId": "member-bot",
+        "transitionCountBefore": 1,
+        "trusted": false,
+        "hasFocus": false,
+        "visibilityState": "hidden"
+      },
+      {
+        "type": "keyup",
+        "key": "d",
+        "targetFixtureId": "member-bot",
+        "transitionCountBefore": 1,
+        "trusted": false,
+        "hasFocus": false,
+        "visibilityState": "hidden"
+      },
+      {
+        "type": "keydown",
+        "key": "ArrowUp",
+        "targetFixtureId": "member-bot",
+        "transitionCountBefore": 1,
+        "trusted": false,
+        "hasFocus": false,
+        "visibilityState": "hidden"
+      },
+      {
+        "type": "keyup",
+        "key": "ArrowUp",
+        "targetFixtureId": "regular",
+        "transitionCountBefore": 1,
+        "trusted": false,
+        "hasFocus": false,
+        "visibilityState": "hidden"
+      },
+      {
+        "type": "keydown",
+        "key": "Enter",
+        "targetFixtureId": "regular",
+        "transitionCountBefore": 1,
+        "trusted": false,
+        "hasFocus": false,
+        "visibilityState": "hidden"
+      },
+      {
+        "type": "keyup",
+        "key": "Enter",
+        "targetFixtureId": "member-bot",
+        "transitionCountBefore": 1,
+        "trusted": false,
+        "hasFocus": false,
+        "visibilityState": "hidden"
+      }
+    ],
+    "pointerClickOrHtml5DragFallbackEvents": 0,
+    "automaticReplay": false,
+    "foregroundActivationUsed": false,
+    "operatingSystemShortcutUsed": false
+  },
+  "persistence": {
+    "orderBefore": [
+      "staff",
+      "regular",
+      "member-bot",
+      "last"
+    ],
+    "orderAfter": [
+      "staff",
+      "member-bot",
+      "regular",
+      "last"
+    ],
+    "dropCount": 1,
+    "serverReceiptCount": 1,
+    "rejectedReceiptCount": 0,
+    "serverRequiredEveryEventHiddenAndUnfocused": true,
+    "savedChangeCount": 1,
+    "draggingEnded": true,
+    "pendingSave": false,
+    "freshDocumentObserved": true,
+    "freshDocumentOrder": [
+      "staff",
+      "member-bot",
+      "regular",
+      "last"
+    ],
+    "freshDocumentSavedChangeCount": 1,
+    "freshDocumentEventLogEmpty": true,
+    "beforeAfterAndFreshDocumentHiddenAndUnfocused": true
+  },
+  "interpretation": "Each tool result correctly leaves applicationAccepted null and outcomeVerified false. Durable action completion is not treated as saved application state; the separate owned server receipt and fresh-document readback establish fixture acceptance.",
+  "cleanup": {
+    "checkedAt": "2026-10-08T08:32:04.867436+00:00",
+    "ownedFixtureServerStopped": true,
+    "ownedTabsReleasedCount": 2
+  },
+  "limitations": {
+    "discord": "Actual Discord role-reorder acceptance is separate and is not established by this owned fixture.",
+    "paidMembershipDelivery": "Not tested.",
+    "trustedInput": "Synthetic DOM events remain untrusted. No foreground, hardware-input or operating-system shortcut capability is claimed."
+  },
+  "sanitization": "Private paths, local server addresses, account/profile/host/process/connection/tab/document identifiers and operation IDs are omitted. Element IDs in this receipt belong only to the owned dummy fixture."
+}
