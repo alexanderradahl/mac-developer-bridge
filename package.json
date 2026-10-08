@@ -8,7 +8,8 @@
     "start:http": "node mcp-http.mjs",
     "check": "node --check bridge.mjs && node --check mcp-http.mjs && node --check lib/chatgpt-responses-adapter.mjs && node --check lib/chrome-extension-client.mjs && node --check scripts/chrome-native-host.mjs && node --check chrome-extension/service-worker.js",
     "test": "node tests/smoke.mjs && node tests/integration.mjs && node tests/adversarial.mjs && node tests/chatgpt-responses.mjs && node tests/http.mjs && node tests/oauth.mjs && node tests/pty.mjs && node tests/federation.mjs && node tests/chatgpt-conversation.mjs && node tests/chatgpt-runtime.mjs && node tests/chatgpt-conversation-runs.mjs && node tests/chrome-workspace-capacity.mjs && node tests/chrome-fill-background.mjs && node tests/chrome-background.mjs && node tests/chatgpt-installation-status.mjs && bash tests/installer-mock.sh",
-    "test:bridge-repair": "node tests/chatgpt-runtime.mjs && node tests/chatgpt-installation-status.mjs && node tests/chrome-background.mjs"
+    "test:bridge-repair": "node tests/chatgpt-runtime.mjs && node tests/chatgpt-installation-status.mjs && node tests/chrome-background.mjs",
+    "test:worker-recovery": "node tests/chatgpt-private-final-boundary.mjs && node tests/chrome-persistent-idle-url.mjs && node tests/chrome-workspace-capacity.mjs"
   },
   "engines": {
     "node": ">=18"

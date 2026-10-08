@@ -151,7 +151,10 @@ function assertUrlAllowed(url, compiled) {
 }
 
 function workspaceIdleUrl() {
-  return chrome.runtime.getURL("workspace.html");
+  // Extension-owned documents are torn down when an unpacked extension reloads.
+  // A public, extension-specific blank-page marker survives that lifecycle;
+  // exact tab/group ownership and all foreground-creation rules still apply.
+  return "about:blank#mdb-workspace-idle-" + chrome.runtime.getURL("").split("/")[2];
 }
 
 async function loadWorkspaceState() {
