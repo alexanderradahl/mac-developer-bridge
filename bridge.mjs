@@ -12,7 +12,7 @@ import { fileURLToPath } from "node:url";
 import { createFederation, consumePersonalApproval } from "./lib/federation.mjs";
 import { backgroundChromeCall, backgroundChromeStatus, backgroundChromeOperationStatus, safeChromeDiagnostics } from "./lib/chrome-extension-client.mjs";
 
-const BRIDGE_VERSION = "0.3.4";
+const BRIDGE_VERSION = "0.3.5";
 const SERVER_NAME = "mac-developer-bridge";
 const SERVER_TITLE = "Mac Developer Bridge";
 const MODERN_PROTOCOL = "2026-07-28";
@@ -1904,6 +1904,21 @@ async function ensureBackgroundChromeGrant() {
   // Profile binding is always enforced, regardless of approval strictness.
   const connection = await backgroundChromeStatus({ dataDir: APP_SUPPORT_DIR, timeoutMs: 1_000 });
   if (!connection?.extensionReady) {
+    if (!connection?.profileError && connection?.error?.code === "CHROME_HOST_TIMEOUT") {
+      // host.status is read-only and precedes backgroundChromeCall. Its request
+      // UUID is not an action ID, and a caller-supplied ID may name an earlier
+      // operation whose outcome this failed readiness check cannot establish.
+      const error = new Error("Background Chrome readiness check timed out. This call did not send a browser action; no new action operation was created.");
+      error.code = "CHROME_PREFLIGHT_TIMEOUT";
+      error.details = safeChromeDiagnostics({
+        component: "chrome-readiness",
+        stage: "readiness-check",
+        dispatchState: "not_sent",
+        actionDispatched: false,
+        elapsedMs: connection.error.details?.elapsedMs,
+      });
+      throw error;
+    }
     const error = new Error(connection?.profileError?.message || connection?.error?.message || "The background Chrome extension is not connected. Run scripts/install-background-chrome.sh and load chrome-extension/ once in Chrome.");
     error.code = connection?.profileError?.code || connection?.error?.code || "CHROME_EXTENSION_OFFLINE";
     throw error;

@@ -1,0 +1,77 @@
+{
+  "checkedAtUtc": "2026-10-08 01:03:36 UTC",
+  "provider": "Google Workspace Admin",
+  "runtime": {
+    "bridgeVersion": "0.3.4",
+    "extensionVersion": "0.2.15",
+    "extensionBuild": "browser-reliability-20261007.4"
+  },
+  "status": "authenticated-but-add-domain-form-unavailable",
+  "initialReadOnlyCheck": {
+    "readOnly": true,
+    "snapshots": 1,
+    "operationId": "c980fcd2-1e16-42a1-8355-8c2666d54a7e",
+    "pageTitle": "Manage domains - Admin Console",
+    "passkeyChallengeVisible": false,
+    "adminDomainManagementVisible": true,
+    "expectedAdminIdentityConfirmed": true,
+    "primaryDomainVerified": true,
+    "primaryDomainGmailActivated": true,
+    "requestedAdditionalDomainPresent": false,
+    "addDomainControlTextVisible": true
+  },
+  "finalCheck": {
+    "operationId": "0bda5280-aced-4fea-aba5-6e153a3b7a46",
+    "pageTitle": "Manage domains - Admin Console",
+    "passkeyChallengeVisible": false,
+    "adminDomainManagementVisible": true,
+    "expectedAdminIdentityConfirmed": true,
+    "primaryDomainVerified": true,
+    "primaryDomainGmailActivated": true,
+    "requestedAdditionalDomainPresent": false,
+    "addDomainFormInputsVisible": false,
+    "domainTypeRadiosVisible": false,
+    "dialogsVisible": false,
+    "verificationTxtIssued": false
+  },
+  "attempts": [
+    {
+      "operationId": "a36ccc95-cdf1-4ebc-ad50-d8f096af0af7",
+      "strategy": "adaptive-pointer-mouse-sequence",
+      "browserOutcome": "succeeded",
+      "requestedFormObserved": false
+    },
+    {
+      "operationId": "a0e2a988-7d10-4359-81ac-35945ed750a0",
+      "strategy": "dom-click",
+      "browserOutcome": "succeeded",
+      "requestedFormObserved": false
+    },
+    {
+      "operationId": "338115cf-d6a6-4450-8454-75d0bfd22307",
+      "action": "navigate to previously documented ordinary Add-domain page route",
+      "newDocumentVerified": true,
+      "requestedFormObserved": false
+    },
+    {
+      "operationId": "f43f5e73-1ea9-49bb-901c-993c290883c6",
+      "strategy": "adaptive-pointer-mouse-sequence",
+      "context": "newly loaded document",
+      "browserOutcome": "succeeded",
+      "requestedFormObserved": false
+    }
+  ],
+  "changes": {
+    "domainMutations": 0,
+    "userMutations": 0,
+    "aliasMutations": 0,
+    "sendAsMutations": 0,
+    "dnsMutations": 0,
+    "dkimMutations": 0,
+    "dnsCredentialReads": 0,
+    "accountSelections": 0,
+    "authenticationInteractions": 0,
+    "emailSends": 0
+  },
+  "conclusion": "The normal authenticated Admin page is accessible, so the earlier passkey blocker is no longer current. Supported opener actions completed on the existing and a freshly loaded document without exposing the domain form. No verification TXT was issued. Setup cannot continue to verification, secondary-domain activation, user alias, Gmail Send As, or DKIM through the observed controls; no completion of those provider changes is claimed. Browser dispatch completion is distinct from application acceptance."
+}

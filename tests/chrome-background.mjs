@@ -349,6 +349,62 @@ try {
   assert.match(failed.result.content[0].text, /background chrome extension is offline/i);
   await fs.stat(approvalFile);
 
+  // Readiness is a separate read-only request. A slow status response must not
+  // masquerade as an unknown action outcome or publish the status UUID as an
+  // action ID, including when the caller supplied a possibly reused action ID.
+  const readinessRequests = [];
+  const readinessSockets = new Set();
+  const stalledReadiness = net.createServer((socket) => {
+    readinessSockets.add(socket);
+    socket.on("close", () => readinessSockets.delete(socket));
+    socket.on("error", () => {});
+    let buffer = "";
+    socket.on("data", (chunk) => {
+      buffer += chunk.toString("utf8");
+      const newline = buffer.indexOf("\n");
+      if (newline < 0) return;
+      const request = JSON.parse(buffer.slice(0, newline));
+      readinessRequests.push(request);
+      const lateReply = setTimeout(() => {
+        if (!socket.destroyed) socket.end(JSON.stringify({ id: request.id, ok: true, result: { extensionReady: true } }) + "\n");
+      }, 1_200);
+      lateReply.unref();
+    });
+  });
+  await new Promise((resolve, reject) => {
+    stalledReadiness.once("error", reject);
+    stalledReadiness.listen(socketPath, resolve);
+  });
+  try {
+    for (const [name, args] of [
+      ["chrome_click", { tab_id: 42, selector: "#save" }],
+      ["chrome_click", { tab_id: 42, selector: "#save", operation_id: "possibly-earlier-save-20261008" }],
+      ["chrome_snapshot", { tab_id: 42 }],
+    ]) {
+      const timedOut = await bridgeTool(bridge, name, args);
+      assert.equal(timedOut.result.isError, true);
+      const failure = timedOut.result.structuredContent;
+      assert.equal(failure.code, "CHROME_PREFLIGHT_TIMEOUT");
+      assert.match(failure.error, /This call did not send a browser action/);
+      assert.doesNotMatch(failure.error, /outcome is unknown|query its operation ID/);
+      assert.equal(failure.details.component, "chrome-readiness");
+      assert.equal(failure.details.stage, "readiness-check");
+      assert.equal(failure.details.actionDispatched, false);
+      assert.equal(failure.details.dispatchState, "not_sent");
+      assert.equal("operationId" in failure.details, false);
+      assert.equal("state" in failure.details, false, "this invocation cannot assert the lifecycle of a caller's earlier operation");
+      assert.notEqual(failure.details.retryable, true);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    assert.deepEqual(readinessRequests.map((request) => request.method), ["host.status", "host.status", "host.status"]);
+    assert.equal(readinessRequests.some((request) => request.id === "possibly-earlier-save-20261008"), false);
+    await assert.rejects(fs.stat(path.join(dataDir, "chrome-operation-status.json")), (error) => error?.code === "ENOENT");
+    await fs.stat(approvalFile);
+  } finally {
+    for (const socket of readinessSockets) socket.destroy();
+    await new Promise((resolve) => stalledReadiness.close(resolve));
+  }
+
   const host = startFakeExtensionHost();
   await waitForPath(socketPath);
 

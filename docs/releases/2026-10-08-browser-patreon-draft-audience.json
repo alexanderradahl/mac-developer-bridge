@@ -1,0 +1,75 @@
+{
+  "recordedAt": "2026-10-08 01:18:29 UTC",
+  "status": "passed",
+  "scope": "Existing unpublished supporter notebook draft audience; creator Discord Apps readback",
+  "runtime": {
+    "bridgeVersion": "0.3.4",
+    "extensionVersion": "0.2.15",
+    "extensionBuild": "browser-reliability-20261007.4",
+    "workerSha256": "a0f51adf9ee3e2e7aa5aa9dad7370387f314de0e5b76d5adc2f983b2fb09058c"
+  },
+  "browserAccess": "Supported public Mac Developer Bridge Chrome tools only",
+  "draft": {
+    "existingDraftIdentityVerified": true,
+    "audienceBefore": "Free access",
+    "audienceAfter": {
+      "paidAccess": true,
+      "freeAccess": false,
+      "paidMembersEnabled": true,
+      "tierSelection": "All tiers",
+      "oneTimeSale": false
+    },
+    "schedulingEnabled": false,
+    "savedIndicatorVerified": true,
+    "persistenceProof": "Navigated to the same existing editor URL, verified a new document, then read Saved and the same audience controls.",
+    "titleEdited": false,
+    "bodyManuallyEdited": false,
+    "platformInsertedPaidAccessMarker": true,
+    "otherWelcomeDraftUntouched": true,
+    "publishActions": 0,
+    "approvalActions": 0,
+    "scheduleActions": 0,
+    "notificationActions": 0,
+    "operations": {
+      "audienceClick": "0e10e202-adcc-45b9-b396-9a6a65a48a78",
+      "inspectTierSelector": "bbcfde1b-8fa1-4ca0-99a9-edd2c16fb3ef",
+      "reload": "890b3184-edfd-482e-a94a-2d907ecb03c5",
+      "persistedSavedReadback": "de19c1e9-f7aa-4db1-b086-a771d2ccffed"
+    }
+  },
+  "restoredPage": {
+    "destination": "Original Patreon creator Discord Apps page",
+    "exactOriginalUrlRestored": true,
+    "integrationConnected": true,
+    "creatorPagePublished": false,
+    "savedCoreTiersVisible": 3,
+    "allCoreTierRoleSelectorsEmpty": true,
+    "roleMappingChanges": 0,
+    "updateActions": 0,
+    "operations": {
+      "navigate": "79526efb-ca31-488a-af6d-2ca719b8ad30",
+      "finalReadback": "336a0227-70f7-4f5d-bfa2-045883e516ad"
+    }
+  },
+  "readFailures": [
+    {
+      "operationId": "8752183e-1f1b-4cb9-a3a5-9204ae1c5b99",
+      "kind": "snapshot",
+      "reconciledOutcome": "failed",
+      "errorCode": "CHROME_OPERATION_DEADLINE_EXCEEDED",
+      "stage": "before-injection",
+      "actionDispatched": false
+    },
+    {
+      "operationId": "eef070c9-636b-4a59-ab1e-23c57a9e1ec5",
+      "kind": "snapshot",
+      "lastObservedStatus": "outcome_unknown",
+      "note": "Read-only request. A later independent final Apps snapshot succeeded; no write replay."
+    }
+  ],
+  "limitations": [
+    "Browser action completion alone is not treated as application acceptance; the saved audience was separately verified after reload.",
+    "All tiers is the platform's observed audience label; this receipt makes no additional claim about pledges outside tiers.",
+    "Discord role mappings remain empty and were not changed."
+  ]
+}

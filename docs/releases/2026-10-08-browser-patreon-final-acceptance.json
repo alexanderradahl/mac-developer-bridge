@@ -1,0 +1,58 @@
+{
+  "checkedAtUtc": "2026-10-08T01:21:15Z",
+  "provider": "Patreon",
+  "runtime": {
+    "bridgeVersion": "0.3.4",
+    "extensionVersion": "0.2.15",
+    "extensionBuild": "browser-reliability-20261007.4",
+    "workerSha256": "a0f51adf9ee3e2e7aa5aa9dad7370387f314de0e5b76d5adc2f983b2fb09058c"
+  },
+  "status": "core-membership-records-persisted-with-creator-page-unpublished",
+  "acceptance": {
+    "coreTiers": 3,
+    "expectedNamesAndPricesVerified": true,
+    "newTierRecordsCreated": 2,
+    "structuredBenefitCounts": [
+      2,
+      5,
+      6
+    ],
+    "fullPageReloadVerified": true,
+    "finalReadbackOperationId": "28cb82a9-6fff-4122-a076-e542836e0a3b",
+    "creatorPageUnpublished": true,
+    "futureCapacityGatedTiersCreated": false,
+    "freeTrialDisabledVerifiedInEditors": true
+  },
+  "operationEvidence": {
+    "secondTierSave": "patreon-town-background-focus-save-20261008-01",
+    "secondTierFreshEditor": "eee112ee-43ea-4177-892c-7124d59ceaee",
+    "secondTierBenefitsSave": "f455410c-c8e1-45f1-a6a1-d71556d7efc5",
+    "thirdTierSave": "e86e6e3e-e8ae-412b-b092-3f82b097decb",
+    "thirdTierFreshEditor": "1f9c4805-5a88-4d59-910a-dc6015922c3a",
+    "firstTierNotebookBenefitAdd": "3232cf1a-54a3-428a-9b8b-92126c4287dd",
+    "firstTierNotebookBenefitSave": "patreon-good-notebook-final-save-20261008-01",
+    "finalReload": "ad78916a-b9a5-42af-b4c9-173f21e28dfd"
+  },
+  "reconciliation": {
+    "exactValueNormalizationMismatch": "Provider normalized a decimal-formatted price to its integer representation. Current value was freshly read before one Save; the fill was not replayed.",
+    "readinessTimeout": "A later Save invocation returned a short CHROME_HOST_TIMEOUT without an operation ID. Source and the durable action journal established that the read-only readiness preflight failed before this Save was sent. A separately identified Save was then dispatched once and its persisted result was verified.",
+    "unknownMutationsAutomaticallyReplayed": false
+  },
+  "draftAudience": {
+    "separateReceipt": "2026-10-08-browser-patreon-draft-audience.json",
+    "paidMembersAllTiersPersisted": true,
+    "scheduled": false,
+    "published": false
+  },
+  "remaining": {
+    "discordRolesMapped": false,
+    "membershipAccessAndRevocationTested": false
+  },
+  "changes": {
+    "pagePublications": 0,
+    "postPublications": 0,
+    "scheduledPosts": 0,
+    "emailsSent": 0,
+    "discordMessagesSent": 0
+  }
+}
