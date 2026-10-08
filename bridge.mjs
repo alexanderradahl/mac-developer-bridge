@@ -12,7 +12,7 @@ import { fileURLToPath } from "node:url";
 import { createFederation, consumePersonalApproval } from "./lib/federation.mjs";
 import { backgroundChromeCall, backgroundChromeStatus, backgroundChromeOperationStatus, safeChromeDiagnostics } from "./lib/chrome-extension-client.mjs";
 
-const BRIDGE_VERSION = "0.3.7";
+const BRIDGE_VERSION = "0.3.8";
 const SERVER_NAME = "mac-developer-bridge";
 const SERVER_TITLE = "Mac Developer Bridge";
 const MODERN_PROTOCOL = "2026-07-28";
@@ -945,6 +945,24 @@ const TOOLS = [
         operation_id: { type: "string", minLength: 8, maxLength: 128, pattern: "^[A-Za-z0-9][A-Za-z0-9_.:-]{7,127}$", description: "Stable ID for this exact drag. Reconcile status after an uncertain outcome; do not automatically repeat." },
       },
       required: ["tab_id", "source_selector", "target_selector"],
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
+  },
+  {
+    name: "chrome_keypress",
+    title: "Send one non-text key in background Chrome",
+    description: "Focus an exact observed HTML control in-page and send one synthetic keydown/keyup without activating Chrome. Supports only d, arrows, Enter, Space and Escape, with explicit modifiers. The page may move DOM focus during keydown; keyup follows its validated same-document active element without refocusing or re-querying. No browser/OS shortcut, implicit click, text insertion, form-submit helper, retry or automatic Escape is performed. Events and defaultPrevented are observations, not evidence of application acceptance. Inspect the resulting page before another key.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        tab_id: { type: "integer", minimum: 0 },
+        selector: { type: "string", minLength: 1, maxLength: 10000 },
+        key: { type: "string", enum: ["d", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Enter", "Space", "Escape"] },
+        modifiers: { type: "array", maxItems: 4, uniqueItems: true, items: { type: "string", enum: ["Control", "Meta", "Shift", "Alt"] }, default: [] },
+        operation_id: { type: "string", minLength: 8, maxLength: 128, pattern: "^[A-Za-z0-9][A-Za-z0-9_.:-]{7,127}$", description: "Stable ID for this exact key. Reconcile uncertainty before another action; never replay automatically." },
+      },
+      required: ["tab_id", "selector", "key"],
       additionalProperties: false,
     },
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
@@ -3737,6 +3755,21 @@ async function dispatchTool(name, args) {
       const targetPosition = optionalString(args, "target_position", "center");
       if (!["before", "center", "after"].includes(targetPosition)) throw new Error("'target_position' must be before, center or after");
       return await callBackgroundChrome(name, "tabs.drag", { tabId, sourceSelector, targetSelector, targetPosition }, { operationId: chromeOperationId(args) });
+    }
+
+    case "chrome_keypress": {
+      const tabId = requireInteger(args, "tab_id", 0, 2_147_483_647);
+      const selector = requireString(args, "selector");
+      const key = requireString(args, "key");
+      if (selector.length > 10_000) throw new Error("'selector' must be at most 10000 characters");
+      if (!["d", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Enter", "Space", "Escape"].includes(key)) throw new Error("'key' must be a supported non-text key");
+      const modifiers = args.modifiers === undefined ? [] : args.modifiers;
+      const modifierOrder = ["Control", "Meta", "Shift", "Alt"];
+      if (!Array.isArray(modifiers) || modifiers.length > 4 || new Set(modifiers).size !== modifiers.length
+          || modifiers.some(value => !modifierOrder.includes(value))) throw new Error("'modifiers' must contain distinct Control, Meta, Shift or Alt names");
+      return await callBackgroundChrome(name, "tabs.keypress", {
+        tabId, selector, key, modifiers: modifierOrder.filter(value => modifiers.includes(value)),
+      }, { operationId: chromeOperationId(args) });
     }
 
     case "chrome_fill": {

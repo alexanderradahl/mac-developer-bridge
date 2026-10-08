@@ -1,6 +1,6 @@
 {
   "name": "mac-developer-bridge",
-  "version": "0.3.7",
+  "version": "0.3.8",
   "type": "module",
   "description": "Give ChatGPT a real terminal on your Mac. Zero-dependency local MCP bridge for shell, files, PTY sessions, jobs, and Codex history.",
   "scripts": {
@@ -10,7 +10,8 @@
     "test": "node tests/smoke.mjs && node tests/integration.mjs && node tests/adversarial.mjs && node tests/chatgpt-responses.mjs && node tests/http.mjs && node tests/oauth.mjs && node tests/pty.mjs && node tests/federation.mjs && node tests/chatgpt-conversation.mjs && node tests/chatgpt-runtime.mjs && node tests/chatgpt-conversation-runs.mjs && node tests/chrome-workspace-capacity.mjs && node tests/chrome-fill-background.mjs && node tests/chrome-action-correctness.mjs && node tests/chrome-transport-reliability.mjs && node tests/chatgpt-handoff-diagnostics.mjs && node tests/chrome-background.mjs && node tests/chatgpt-installation-status.mjs && bash tests/installer-mock.sh",
     "test:bridge-repair": "node tests/chatgpt-runtime.mjs && node tests/chatgpt-installation-status.mjs && node tests/chrome-background.mjs",
     "test:browser": "node tests/chrome-actions-real-browser.mjs",
-    "test:browser-reliability": "node tests/chrome-fill-background.mjs && node tests/chrome-action-correctness.mjs && node tests/chrome-transport-reliability.mjs && node tests/chatgpt-handoff-diagnostics.mjs && node tests/chrome-background.mjs"
+    "test:browser-reliability": "node tests/chrome-fill-background.mjs && node tests/chrome-action-correctness.mjs && node tests/chrome-transport-reliability.mjs && node tests/chatgpt-handoff-diagnostics.mjs && node tests/chrome-background.mjs",
+    "test:browser-keyboard": "node tests/chrome-keyboard-real-browser.mjs"
   },
   "engines": {
     "node": ">=18"

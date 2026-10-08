@@ -3,6 +3,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import vm from "node:vm";
+import { safeChromeDiagnostics } from "../lib/chrome-extension-client.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const source = await fs.readFile(path.join(root, "chrome-extension/service-worker.js"), "utf8");
@@ -52,6 +53,56 @@ function fixture() {
 }
 
 const scenarios = [];
+{
+  // Exercise the actual renderer projection, then the public client projection.
+  // Mocking only a native-host error misses flags stripped before transport.
+  const errorStart = source.indexOf("function errorPayload(");
+  const errorEnd = source.indexOf("\nfunction mutateWorkspaceState(", errorStart);
+  const project = vm.runInNewContext(`(${source.slice(errorStart, errorEnd)})`);
+  const flags = { pointerDownDispatched: true, mouseDownDispatched: true,
+    dragStartDispatched: true, pointerCancelDispatched: false,
+    pointerUpDispatched: true, mouseUpDispatched: true, dragStarted: false,
+    dropDispatched: false, dragEndDispatched: false };
+  const f = fixture();
+  f.setResponse([{ result: { __mdbPageActionError: {
+    code: "CHROME_DRAG_CANCELLED", stage: "drag-start", actionDispatched: true,
+    ...flags, privatePayload: "PRIVATE-RENDERER-DRAG-CANARY",
+  } }, frameId: 0, documentId: "fixture-document" }]);
+  let failure;
+  try { await f.execute(7, () => {}, [], "MAIN", { includeDocumentIdentity: true }); }
+  catch (error) { failure = error; }
+  assert.equal(failure?.code, "CHROME_DRAG_CANCELLED");
+  const projected = safeChromeDiagnostics(project(failure).details);
+  for (const [key, value] of Object.entries(flags)) assert.equal(projected[key], value, `renderer/public projection retains ${key}`);
+  assert.doesNotMatch(JSON.stringify(projected), /PRIVATE-RENDERER-DRAG-CANARY|privatePayload/);
+  scenarios.push("renderer-through-public-drag-flags-survive-with-private-data-redacted");
+}
+{
+  const errorStart = source.indexOf("function errorPayload(");
+  const errorEnd = source.indexOf("\nfunction mutateWorkspaceState(", errorStart);
+  const project = vm.runInNewContext(`(${source.slice(errorStart, errorEnd)})`);
+  const flags = { focusAttempted: true, focusEventCompletionUsed: false,
+    keyDownDispatched: true, keyUpDispatched: false, keyDownDefaultPrevented: true,
+    keyUpDefaultPrevented: null, focusChanged: true, keyUpTargetChanged: true };
+  const f = fixture();
+  f.setResponse([{ result: { __mdbPageActionError: {
+    code: "CHROME_TARGET_CHANGED", stage: "after-keydown", actionDispatched: true,
+    ...flags, keyEvents: ["keydown"], privatePayload: "PRIVATE-KEYBOARD-CANARY",
+  } }, frameId: 0, documentId: "fixture-document" }]);
+  let failure;
+  try { await f.execute(7, () => {}, [], "MAIN", { includeDocumentIdentity: true }); }
+  catch (error) { failure = error; }
+  const projected = safeChromeDiagnostics(project(failure).details);
+  for (const [key, value] of Object.entries(flags)) assert.equal(projected[key], value);
+  assert.deepEqual(projected.keyEvents, ["keydown"]);
+  assert.doesNotMatch(JSON.stringify(projected), /PRIVATE-KEYBOARD-CANARY|privatePayload/);
+  for (const keyEvents of [["keydown", "PRIVATE-KEYBOARD-CANARY"], ["keydown", {}], Array(5).fill("keyup"), "keydown"]) {
+    const unsafe = { code: "CHROME_KEYPRESS_FAILED", details: { ...flags, keyEvents } };
+    assert.equal(project(unsafe).details.keyEvents, undefined, "renderer drops unbounded or non-enumerated event trace");
+    assert.equal(safeChromeDiagnostics(unsafe.details).keyEvents, undefined, "public projection independently drops unsafe event trace");
+  }
+  scenarios.push("renderer-through-public-keyboard-partial-flags-and-bounded-event-trace");
+}
 {
   const f = fixture();
   await assert.rejects(

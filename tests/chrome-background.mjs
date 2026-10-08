@@ -137,7 +137,7 @@ function startFakeExtensionHost() {
     ready(profile = { signedIn: true, email: "bound@example.com", id: "123456789012345678901" }) {
       child.stdin.write(frameNative({
         type: "ready",
-        version: "0.2.17",
+        version: "0.2.18",
         instanceId: "fixture-extension-instance",
         connectionGeneration: "fixture-connection-1",
         buildId: "browser-reliability-20261007-fixture",
@@ -219,14 +219,14 @@ try {
   assert.ok(manifest.permissions.includes("tabGroups"));
   assert.ok(manifest.permissions.includes("storage"));
   assert.ok(manifest.icons?.["16"] && manifest.icons?.["128"]);
-  assert.equal(manifest.version, "0.2.17");
+  assert.equal(manifest.version, "0.2.18");
   assert.equal(manifest.permissions.includes("debugger"), false, "realistic click support must not require Chrome debugger permission");
   await Promise.all([16, 32, 48, 128].map(async (size) => {
     const stat = await fs.stat(path.join(root, "chrome-extension", "icons", `icon-${size}.png`));
     assert.ok(stat.size > 0, `expected non-empty ${size}px extension icon`);
   }));
   const workerSource = await fs.readFile(path.join(root, "chrome-extension", "service-worker.js"), "utf8");
-  assert.match(workerSource, /const VERSION = "0\.2\.17"/);
+  assert.match(workerSource, /const VERSION = "0\.2\.18"/);
   assert.match(workerSource, /WORKSPACE_GROUP_TITLE = "MDB"/);
   assert.match(workerSource, /chrome\.tabs\.group/);
   assert.match(workerSource, /chrome\.tabGroups\.query/);
@@ -338,6 +338,12 @@ try {
   assert.equal(dragSchema.additionalProperties, false);
   assert.equal(toolByName.get("chrome_drag").annotations.readOnlyHint, false);
   assert.equal(toolByName.get("chrome_drag").annotations.idempotentHint, false);
+  const keySchema = toolByName.get("chrome_keypress")?.inputSchema;
+  assert.deepEqual(keySchema.required, ["tab_id", "selector", "key"]);
+  assert.deepEqual(keySchema.properties.key.enum, ["d", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Enter", "Space", "Escape"]);
+  assert.equal(keySchema.additionalProperties, false);
+  assert.equal(toolByName.get("chrome_keypress").annotations.readOnlyHint, false);
+  assert.equal(toolByName.get("chrome_keypress").annotations.idempotentHint, false);
   const statusTool = toolByName.get("chrome_operation_status");
   assert.deepEqual(statusTool?.inputSchema.required, ["operation_id"]);
   assert.equal(statusTool.annotations.readOnlyHint, true);
@@ -615,6 +621,50 @@ try {
   assert.equal(dragFailure.result.structuredContent.details.dropDispatched, true);
   assert.equal(dragFailure.result.structuredContent.details.dragEndDispatched, false);
   assert.doesNotMatch(JSON.stringify(dragFailure), /private drag detail|must not leak/);
+  const beforeKey = host.seen.length;
+  const keyArgs = { tab_id: 42, selector: "#role", key: "d", modifiers: ["Shift", "Meta"], operation_id: "keyboard-contract-20261008" };
+  const keyAction = await bridgeTool(bridge, "chrome_keypress", keyArgs);
+  assert.equal(keyAction.result.isError, false, keyAction.result.content[0].text);
+  assert.equal(host.seen.length, beforeKey + 1);
+  assert.equal(host.seen.at(-1).method, "tabs.keypress");
+  assert.deepEqual(host.seen.at(-1).args, { tabId: 42, selector: "#role", key: "d", modifiers: ["Meta", "Shift"] });
+  assert.deepEqual(new Set(host.seen.at(-1).allowedUrlPatterns), new Set(["http://*:*/*", "https://*:*/*"]));
+  const sameKey = await bridgeTool(bridge, "chrome_keypress", { ...keyArgs, modifiers: ["Meta", "Shift"] });
+  assert.equal(sameKey.result.isError, false);
+  assert.equal(host.seen.length, beforeKey + 1, "same-ID keypress with canonical modifiers must not replay");
+  for (const changes of [{ key: "ArrowUp" }, { modifiers: ["Control"] }, { selector: "#other" }]) {
+    const conflict = await bridgeTool(bridge, "chrome_keypress", { ...keyArgs, ...changes });
+    assert.equal(conflict.result.structuredContent.code, "CHROME_OPERATION_ID_CONFLICT");
+    assert.equal(host.seen.length, beforeKey + 1);
+  }
+  for (const [index, changes] of [{ key: "a" }, { key: "Tab" }, { key: "" }, { key: 1 }, { modifiers: null }, { modifiers: "Meta" }, { modifiers: ["Meta", "Meta"] }, { modifiers: ["Command"] }, { modifiers: [null] }, { selector: "" }, { selector: "x".repeat(10001) }, { tab_id: -1 }, { operation_id: 42 }].entries()) {
+    const rejected = await bridgeTool(bridge, "chrome_keypress", { ...keyArgs, operation_id: "keyboard-invalid-20261008-" + index, ...changes });
+    assert.equal(rejected.result.isError, true);
+    assert.notEqual(rejected.result.structuredContent.code, "CHROME_OPERATION_ID_CONFLICT");
+    assert.equal(host.seen.length, beforeKey + 1, "invalid keyboard input must fail before dispatch");
+  }
+  const noModifiers = { tab_id: 42, selector: "#role", key: "ArrowUp", operation_id: "keyboard-default-20261008" };
+  assert.equal((await bridgeTool(bridge, "chrome_keypress", noModifiers)).result.isError, false);
+  assert.deepEqual(host.seen.at(-1).args.modifiers, []);
+  assert.equal((await bridgeTool(bridge, "chrome_keypress", { ...noModifiers, modifiers: [] })).result.isError, false);
+  assert.equal(host.seen.length, beforeKey + 2, "omitted and explicit default modifiers have one operation identity");
+  host.respond("tabs.keypress", () => ({ ok: false, error: {
+    code: "CHROME_TARGET_CHANGED", message: "private keyboard detail",
+    details: { stage: "after-keydown", actionDispatched: true, focusAttempted: true,
+      focusEventCompletionUsed: false, keyDownDispatched: true, keyUpDispatched: false,
+      keyDownDefaultPrevented: true, keyUpDefaultPrevented: null,
+      focusChanged: true, keyUpTargetChanged: true, keyEvents: ["keydown"], privatePayload: "must not leak" },
+  } }));
+  const keyFailure = await bridgeTool(bridge, "chrome_keypress", { ...keyArgs, operation_id: "keyboard-error-20261008" });
+  host.clearResponse("tabs.keypress");
+  const keyDetails = keyFailure.result.structuredContent.details;
+  for (const field of ["actionDispatched", "focusAttempted", "keyDownDispatched", "keyDownDefaultPrevented", "focusChanged", "keyUpTargetChanged"]) assert.equal(keyDetails[field], true);
+  assert.equal(keyDetails.keyUpDispatched, false);
+  assert.equal(keyDetails.keyUpDefaultPrevented, null);
+  assert.equal(keyDetails.focusEventCompletionUsed, false);
+  assert.deepEqual(keyDetails.keyEvents, ["keydown"]);
+  assert.doesNotMatch(JSON.stringify(keyFailure), /private keyboard detail|must not leak/);
+
 
   const errorCanary = "MDB-ERROR-CANARY-9f2c6e03";
   host.respond("tabs.fill", () => ({

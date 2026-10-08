@@ -101,9 +101,10 @@ Git, package managers, Vercel CLI, database CLIs, AppleScript, browser CLIs, bui
 | `chrome_tabs` | List tabs in the real signed-in Chrome profile without activating Chrome; scoped only when Strict approvals is on |
 | `chrome_open` | Lease an idle tab from the persistent `MDB` group and open a URL without creating a new tab |
 | `chrome_navigate` | Navigate an approved tab without selecting it |
-| `chrome_snapshot` | Read visible text and interactive elements from an approved tab |
+| `chrome_snapshot` | Read visible text, interactive elements and the actual DOM-focused element from an approved tab |
 | `chrome_click` | Click an element in an approved tab without foregrounding Chrome |
 | `chrome_drag` | Drag one explicit HTML draggable control to an approved target, with durable operation status |
+| `chrome_keypress` | Send one explicit non-text DOM key sequence without selecting Chrome, with durable operation status |
 | `chrome_fill` | Fill and verify the current editable control, with explicit blur commit and optional numeric normalization |
 | `chrome_operation_status` | Read retained action lifecycle metadata after an uncertain result, without replaying the action |
 | `chrome_close` | Release an `MDB` workspace tab back to the idle pool, or close a non-workspace background tab |
@@ -748,3 +749,14 @@ Delete `~/Library/Application Support/MacDeveloperBridge` as well if you want th
 The press is never replayed and never activates a click. An accepted dragstart ends the pointer stream with pointercancel; an ordinary cancelled press/start receives only the corresponding pointerup/mouseup while the original nodes and deadline are still valid. Replacement, disabling or expiry stops further dispatch. Separate press, drag-start, cleanup and drop flags survive public error diagnostics.
 
 Drag events are synthetic and do not create browser user activation. A successful dispatch is not evidence that the application saved its change. Read the page again and reload when appropriate. If a call times out or returns a target-change error after a drop, inspect `chrome_operation_status` and the page before any new action; `dropDispatched` and `dragEndDispatched` preserve that uncertainty. Native dialogs, file pickers and pointer-only drag widgets remain separate capabilities.
+
+
+### Explicit background keyboard actions
+
+`chrome_keypress` supports one `d`, arrow, `Enter`, `Space` or `Escape` key and optional distinct `Control`, `Meta`, `Shift` and `Alt` modifiers. Use a fresh `chrome_snapshot` to choose an exact unique target; snapshots report both `focused: true` on ordinary controls and a top-level `focusedElement.selector` for the actual DOM active element. A page can choose a focus target absent from the bounded interactive list.
+
+The action calls real DOM focus at most once for the initial target, verifies the captured node and document, and dispatches one untrusted keydown. After application callbacks, one keyup follows the current valid same-document active element without another focus call or selector lookup. A keydown prevented by the page may mean a shortcut was handled, so it does not suppress an otherwise valid keyup. If Chromium changes initial DOM focus while withholding focus/focusin in an unfocused document, the action completes only missing initial notifications. It does not complete focus events for an application-selected release target.
+
+Receipts distinguish focus attempts/completion, keydown/keyup dispatch, default prevention, focus changes and the explicit synthetic `keyEvents` trace. The trace excludes native browser events and application-created events. Dispatch is not application acceptance: read ordinary page state after each separate key, then verify persistence through a new document when appropriate. Original-node replacement, disablement, invalid focus or elapsed deadline stops the sequence with partial evidence. Use stable operation IDs and reconcile uncertainty; no automatic key replay or Escape recovery is performed.
+
+This is an application DOM action. It does not deliver hardware-trusted input, invoke browser/OS shortcuts, insert text, click, or submit a form on the operator's behalf. The page's own event handlers still run normally. Permissions and foreground approvals are unchanged.
