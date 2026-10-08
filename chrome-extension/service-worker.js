@@ -1,5 +1,13 @@
 const NATIVE_HOST = "io.github.alexanderradahl.mac_developer_bridge";
-const VERSION = "0.2.11";
+const VERSION = "0.2.15";
+// Immutable identity of the executing release, sent on every native handshake.
+const LOADED_EXTENSION_BUILD_ID = "browser-reliability-20261007.4";
+const NATIVE_INSTANCE_ID = crypto.randomUUID();
+const NATIVE_OPERATION_RETENTION_MS = 24 * 60 * 60 * 1000;
+const MAX_NATIVE_OPERATIONS = 5_000;
+const MAX_NATIVE_RETAINED_RESULT_BYTES = 8 * 1024 * 1024;
+const nativeOperations = new Map();
+let nativeConnectionSequence = 0;
 const WORKSPACE_KEY = "macDeveloperBridgeWorkspace";
 const WORKSPACE_TARGET_KEY = "macDeveloperBridgeWorkspaceTarget";
 const WORKSPACE_GROUP_TITLE = "MDB";
@@ -100,6 +108,35 @@ function errorPayload(error, code = "CHROME_EXTENSION_ERROR") {
         "autoGrowStep",
         "provisioningPending",
         "canGrow",
+        "operationId",
+        "state",
+        "component",
+        "stage",
+        "dispatchState",
+        "dispatched",
+        "actionDispatched",
+        "elapsedMs",
+        "deadlineMs",
+        "connectionGeneration",
+        "targetTabId",
+        "targetFrameId",
+        "targetDocumentId",
+        "inputStrategy",
+        "targetReplaced",
+        "commit",
+        "normalization",
+        "submissionRequested",
+        "submissionObserved",
+        "submissionBlocked",
+        "popupObserved",
+        "popupOutcome",
+        "clickDispatched",
+        "navigationObserved",
+        "popupObservedCount",
+        "outcomeVerified",
+        "tabId",
+        "frameId",
+        "documentId",
       ].includes(key)
       && (["string", "number", "boolean"].includes(typeof value) || value === null)))
     : null;
@@ -3245,7 +3282,7 @@ function pageSnapshot(maxTextChars, maxElements) {
 
   const bodyText = (document.body?.innerText || "").slice(0, maxTextChars);
   const candidates = [...document.querySelectorAll(
-    "a[href],button,input,textarea,select,[contenteditable=true],[role=button],[role=link],[role=textbox],[role=checkbox],[role=radio],[role=menuitem],[role=menuitemradio],[role=menuitemcheckbox],[role=option]",
+    'a[href],button,input,textarea,select,[contenteditable]:not([contenteditable="false"]),summary,[role=button],[role=link],[role=textbox],[role=searchbox],[role=checkbox],[role=radio],[role=switch],[role=tab],[role=combobox],[role=listbox],[role=menu],[role=menuitem],[role=menuitemradio],[role=menuitemcheckbox],[role=option],[role=slider],[role=spinbutton],[role=treeitem],[tabindex]:not([tabindex="-1"])',
   )];
   const elements = [];
   for (const element of candidates) {
@@ -3269,14 +3306,43 @@ function pageSnapshot(maxTextChars, maxElements) {
       ariaExpanded: element.getAttribute("aria-expanded"),
       ariaHasPopup: element.getAttribute("aria-haspopup"),
       ariaControls: element.getAttribute("aria-controls"),
+      ariaSelected: element.getAttribute("aria-selected"),
+      ariaChecked: element.getAttribute("aria-checked"),
+      ariaInvalid: element.getAttribute("aria-invalid"),
+      ariaDescribedBy: element.getAttribute("aria-describedby"),
+      ariaErrorMessage: element.getAttribute("aria-errormessage"),
       dataState: element.getAttribute("data-state"),
       name: element.getAttribute("name"),
       placeholder: element.getAttribute("placeholder"),
       href: element instanceof HTMLAnchorElement ? element.href : null,
-      disabled: Boolean(element.disabled),
+      disabled: Boolean(element.disabled) || element.matches(":disabled") || element.getAttribute("aria-disabled") === "true",
+      readOnly: Boolean(element.readOnly) || element.getAttribute("aria-readonly") === "true",
+      inputMode: element.getAttribute("inputmode"),
+      min: element.getAttribute("min"),
+      max: element.getAttribute("max"),
+      step: element.getAttribute("step"),
+      minLength: element.getAttribute("minlength"),
+      maxLength: element.getAttribute("maxlength"),
       checked: "checked" in element ? Boolean(element.checked) : null,
       required: "required" in element ? Boolean(element.required) : null,
-      valid: typeof element.checkValidity === "function" ? Boolean(element.checkValidity()) : null,
+      // Passive reads only: checkValidity()/reportValidity() dispatch invalid
+      // events and can change a site's application state during a snapshot.
+      willValidate: "willValidate" in element ? Boolean(element.willValidate) : null,
+      valid: element.validity ? Boolean(element.validity.valid) : null,
+      validity: element.validity ? Object.fromEntries(
+        ["badInput", "customError", "patternMismatch", "rangeOverflow", "rangeUnderflow", "stepMismatch", "tooLong", "tooShort", "typeMismatch", "valueMissing"]
+          .map((name) => [name, Boolean(element.validity[name])]),
+      ) : null,
+      validationMessage: typeof element.validationMessage === "string" ? element.validationMessage.slice(0, 1000) : null,
+      associatedErrors: [...new Set(
+        [element.getAttribute("aria-errormessage"), element.getAttribute("aria-describedby")]
+          .filter(Boolean).join(" ").split(/\s+/).filter(Boolean),
+      )].map((id) => document.getElementById(id)).filter((node) => {
+        if (!node) return false;
+        const box = node.getBoundingClientRect();
+        const css = getComputedStyle(node);
+        return box.width > 0 && box.height > 0 && css.display !== "none" && css.visibility !== "hidden";
+      }).map((node) => String(node.innerText || node.textContent || "").trim().slice(0, 1000)),
       selectedOptionText:
         element instanceof HTMLSelectElement
           ? String(element.selectedOptions?.[0]?.textContent || "").trim().slice(0, 500)
@@ -3294,220 +3360,435 @@ function pageSnapshot(maxTextChars, maxElements) {
   };
 }
 
-async function pageClick(selector) {
-  const element = document.querySelector(selector);
-  if (!(element instanceof Element)) {
-    const error = new Error(`No element matches selector: ${selector}`);
-    error.code = "CHROME_ELEMENT_NOT_FOUND";
-    throw error;
-  }
-  if (element instanceof HTMLInputElement && element.type === "file") {
-    const error = new Error("File pickers require foreground/user interaction; background mode will not open one.");
-    error.code = "CHROME_FOREGROUND_REQUIRED";
-    throw error;
-  }
-  if (("disabled" in element && Boolean(element.disabled)) || element.getAttribute("aria-disabled") === "true") {
-    const error = new Error(`Element is disabled: ${selector}`);
-    error.code = "CHROME_ELEMENT_DISABLED";
-    throw error;
-  }
-
-  element.scrollIntoView({ block: "center", inline: "center", behavior: "instant" });
-  const rect = element.getBoundingClientRect();
-  const style = getComputedStyle(element);
-  if (rect.width <= 0 || rect.height <= 0 || style.visibility === "hidden" || style.display === "none") {
-    const error = new Error(`Element is not visible: ${selector}`);
-    error.code = "CHROME_ELEMENT_NOT_VISIBLE";
-    throw error;
-  }
-
-  const clientX = Math.max(0, Math.min(Math.max(0, window.innerWidth - 1), rect.left + rect.width / 2));
-  const clientY = Math.max(0, Math.min(Math.max(0, window.innerHeight - 1), rect.top + rect.height / 2));
-  const common = {
-    bubbles: true,
-    cancelable: true,
-    composed: true,
-    clientX,
-    clientY,
-    screenX: Number(window.screenX || 0) + clientX,
-    screenY: Number(window.screenY || 0) + clientY,
-    button: 0,
+async function pageClick(selector, options = {}) {
+  let actionDispatched = false;
+  let clickDispatched = false;
+  let focusEventFallbackUsed = false;
+  let stage = "resolve";
+  const clickStrategy = options.clickStrategy ?? "adaptive-pointer";
+  const deadline = Number(options.deadlineMs);
+  const assertDeadline = () => {
+    if (Number.isFinite(deadline) && Date.now() >= deadline) {
+      const error = new Error("The browser action deadline elapsed; do not repeat an action without reconciling its outcome.");
+      error.code = "CHROME_OPERATION_DEADLINE_EXCEEDED";
+      throw error;
+    }
   };
-  const events = [];
-  const dispatchPointer = (type, buttons) => {
-    if (typeof PointerEvent !== "function") return true;
-    events.push(type);
-    return element.dispatchEvent(new PointerEvent(type, {
-      ...common,
-      buttons,
-      pointerId: 1,
-      pointerType: "mouse",
-      isPrimary: true,
-      pressure: buttons ? 0.5 : 0,
-    }));
-  };
-  const dispatchMouse = (type, buttons) => {
-    events.push(type);
-    return element.dispatchEvent(new MouseEvent(type, { ...common, buttons, detail: type === "mousedown" ? 1 : 0 }));
-  };
-  const visiblePopupCount = () => [...document.querySelectorAll('[role="listbox"],[role="menu"],[role="dialog"],[data-state="open"]')]
-    .filter((node) => {
-      if (!(node instanceof Element)) return false;
+  try {
+    assertDeadline();
+    if (!["adaptive-pointer", "dom-click"].includes(clickStrategy)) {
+      const error = new Error("Click strategy must be adaptive-pointer or dom-click.");
+      error.code = "CHROME_CLICK_STRATEGY_INVALID";
+      throw error;
+    }
+    const element = document.querySelector(selector);
+    if (!(element instanceof Element)) {
+      const error = new Error("No element matches the click selector.");
+      error.code = "CHROME_ELEMENT_NOT_FOUND";
+      throw error;
+    }
+    if (element instanceof HTMLInputElement && element.type === "file") {
+      const error = new Error("File pickers require foreground/user interaction; background mode will not open one.");
+      error.code = "CHROME_FOREGROUND_REQUIRED";
+      throw error;
+    }
+    const isDisabled = () => Boolean(element.disabled) || element.matches(":disabled") || element.getAttribute("aria-disabled") === "true";
+    if (isDisabled()) {
+      const error = new Error("The click target is disabled.");
+      error.code = "CHROME_ELEMENT_DISABLED";
+      throw error;
+    }
+    if (clickStrategy === "adaptive-pointer") element.scrollIntoView({ block: "center", inline: "center", behavior: "instant" });
+    const rect = element.getBoundingClientRect();
+    const style = getComputedStyle(element);
+    if (rect.width <= 0 || rect.height <= 0 || style.visibility === "hidden" || style.display === "none" || style.opacity === "0") {
+      const error = new Error("The click target is not visible.");
+      error.code = "CHROME_ELEMENT_NOT_VISIBLE";
+      throw error;
+    }
+    const documentAtStart = document;
+    const assertTarget = () => {
+      assertDeadline();
+      if (document !== documentAtStart || !element.isConnected || !element.matches(selector)) {
+        const error = new Error("The click target changed during dispatch; its outcome must be reconciled.");
+        error.code = "CHROME_TARGET_CHANGED";
+        throw error;
+      }
+    };
+    const clientX = Math.max(0, Math.min(Math.max(0, window.innerWidth - 1), rect.left + rect.width / 2));
+    const clientY = Math.max(0, Math.min(Math.max(0, window.innerHeight - 1), rect.top + rect.height / 2));
+    const common = {
+      bubbles: true, cancelable: true, composed: true, view: window, clientX, clientY,
+      screenX: Number(window.screenX || 0) + clientX,
+      screenY: Number(window.screenY || 0) + clientY, button: 0,
+    };
+    const events = [];
+    const dispatchPointer = (type, buttons) => {
+      if (typeof PointerEvent !== "function") return true;
+      events.push(type);
+      actionDispatched = true;
+      return element.dispatchEvent(new PointerEvent(type, {
+        ...common, button: ["pointerdown", "pointerup"].includes(type) ? 0 : -1,
+        buttons, pointerId: 1, pointerType: "mouse", isPrimary: true, pressure: buttons ? 0.5 : 0,
+      }));
+    };
+    const dispatchMouse = (type, buttons) => {
+      events.push(type);
+      actionDispatched = true;
+      return element.dispatchEvent(new MouseEvent(type, { ...common, buttons, detail: ["mousedown", "mouseup"].includes(type) ? 1 : 0 }));
+    };
+    const focusTarget = () => {
+      const assertFocusable = () => {
+        assertTarget();
+        if (isDisabled()) {
+          const error = new Error("The click target became disabled during its focus transition.");
+          error.code = "CHROME_ELEMENT_DISABLED";
+          throw error;
+        }
+      };
+      assertFocusable();
+      if (typeof document.hasFocus !== "function" || document.hasFocus()) {
+        try { element.focus({ preventScroll: true }); } catch {}
+        return;
+      }
+      const activeBefore = document.activeElement;
+      const types = ["focus", "focusin"];
+      const observed = new Set();
+      const observe = (event) => { if (event.target === element) observed.add(event.type); };
+      for (const type of types) {
+        element.addEventListener(type, observe, true);
+        document.addEventListener(type, observe, true);
+      }
+      try {
+        try { element.focus({ preventScroll: true }); } catch {}
+        if (activeBefore !== element && document.activeElement === element && !document.hasFocus()) {
+          const relatedTarget = activeBefore instanceof Element
+            && activeBefore !== document.body && activeBefore !== document.documentElement ? activeBefore : null;
+          for (const type of types) {
+            if (observed.has(type)) continue;
+            assertFocusable();
+            if (document.activeElement !== element) {
+              const error = new Error("The page changed focus before the remaining click events.");
+              error.code = "CHROME_FOCUS_CHANGED";
+              throw error;
+            }
+            focusEventFallbackUsed = true;
+            events.push(type);
+            element.dispatchEvent(new FocusEvent(type, { bubbles: type === "focusin", composed: true, relatedTarget }));
+          }
+          assertFocusable();
+          if (document.activeElement !== element) {
+            const error = new Error("The page changed focus before the remaining click events.");
+            error.code = "CHROME_FOCUS_CHANGED";
+            throw error;
+          }
+        }
+      } finally {
+        for (const type of types) {
+          element.removeEventListener(type, observe, true);
+          document.removeEventListener(type, observe, true);
+        }
+      }
+    };
+    const semanticSelector = '[role="combobox"],[aria-haspopup]:not([aria-haspopup="false"])';
+    const control = element.matches(semanticSelector) ? element : element.closest(semanticSelector);
+    const semanticMouseDownControl = Boolean(control);
+    const isVisible = (node) => {
+      if (!(node instanceof Element) || !node.isConnected) return false;
       const box = node.getBoundingClientRect();
-      const computed = getComputedStyle(node);
-      return box.width > 0 && box.height > 0 && computed.display !== "none" && computed.visibility !== "hidden";
-    }).length;
-  const readActivationState = () => ({
-    ariaExpanded: element.getAttribute("aria-expanded"),
-    ariaHasPopup: element.getAttribute("aria-haspopup"),
-    dataState: element.getAttribute("data-state"),
-    visiblePopupCount: visiblePopupCount(),
-  });
-  const stateChanged = (before, after) => before.ariaExpanded !== after.ariaExpanded
-    || before.dataState !== after.dataState
-    || before.visiblePopupCount !== after.visiblePopupCount;
-
-  const before = readActivationState();
-  dispatchPointer("pointerover", 0);
-  dispatchMouse("mouseover", 0);
-  dispatchPointer("pointermove", 0);
-  dispatchMouse("mousemove", 0);
-  dispatchPointer("pointerdown", 1);
-  const mouseDownAllowed = dispatchMouse("mousedown", 1);
-  if (mouseDownAllowed && element instanceof HTMLElement) {
-    try { element.focus({ preventScroll: true }); } catch {}
-  }
-
-  // React/headless/custom comboboxes often do their real work on mousedown and
-  // call preventDefault() to manage focus. Give that discrete event one task to
-  // flush before deciding whether a second synthetic click is appropriate.
-  await new Promise((resolve) => setTimeout(resolve, 0));
-  const afterMouseDown = readActivationState();
-  const semanticMouseDownControl = element.matches('[role="combobox"],[aria-haspopup]')
-    || element.closest('[role="combobox"],[aria-haspopup]') != null;
-  const activatedOnMouseDown = stateChanged(before, afterMouseDown)
-    || (mouseDownAllowed === false && semanticMouseDownControl);
-
-  dispatchPointer("pointerup", 0);
-  dispatchMouse("mouseup", 0);
-  let activation = "mousedown";
-  if (!activatedOnMouseDown) {
-    events.push("click");
-    element.click();
-    activation = "click";
-  }
-  await new Promise((resolve) => setTimeout(resolve, 0));
-  let after = readActivationState();
-
-  // Accessible comboboxes are expected to open on ArrowDown. Some React/headless
-  // controls ignore synthetic pointer/mouse activation but still honor keyboard
-  // semantics. Use that as a narrow fallback only when the semantic combobox is
-  // still closed after the mouse path.
-  let keyboardFallbackUsed = false;
-  if (semanticMouseDownControl && after.ariaExpanded !== "true" && after.dataState !== "open" && after.visiblePopupCount === 0) {
-    if (element instanceof HTMLElement) {
-      try { element.focus({ preventScroll: true }); } catch {}
+      const css = getComputedStyle(node);
+      return box.width > 0 && box.height > 0 && css.display !== "none" && css.visibility !== "hidden" && css.opacity !== "0";
+    };
+    const readActivationState = () => {
+      const target = control || element;
+      const popupIds = [...new Set(
+        [target.getAttribute("aria-controls"), target.getAttribute("aria-owns")]
+          .filter(Boolean).join(" ").split(/\s+/).filter(Boolean),
+      )];
+      return {
+        ariaExpanded: target.getAttribute("aria-expanded"),
+        ariaHasPopup: target.getAttribute("aria-haspopup"),
+        dataState: target.getAttribute("data-state"),
+        // Only popups explicitly associated with this control influence
+        // activation. Unrelated dialogs/tooltips must never swallow a click.
+        associatedPopupCount: popupIds.filter((id) => isVisible(document.getElementById(id))).length,
+      };
+    };
+    const stateChanged = (before, after) => before.ariaExpanded !== after.ariaExpanded
+      || before.dataState !== after.dataState
+      || before.associatedPopupCount !== after.associatedPopupCount;
+    const before = readActivationState();
+    if (clickStrategy === "dom-click") {
+      if (!(element instanceof HTMLElement) || typeof HTMLElement.prototype.click !== "function") {
+        const error = new Error("Direct DOM click requires an HTML element with native click activation.");
+        error.code = "CHROME_CLICK_STRATEGY_UNSUPPORTED";
+        throw error;
+      }
+      assertTarget();
+      if (isDisabled()) {
+        const error = new Error("The click target became disabled before dispatch.");
+        error.code = "CHROME_ELEMENT_DISABLED";
+        throw error;
+      }
+      stage = "click";
+      // This explicit alternative performs only native HTMLElement.click().
+      // It does not scroll, hover, focus, or send a pointer/mouse prelude, and it
+      // is never selected automatically after another strategy has dispatched.
+      actionDispatched = true;
+      clickDispatched = true;
+      events.push("click");
+      HTMLElement.prototype.click.call(element);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      const after = readActivationState();
+      return {
+        clicked: clickDispatched, clickDispatched, actionDispatched, focusEventFallbackUsed,
+        activationObserved: semanticMouseDownControl ? stateChanged(before, after) : null,
+        applicationAccepted: null, outcomeVerified: false, selector,
+        strategy: "dom-click", activation: "click", trusted: false,
+        pointerDownAllowed: null, mouseDownAllowed: null, semanticMouseDownControl,
+        keyboardFallbackUsed: false, stateChangedOnMouseDown: false,
+        before, afterMouseDown: null, after, clientX: null, clientY: null, events,
+        title: document.title, url: location.href,
+      };
     }
-    const keyCommon = { bubbles: true, cancelable: true, composed: true, key: "ArrowDown", code: "ArrowDown" };
-    events.push("keydown:ArrowDown");
-    element.dispatchEvent(new KeyboardEvent("keydown", keyCommon));
-    events.push("keyup:ArrowDown");
-    element.dispatchEvent(new KeyboardEvent("keyup", keyCommon));
-    keyboardFallbackUsed = true;
+    stage = "pointer-down";
+    dispatchPointer("pointerover", 0);
+    dispatchMouse("mouseover", 0);
+    dispatchPointer("pointermove", 0);
+    dispatchMouse("mousemove", 0);
+    const pointerDownAllowed = dispatchPointer("pointerdown", 1);
+    assertTarget();
+    const mouseDownAllowed = pointerDownAllowed ? dispatchMouse("mousedown", 1) : null;
+    if (mouseDownAllowed && element instanceof HTMLElement) {
+      focusTarget();
+    }
     await new Promise((resolve) => setTimeout(resolve, 0));
-    after = readActivationState();
-    if (after.ariaExpanded === "true" || after.dataState === "open" || after.visiblePopupCount > 0) {
-      activation = "keyboard-arrowdown";
+    stage = "after-mousedown";
+    assertTarget();
+    const afterMouseDown = readActivationState();
+    const activatedOnMouseDown = semanticMouseDownControl && stateChanged(before, afterMouseDown);
+    dispatchPointer("pointerup", 0);
+    if (pointerDownAllowed) dispatchMouse("mouseup", 0);
+    assertTarget();
+    let activation = "mousedown";
+    if (!activatedOnMouseDown) {
+      if (isDisabled()) {
+        const error = new Error("The click target became disabled during dispatch.");
+        error.code = "CHROME_ELEMENT_DISABLED";
+        throw error;
+      }
+      stage = "click";
+      events.push("click");
+      actionDispatched = true;
+      clickDispatched = true;
+      // HTMLElement.click() creates a zero-detail activation with no pointer
+      // coordinates. Finish this mouse sequence with a matching pointer click;
+      // applications can distinguish it from keyboard-style activation. It is
+      // still an untrusted DOM event, with normal cancelable default actions.
+      const clickOptions = { ...common, buttons: 0, detail: 1 };
+      const clickEvent = typeof PointerEvent === "function"
+        ? new PointerEvent("click", { ...clickOptions, pointerId: 1, pointerType: "mouse", pressure: 0 })
+        : new MouseEvent("click", clickOptions);
+      element.dispatchEvent(clickEvent);
+      activation = "click";
     }
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    let after = readActivationState();
+    // A closed combobox has a standard ArrowDown operation. Do not send an
+    // unsolicited arrow to a generic menu/dialog button or a control just closed
+    // by this action; that would undo the user's click.
+    let keyboardFallbackUsed = false;
+    const opened = (state) => state.ariaExpanded === "true" || state.dataState === "open" || state.associatedPopupCount > 0;
+    if (control?.getAttribute("role") === "combobox" && !opened(before) && !opened(after) && !stateChanged(before, after)) {
+      stage = "keyboard-fallback";
+      assertTarget();
+      if (element instanceof HTMLElement) {
+        focusTarget();
+      }
+      const keyCommon = { bubbles: true, cancelable: true, composed: true, key: "ArrowDown", code: "ArrowDown" };
+      events.push("keydown:ArrowDown");
+      element.dispatchEvent(new KeyboardEvent("keydown", keyCommon));
+      events.push("keyup:ArrowDown");
+      element.dispatchEvent(new KeyboardEvent("keyup", keyCommon));
+      keyboardFallbackUsed = true;
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      after = readActivationState();
+      if (opened(after)) activation = "keyboard-arrowdown";
+    }
+    return {
+      // This is dispatch evidence, never an application/persistence receipt.
+      clicked: clickDispatched,
+      clickDispatched,
+      actionDispatched,
+      focusEventFallbackUsed,
+      activationObserved: semanticMouseDownControl ? stateChanged(before, after) : null,
+      outcomeVerified: false,
+      selector,
+      strategy: "adaptive-pointer-mouse-sequence",
+      activation,
+      trusted: false,
+      pointerDownAllowed,
+      mouseDownAllowed,
+      semanticMouseDownControl,
+      keyboardFallbackUsed,
+      stateChangedOnMouseDown: stateChanged(before, afterMouseDown),
+      before, afterMouseDown, after, clientX, clientY, events,
+      title: document.title,
+      url: location.href,
+    };
+  } catch (error) {
+    const details = { stage, actionDispatched, clickDispatched, focusEventFallbackUsed, outcomeVerified: false };
+    error.details = { ...(error.details || {}), ...details };
+    if (!options.errorsAsData) throw error;
+    return { __mdbPageActionError: { code: error.code || "CHROME_CLICK_FAILED", ...details } };
   }
-
-  return {
-    clicked: true,
-    selector,
-    strategy: "adaptive-pointer-mouse-sequence",
-    activation,
-    trusted: false,
-    mouseDownAllowed,
-    semanticMouseDownControl,
-    keyboardFallbackUsed,
-    stateChangedOnMouseDown: stateChanged(before, afterMouseDown),
-    before,
-    afterMouseDown,
-    after,
-    clientX,
-    clientY,
-    events,
-    title: document.title,
-    url: location.href,
-  };
 }
 
-async function pageFill(selector, value, submit) {
-  const matches = [...document.querySelectorAll(selector)];
-  if (matches.length === 0) throw new Error(`No element matches selector: ${selector}`);
-  const isFillable = (candidate) => candidate?.isContentEditable
-    || candidate instanceof HTMLInputElement
-    || candidate instanceof HTMLTextAreaElement
-    || candidate instanceof HTMLSelectElement;
-  const isDisabled = (candidate) => Boolean(candidate?.disabled)
-    || candidate?.getAttribute?.("aria-disabled") === "true";
-  const isVisible = (candidate) => {
-    if (!(candidate instanceof Element)) return false;
-    const rect = candidate.getBoundingClientRect();
-    const style = getComputedStyle(candidate);
-    return rect.width > 0
-      && rect.height > 0
-      && style.visibility !== "hidden"
-      && style.display !== "none"
-      && style.opacity !== "0";
+async function pageFill(selector, value, submit, options = {}) {
+  let stage = "resolve";
+  let actionDispatched = false;
+  let targetReplaced = false;
+  let inputStrategy = null;
+  let focusEventFallbackUsed = false;
+  let blurEventFallbackUsed = false;
+  const commit = options.commit || "change";
+  const normalization = options.normalization || "exact";
+  const requestedInputStrategy = options.inputStrategy ?? "set-value";
+  const deadline = Number(options.deadlineMs);
+  const fail = (code, message) => { const error = new Error(message); error.code = code; throw error; };
+  const assertDeadline = () => {
+    if (Number.isFinite(deadline) && Date.now() >= deadline) {
+      fail("CHROME_OPERATION_DEADLINE_EXCEEDED", "The browser action deadline elapsed; reconcile the outcome before retrying.");
+    }
   };
-  const fillableMatches = matches.filter(isFillable);
-  if (fillableMatches.length === 0) {
-    const error = new Error(`Element ${selector} is not fillable.`);
-    error.code = "CHROME_ELEMENT_NOT_FILLABLE";
-    throw error;
-  }
-  const visibleMatches = fillableMatches.filter(isVisible);
-  if (visibleMatches.length === 0) {
-    const error = new Error(`No visible fillable element matches selector: ${selector}`);
-    error.code = "CHROME_ELEMENT_NOT_VISIBLE";
-    throw error;
-  }
-  const element = visibleMatches.find((candidate) => !isDisabled(candidate));
-  if (!element) {
-    const error = new Error(`Every visible matching element is disabled: ${selector}`);
-    error.code = "CHROME_ELEMENT_DISABLED";
-    throw error;
-  }
-  const selectedMatchIndex = matches.indexOf(element);
-  const selectedVisible = true;
-  const selectedDisabled = false;
-  if (element instanceof HTMLInputElement && element.type === "file") {
-    const error = new Error("File inputs require foreground/user interaction; background mode will not populate one.");
-    error.code = "CHROME_FOREGROUND_REQUIRED";
-    throw error;
-  }
-  if (element.isContentEditable) {
-    element.focus();
-    const selection = window.getSelection();
-    const range = document.createRange();
-    range.selectNodeContents(element);
-    selection.removeAllRanges();
-    selection.addRange(range);
-    document.execCommand("insertText", false, value);
-    element.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: value }));
-  } else if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement) {
-    try { element.focus({ preventScroll: true }); } catch { element.focus(); }
-    try { element.select(); } catch {}
-    const setWithNativeEvents = () => {
-      const prototype = element instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
-      const setter = Object.getOwnPropertyDescriptor(prototype, "value")?.set;
-      if (setter) setter.call(element, value);
-      else element.value = value;
-      element.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: value }));
-      element.dispatchEvent(new Event("change", { bubbles: true }));
+  try {
+    assertDeadline();
+    if (!["change", "blur"].includes(commit)) fail("CHROME_FILL_COMMIT_INVALID", "Fill commit must be change or blur.");
+    if (!["exact", "numeric"].includes(normalization)) fail("CHROME_FILL_NORMALIZATION_INVALID", "Fill normalization must be exact or numeric.");
+    if (!["set-value", "insert-text", "text-input"].includes(requestedInputStrategy)) fail("CHROME_FILL_INPUT_STRATEGY_INVALID", "Fill input strategy must be set-value, insert-text, or text-input.");
+    const documentAtStart = document;
+    const matches = [...document.querySelectorAll(selector)];
+    if (!matches.length) fail("CHROME_ELEMENT_NOT_FOUND", "No element matches the fill selector.");
+    const isFillable = (candidate) => candidate?.isContentEditable
+      || candidate instanceof HTMLInputElement || candidate instanceof HTMLTextAreaElement || candidate instanceof HTMLSelectElement;
+    const isDisabled = (candidate) => Boolean(candidate.disabled) || candidate.matches(":disabled") || candidate.getAttribute("aria-disabled") === "true";
+    const isReadOnly = (candidate) => Boolean(candidate.readOnly) || candidate.getAttribute("aria-readonly") === "true";
+    const isVisible = (candidate) => {
+      if (!(candidate instanceof Element) || !candidate.isConnected) return false;
+      const rect = candidate.getBoundingClientRect();
+      const style = getComputedStyle(candidate);
+      return rect.width > 0 && rect.height > 0 && style.visibility !== "hidden" && style.display !== "none" && style.opacity !== "0";
     };
-    const FRAMEWORK_COMMIT_FALLBACK_MS = 250;
+    const fillableMatches = matches.filter(isFillable);
+    if (!fillableMatches.length) fail("CHROME_ELEMENT_NOT_FILLABLE", "The target is not an editable control.");
+    const visibleMatches = fillableMatches.filter(isVisible);
+    if (!visibleMatches.length) fail("CHROME_ELEMENT_NOT_VISIBLE", "No visible fillable element matches the selector.");
+    const enabledMatches = visibleMatches.filter((candidate) => !isDisabled(candidate));
+    if (!enabledMatches.length) fail("CHROME_ELEMENT_DISABLED", "Every visible matching field is disabled.");
+    const original = enabledMatches.find((candidate) => !isReadOnly(candidate));
+    if (!original) fail("CHROME_ELEMENT_READ_ONLY", "Every visible matching field is read-only.");
+    let element = original;
+    const assertEditable = () => {
+      if (isDisabled(element)) fail("CHROME_ELEMENT_DISABLED", "The field became disabled before the next mutation.");
+      if (isReadOnly(element)) fail("CHROME_ELEMENT_READ_ONLY", "The field became read-only before the next mutation.");
+    };
+    const type = element instanceof HTMLInputElement ? element.type : null;
+    if (type === "file") fail("CHROME_FOREGROUND_REQUIRED", "Background fill cannot populate a file input.");
+    if (["checkbox", "radio", "button", "submit", "reset", "image", "hidden"].includes(type)) {
+      fail("CHROME_ELEMENT_NOT_FILLABLE", "This input type does not support text fill; use its appropriate control action.");
+    }
+    if (element instanceof HTMLSelectElement && element.multiple) {
+      fail("CHROME_SELECT_MULTIPLE_UNSUPPORTED", "A multiple select needs an explicit multi-value operation.");
+    }
+    const legacyTextInput = requestedInputStrategy === "text-input";
+    if (legacyTextInput && element.isContentEditable) {
+      fail("CHROME_FILL_INPUT_STRATEGY_UNSUPPORTED", "Legacy text-input editing requires a supported native text input or textarea.");
+    }
+    const nativeTextEdit = ["insert-text", "text-input"].includes(requestedInputStrategy) && !element.isContentEditable;
+    if (nativeTextEdit && !(element instanceof HTMLTextAreaElement
+      || element instanceof HTMLInputElement && ["text", "search", "tel", "url", "password"].includes(type))) {
+      fail("CHROME_FILL_INPUT_STRATEGY_UNSUPPORTED", "Native text editing requires a text, search, tel, url, or password input, a textarea, or contenteditable.");
+    }
+    if (normalization === "numeric" && !(element instanceof HTMLInputElement
+      && (["number", "range"].includes(type) || ["decimal", "numeric"].includes(element.getAttribute("inputmode"))))) {
+      fail("CHROME_FILL_NORMALIZATION_UNSUPPORTED", "Numeric normalization requires a numeric input type or inputmode.");
+    }
+    const identity = {
+      tag: element.tagName, type,
+      id: element.id || "", name: element.getAttribute("name") || "", role: element.getAttribute("role") || "",
+      editable: Boolean(element.isContentEditable),
+    };
+    const sameControl = (candidate) => candidate.tagName === identity.tag
+      && (candidate instanceof HTMLInputElement ? candidate.type : null) === identity.type
+      && Boolean(candidate.isContentEditable) === identity.editable
+      && (!identity.id || candidate.id === identity.id)
+      && (!identity.name || candidate.getAttribute("name") === identity.name)
+      && (!identity.role || candidate.getAttribute("role") === identity.role);
+    const resolveCurrent = () => {
+      if (document !== documentAtStart) fail("CHROME_TARGET_CHANGED", "The document changed while filling.");
+      const fresh = [...document.querySelectorAll(selector)].filter(isFillable).filter(isVisible);
+      if (element.isConnected && fresh.includes(element) && sameControl(element)) return element;
+      const candidates = fresh.filter(sameControl);
+      if (candidates.length !== 1) {
+        fail("CHROME_TARGET_CHANGED", "The filled control was replaced and cannot be uniquely resolved.");
+      }
+      targetReplaced = targetReplaced || candidates[0] !== original;
+      element = candidates[0];
+      return element;
+    };
+    const editableText = (root) => {
+      // Chromium inserts new editable lines as DIV/P blocks with a lone BR for
+      // an empty line. innerText adds extra breaks around those placeholders;
+      // textContent drops all block breaks. Read the native line structure
+      // instead, preserving every text-node space and explicit line.
+      const visit = (parent) => {
+        const nodes = [...parent.childNodes].filter((node) => {
+          if (node.nodeType === 3) return node.nodeValue !== "";
+          return node.nodeType === 1 && getComputedStyle(node).display !== "none";
+        });
+        if (nodes.length === 1 && nodes[0].nodeType === 1 && nodes[0].tagName === "BR") return "";
+        let output = "";
+        let previousWasBlock = false;
+        let havePrevious = false;
+        for (const node of nodes) {
+          const isElement = node.nodeType === 1;
+          const isBreak = isElement && node.tagName === "BR";
+          const display = isElement ? getComputedStyle(node).display : "";
+          const block = isElement && !isBreak && ["block", "flow-root", "list-item", "flex", "grid", "table-row"].includes(display);
+          const text = node.nodeType === 3 ? node.nodeValue : isBreak ? "\n" : visit(node);
+          if (block) {
+            if (havePrevious && (previousWasBlock || !output.endsWith("\n"))) output += "\n";
+            output += text;
+            previousWasBlock = true;
+            havePrevious = true;
+          } else {
+            if (previousWasBlock && !output.endsWith("\n")) output += "\n";
+            output += text;
+            if (text) { havePrevious = true; previousWasBlock = false; }
+          }
+        }
+        return output;
+      };
+      return visit(root);
+    };
+    const readValue = (candidate) => candidate.isContentEditable
+      ? editableText(candidate) : String(candidate.value ?? "");
+    // Canonical decimal comparison does not collapse distinct large integers
+    // through floating-point rounding. Numeric normalization is opt-in.
+    const decimal = (text) => {
+      const match = /^([+-]?)(?:(\d+)(?:\.(\d*))?|\.(\d+))(?:[eE]([+-]?\d+))?$/.exec(text.trim());
+      if (!match || !Number.isFinite(Number(text)) || text.length > 10000) return null;
+      const fraction = match[3] ?? match[4] ?? "";
+      let digits = ((match[2] || "") + fraction).replace(/^0+/, "");
+      if (!digits) return "0";
+      let exponent = Number(match[5] || 0) - fraction.length;
+      const trailing = /0+$/.exec(digits)?.[0].length || 0;
+      if (trailing) { digits = digits.slice(0, -trailing); exponent += trailing; }
+      return (match[1] === "-" ? "-" : "") + digits + "e" + exponent;
+    };
+    let expectedValue = String(value);
+    const matchesExpected = (actual) => actual === expectedValue || (normalization === "numeric"
+      && decimal(actual) !== null && decimal(actual) === decimal(expectedValue));
     const waitForFrameworkCommit = () => new Promise((resolve) => {
       let settled = false;
       let fallbackTimer = null;
@@ -3517,96 +3798,317 @@ async function pageFill(selector, value, submit) {
         if (fallbackTimer !== null) clearTimeout(fallbackTimer);
         resolve();
       };
-      // Inactive/background Chrome tabs may suspend requestAnimationFrame
-      // indefinitely. Retain the two-frame framework settle path when it is
-      // available, but never let a fill request wait on animation frames alone.
-      fallbackTimer = setTimeout(finish, FRAMEWORK_COMMIT_FALLBACK_MS);
-      try {
-        requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(finish, 0)));
-      } catch {
-        finish();
-      }
+      // Background tabs may suspend rAF indefinitely; keep the wait bounded.
+      fallbackTimer = setTimeout(finish, 250);
+      try { requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(finish, 0))); }
+      catch { finish(); }
     });
-    let inserted = false;
-    try { inserted = Boolean(document.execCommand("insertText", false, value)); } catch {}
-    if (!inserted || element.value !== value) setWithNativeEvents();
-    await waitForFrameworkCommit();
-    if (element.value !== value) {
-      setWithNativeEvents();
-      await waitForFrameworkCommit();
-    }
-    if (element.value !== value) {
-      const error = new Error(`Element ${selector} did not retain the filled value.`);
-      error.code = "CHROME_FILL_NOT_STICKY";
-      throw error;
-    }
-  } else if (element instanceof HTMLSelectElement) {
-    const exactValue = [...element.options].find((option) => option.value === value);
-    const labelMatch = [...element.options].find(
-      (option) => String(option.textContent || "").trim().toLowerCase() === value.trim().toLowerCase(),
-    );
-    const option = exactValue || labelMatch;
-    if (!option) {
-      const error = new Error(`No select option matches value or label: ${value}`);
-      error.code = "CHROME_SELECT_OPTION_NOT_FOUND";
-      throw error;
-    }
-    element.value = option.value;
-    element.dispatchEvent(new Event("input", { bubbles: true }));
-    element.dispatchEvent(new Event("change", { bubbles: true }));
-  } else {
-    const error = new Error(`Element ${selector} is not fillable.`);
-    error.code = "CHROME_ELEMENT_NOT_FILLABLE";
-    throw error;
-  }
-  let submitStrategy = null;
-  let submitterTag = null;
-  let submitterType = null;
-  const form = element.closest("form");
-  if (submit) {
-    const submitter = form
-      ? [...form.querySelectorAll('button:not([type]),button[type="submit"],input[type="submit"]')]
-        .find((candidate) => isVisible(candidate) && !isDisabled(candidate))
-      : null;
-    submitterTag = submitter?.tagName?.toLowerCase?.() || null;
-    submitterType = submitter?.getAttribute?.("type") || (submitterTag === "button" ? "submit" : null);
-    if (form?.requestSubmit) {
-      if (submitter) {
-        form.requestSubmit(submitter);
-        submitStrategy = "requestSubmit:visible-submitter";
-      } else {
-        form.requestSubmit();
-        submitStrategy = "requestSubmit";
+    const transitionFocus = (candidate, direction) => {
+      const gainingFocus = direction === "focus";
+      const types = gainingFocus ? ["focus", "focusin"] : ["blur", "focusout"];
+      const activeBefore = document.activeElement;
+      const transitioning = gainingFocus ? activeBefore !== candidate : activeBefore === candidate;
+      const observed = new Set();
+      const observe = (event) => {
+        if (event.target === candidate) observed.add(event.type);
+      };
+      const assertCurrent = () => {
+        assertDeadline();
+        if (resolveCurrent() !== candidate) fail("CHROME_TARGET_CHANGED", "The field changed during its focus transition.");
+        assertEditable();
+      };
+      const transitionReached = () => gainingFocus
+        ? document.activeElement === candidate : document.activeElement !== candidate;
+      assertCurrent();
+      for (const type of types) {
+        candidate.addEventListener(type, observe, true);
+        document.addEventListener(type, observe, true);
       }
-    } else if (submitter?.click) {
-      submitter.click();
-      submitStrategy = "submitter.click";
-    } else {
-      element.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", code: "Enter", bubbles: true }));
-      submitStrategy = "keyboard-enter";
+      try {
+        if (gainingFocus) {
+          try { candidate.focus({ preventScroll: true }); } catch { candidate.focus(); }
+        } else {
+          candidate.blur();
+          if (document.activeElement === candidate) fail("CHROME_FOCUS_CHANGED", "The field kept or regained focus during its requested blur commit.");
+        }
+        // In a genuinely inactive Chrome tab these native methods change
+        // activeElement but can omit the entire focus event family. Supply
+        // only missing events for that actual transition; never activate the
+        // tab or duplicate events that the browser already dispatched.
+        if (transitioning && typeof document.hasFocus === "function" && !document.hasFocus()
+          && transitionReached()) {
+          const relatedTarget = gainingFocus && activeBefore instanceof Element
+            && activeBefore !== document.body && activeBefore !== document.documentElement ? activeBefore : null;
+          for (const type of types) {
+            if (observed.has(type)) continue;
+            assertCurrent();
+            if (!transitionReached()) fail("CHROME_FOCUS_CHANGED", "The page changed focus during the field commit; no remaining focus event was dispatched.");
+            if (gainingFocus) focusEventFallbackUsed = true;
+            else blurEventFallbackUsed = true;
+            candidate.dispatchEvent(new FocusEvent(type, {
+              bubbles: type === "focusin" || type === "focusout",
+              composed: true, relatedTarget,
+            }));
+          }
+          assertDeadline();
+          if (!transitionReached()) fail("CHROME_FOCUS_CHANGED", "The page changed focus during the field commit.");
+        }
+      } finally {
+        for (const type of types) {
+          candidate.removeEventListener(type, observe, true);
+          document.removeEventListener(type, observe, true);
+        }
+      }
+    };
+    const focus = (candidate) => transitionFocus(candidate, "focus");
+    stage = "focus";
+    actionDispatched = true;
+    focus(element);
+    if (resolveCurrent() !== original) {
+      fail("CHROME_TARGET_CHANGED", "The field changed while receiving focus; no value was written.");
     }
+    assertEditable();
+    assertDeadline();
+    stage = "input";
+    if (element instanceof HTMLSelectElement) {
+      const option = [...element.options].find((candidate) => candidate.value === expectedValue)
+        || [...element.options].find((candidate) => String(candidate.textContent || "").trim().toLowerCase() === expectedValue.trim().toLowerCase());
+      if (!option) fail("CHROME_SELECT_OPTION_NOT_FOUND", "No select option matches the requested value or label.");
+      if (option.disabled || option.parentElement?.disabled) fail("CHROME_SELECT_OPTION_DISABLED", "The requested select option is disabled.");
+      expectedValue = option.value;
+      inputStrategy = "native-select-setter";
+      const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")?.set;
+      if (setter) setter.call(element, expectedValue); else element.value = expectedValue;
+      element.dispatchEvent(new Event("input", { bubbles: true, composed: true }));
+      resolveCurrent().dispatchEvent(new Event("change", { bubbles: true }));
+    } else {
+      inputStrategy = element.isContentEditable ? "contenteditable-insert-text"
+        : legacyTextInput ? "native-insert-text-with-text-input"
+          : nativeTextEdit ? "native-insert-text" : "native-value-setter";
+      let selectedValue = null;
+      const assertNativeTextSelection = () => {
+        if (document.activeElement !== element || String(element.value) !== selectedValue
+          || element.selectionStart !== 0 || element.selectionEnd !== selectedValue.length) {
+          fail("CHROME_TEXT_EDIT_SELECTION_CHANGED", "The native text edit lost its focused full-value selection; no editing operation was dispatched.");
+        }
+      };
+      if (nativeTextEdit) {
+        const prototype = element instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+        const selectRange = prototype.setSelectionRange;
+        if (typeof selectRange !== "function") fail("CHROME_FILL_INPUT_STRATEGY_UNSUPPORTED", "The control does not support a native text selection.");
+        selectedValue = String(element.value);
+        try { selectRange.call(element, 0, selectedValue.length); }
+        catch { fail("CHROME_FILL_INPUT_STRATEGY_UNSUPPORTED", "The control did not accept a full-value text selection."); }
+        if (resolveCurrent() !== original) fail("CHROME_TARGET_CHANGED", "The field changed while selecting its text; no edit was dispatched.");
+        assertEditable();
+        assertNativeTextSelection();
+        assertDeadline();
+      }
+      // Frameworks receive a cancelable edit intent before the selected edit.
+      // These remain untrusted DOM events, not browser-level user activation.
+      const beforeInput = new InputEvent("beforeinput", {
+        bubbles: true, cancelable: true, composed: true, inputType: "insertText", data: expectedValue,
+      });
+      if (!element.dispatchEvent(beforeInput)) fail("CHROME_INPUT_CANCELLED", "The page cancelled the beforeinput event.");
+      if (resolveCurrent() !== original) fail("CHROME_TARGET_CHANGED", "The field changed before the value could be written.");
+      assertEditable();
+      assertDeadline();
+      if (element.isContentEditable) {
+        const selection = window.getSelection();
+        if (!selection) fail("CHROME_ELEMENT_NOT_FILLABLE", "The editable document has no text selection.");
+        const range = document.createRange();
+        range.selectNodeContents(element);
+        selection.removeAllRanges();
+        selection.addRange(range);
+        let inputObserved = false;
+        const observeInput = () => { inputObserved = true; };
+        element.addEventListener("input", observeInput, { once: true });
+        let inserted;
+        try { inserted = document.execCommand("insertText", false, expectedValue); }
+        finally { element.removeEventListener("input", observeInput); }
+        if (!inserted) fail("CHROME_CONTENTEDITABLE_INPUT_UNSUPPORTED", "The browser did not accept the editable text operation.");
+        if (!inputObserved) element.dispatchEvent(new InputEvent("input", { bubbles: true, composed: true, inputType: "insertText", data: expectedValue }));
+      } else if (nativeTextEdit) {
+        // Use one explicit browser editing operation. Never replay a rejected
+        // edit with the setter, and never duplicate browser-emitted input events
+        // (multiline textarea edits can emit several from this single command).
+        assertNativeTextSelection();
+        if (legacyTextInput) {
+          // Some framework before-input handlers listen to the browser's legacy
+          // textInput event. This explicit strategy supplies that cancelable
+          // intent before the one native edit; it is not a second text write.
+          let textInput;
+          try {
+            textInput = document.createEvent("TextEvent");
+            textInput.initTextEvent("textInput", true, true, window, expectedValue);
+          } catch {
+            fail("CHROME_TEXT_INPUT_EVENT_UNSUPPORTED", "The browser does not support the requested legacy text-input event.");
+          }
+          let inputHandledByPage = false;
+          const observePageInput = () => { inputHandledByPage = true; };
+          element.addEventListener("input", observePageInput, true);
+          let textInputAllowed;
+          try { textInputAllowed = element.dispatchEvent(textInput); }
+          finally { element.removeEventListener("input", observePageInput, true); }
+          if (!textInputAllowed) fail("CHROME_INPUT_CANCELLED", "The page cancelled the textInput event.");
+          if (inputHandledByPage) fail("CHROME_TEXT_EDIT_ALREADY_HANDLED", "The page handled text-input intent with its own input event; no additional edit was dispatched.");
+          if (resolveCurrent() !== original) fail("CHROME_TARGET_CHANGED", "The field changed during text-input intent; no native edit was dispatched.");
+          assertEditable();
+          assertNativeTextSelection();
+          assertDeadline();
+        }
+        const inserted = document.execCommand("insertText", false, expectedValue);
+        if (!inserted) fail("CHROME_TEXT_EDIT_UNSUPPORTED", "The browser did not accept the native text editing operation.");
+      } else {
+        const prototype = element instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+        const setter = Object.getOwnPropertyDescriptor(prototype, "value")?.set;
+        if (!setter) fail("CHROME_ELEMENT_NOT_FILLABLE", "The native value setter is unavailable.");
+        setter.call(element, expectedValue);
+        element.dispatchEvent(new InputEvent("input", { bubbles: true, composed: true, inputType: "insertText", data: expectedValue }));
+      }
+      // A native text edit produces its own change event on a real blur. Keep
+      // that single commit event when blur was explicitly requested.
+      if (!(nativeTextEdit && commit === "blur")) resolveCurrent().dispatchEvent(new Event("change", { bubbles: true }));
+    }
+    stage = "framework-commit";
+    await waitForFrameworkCommit();
+    resolveCurrent();
+    if (commit === "blur") {
+      assertDeadline();
+      stage = "blur-commit";
+      assertEditable();
+      // Replacements can lose DOM focus. Focus the verified replacement before
+      // its real blur method so its own focusout/blur handlers receive the commit.
+      if (document.activeElement !== element) focus(element);
+      const beforeBlur = element;
+      resolveCurrent();
+      if (element !== beforeBlur) fail("CHROME_TARGET_CHANGED", "The field changed while preparing its blur commit.");
+      assertEditable();
+      assertDeadline();
+      if (document.activeElement !== element) fail("CHROME_FOCUS_CHANGED", "The field did not receive focus for its requested blur commit.");
+      transitionFocus(element, "blur");
+      await waitForFrameworkCommit();
+      resolveCurrent();
+    }
+    stage = "verify";
+    const actualValue = readValue(element);
+    if (!matchesExpected(actualValue)) {
+      // Never overwrite a formatter's result or replay an edit into a replaced
+      // node just because the old detached node retained the requested string.
+      fail("CHROME_FILL_NOT_STICKY", "The current field did not retain the requested value under the chosen normalization.");
+    }
+    const readValidation = () => {
+      const validity = element.validity;
+      return {
+        valid: validity ? Boolean(validity.valid) : null,
+        willValidate: "willValidate" in element ? Boolean(element.willValidate) : null,
+        flags: validity ? Object.fromEntries(
+          ["badInput", "customError", "patternMismatch", "rangeOverflow", "rangeUnderflow", "stepMismatch", "tooLong", "tooShort", "typeMismatch", "valueMissing"]
+            .map((name) => [name, Boolean(validity[name])]),
+        ) : null,
+        validationMessage: typeof element.validationMessage === "string" ? element.validationMessage.slice(0, 1000) : null,
+        ariaInvalid: element.getAttribute("aria-invalid"),
+        associatedErrors: [...new Set(
+          [element.getAttribute("aria-errormessage"), element.getAttribute("aria-describedby")]
+            .filter(Boolean).join(" ").split(/\s+/).filter(Boolean),
+        )].map((id) => document.getElementById(id)).filter(isVisible)
+          .map((node) => String(node.innerText || node.textContent || "").trim().slice(0, 1000)),
+      };
+    };
+    const validation = readValidation();
+    const form = element.form || element.closest("form");
+    let submitStrategy = null;
+    let submitterTag = null;
+    let submitterType = null;
+    let submissionObserved = false;
+    let submissionBlocked = false;
+    let submitDefaultPrevented = null;
+    if (submit) {
+      assertDeadline();
+      stage = "submit";
+      assertEditable();
+      let observedEvent = null;
+      let invalidCount = 0;
+      const onSubmit = (event) => {
+        if (!form || event.target === form) { submissionObserved = true; observedEvent = event; }
+      };
+      const onInvalid = (event) => {
+        if (form && (event.target.form === form || form.contains(event.target))) invalidCount += 1;
+      };
+      document.addEventListener("submit", onSubmit, true);
+      document.addEventListener("invalid", onInvalid, true);
+      try {
+        const submitters = form ? [...(form.elements || form.querySelectorAll('button,input'))] : [];
+        const submitter = submitters.find((candidate) => candidate.matches('button:not([type]),button[type="submit"],input[type="submit"]') && isVisible(candidate) && !isDisabled(candidate));
+        submitterTag = submitter?.tagName?.toLowerCase() || null;
+        submitterType = submitter?.getAttribute("type") || (submitterTag === "button" ? "submit" : null);
+        if (typeof form?.requestSubmit === "function") {
+          if (submitter) { form.requestSubmit(submitter); submitStrategy = "requestSubmit:visible-submitter"; }
+          else { form.requestSubmit(); submitStrategy = "requestSubmit"; }
+        } else if (typeof submitter?.click === "function") {
+          submitter.click();
+          submitStrategy = "submitter.click";
+        } else {
+          const key = { key: "Enter", code: "Enter", bubbles: true, cancelable: true, composed: true };
+          element.dispatchEvent(new KeyboardEvent("keydown", key));
+          element.dispatchEvent(new KeyboardEvent("keyup", key));
+          submitStrategy = "keyboard-enter";
+        }
+        await waitForFrameworkCommit();
+        submissionBlocked = invalidCount > 0 && !submissionObserved ? true : submissionObserved ? false : null;
+        submitDefaultPrevented = observedEvent ? Boolean(observedEvent.defaultPrevented) : null;
+      } finally {
+        document.removeEventListener("submit", onSubmit, true);
+        document.removeEventListener("invalid", onInvalid, true);
+      }
+    }
+    return {
+      filled: true,
+      domValueRetained: true,
+      applicationAccepted: null,
+      outcomeVerified: false,
+      trusted: false,
+      actionDispatched,
+      targetReplaced,
+      focusEventFallbackUsed,
+      blurEventFallbackUsed,
+      commit, normalization, inputStrategy,
+      normalized: actualValue !== expectedValue,
+      validation,
+      submissionRequested: Boolean(submit),
+      submissionObserved,
+      submissionBlocked,
+      submitDefaultPrevented,
+      submitted: submissionObserved,
+      submitStrategy, submitterTag, submitterType,
+      selector,
+      matchCount: matches.length,
+      fillableMatchCount: fillableMatches.length,
+      selectedMatchIndex: matches.indexOf(original),
+      selectedVisible: true,
+      selectedDisabled: isDisabled(element),
+      selectedReadOnly: isReadOnly(element),
+      selectedTag: element.tagName.toLowerCase(),
+      formAction: form?.action || null,
+      formMethod: String(form?.method || "").toUpperCase() || null,
+      title: document.title,
+      url: location.href,
+    };
+  } catch (error) {
+    const details = { stage, actionDispatched, targetReplaced, focusEventFallbackUsed, blurEventFallbackUsed, commit, normalization, inputStrategy, outcomeVerified: false };
+    error.details = { ...(error.details || {}), ...details };
+    if (!options.errorsAsData) throw error;
+    return { __mdbPageActionError: { code: error.code || "CHROME_FILL_FAILED", ...details } };
   }
-  return {
-    filled: true,
-    submitted: Boolean(submit),
-    submitStrategy,
-    submitterTag,
-    submitterType,
-    selector,
-    matchCount: matches.length,
-    fillableMatchCount: fillableMatches.length,
-    selectedMatchIndex,
-    selectedVisible,
-    selectedDisabled,
-    selectedTag: element.tagName?.toLowerCase?.() || null,
-    formAction: form?.action || null,
-    formMethod: String(form?.method || "").toUpperCase() || null,
-    title: document.title,
-    url: location.href,
-  };
 }
 
-async function executeInTab(tabId, func, args, world = "ISOLATED") {
+async function executeInTab(tabId, func, args, world = "ISOLATED", context = {}) {
+  if (Number.isFinite(context.deadlineMs) && Date.now() >= context.deadlineMs) {
+    const error = new Error("The action deadline elapsed before script injection.");
+    error.code = "CHROME_OPERATION_DEADLINE_EXCEEDED";
+    error.details = { stage: "before-injection", actionDispatched: false };
+    throw error;
+  }
   const result = await chrome.scripting.executeScript({
     target: { tabId },
     injectImmediately: true,
@@ -3614,7 +4116,71 @@ async function executeInTab(tabId, func, args, world = "ISOLATED") {
     func,
     args,
   });
-  return result?.[0]?.result ?? null;
+  const injection = result?.[0];
+  const payload = injection?.result;
+  if (context.includeDocumentIdentity && (!injection || !payload || typeof payload !== "object")) {
+    const error = new Error("The injected action returned no observable result; reconcile before retrying.");
+    error.code = "CHROME_SCRIPT_RESULT_UNAVAILABLE";
+    error.details = { stage: "script-result", actionDispatched: null, tabId };
+    throw error;
+  }
+  if (payload?.__mdbPageActionError) {
+    const details = payload.__mdbPageActionError;
+    const error = new Error("The browser action did not complete; inspect its code and dispatch state before retrying.");
+    error.code = details.code;
+    error.details = { ...details, tabId, frameId: injection.frameId ?? 0, documentId: injection.documentId ?? null };
+    throw error;
+  }
+  if (context.includeDocumentIdentity && payload && typeof payload === "object" && !Array.isArray(payload)) {
+    return { ...payload, tabId, frameId: injection.frameId ?? 0, documentId: injection.documentId ?? null };
+  }
+  return payload ?? null;
+}
+
+async function observeTabAction(tabId, operation, deadlineMs) {
+  const startedAt = Date.now();
+  const children = new Map();
+  let navigationObserved = false;
+  let childTabsTruncated = false;
+  const onCreated = (tab) => {
+    if (tab.openerTabId !== tabId || !Number.isInteger(tab.id)) return;
+    if (children.size >= 10) { childTabsTruncated = true; return; }
+    children.set(tab.id, { tabId: tab.id, windowId: tab.windowId, closed: false });
+  };
+  const onRemoved = (removedTabId) => {
+    if (children.has(removedTabId)) children.get(removedTabId).closed = true;
+  };
+  const onUpdated = (updatedTabId, change) => {
+    if (updatedTabId === tabId && typeof change.url === "string") navigationObserved = true;
+  };
+  // Observe only identity/lifecycle metadata. A popup gains no URL grant from
+  // its opener; any later read or action still passes getApprovedTab().
+  chrome.tabs.onCreated.addListener(onCreated);
+  chrome.tabs.onRemoved.addListener(onRemoved);
+  chrome.tabs.onUpdated.addListener(onUpdated);
+  try {
+    const result = await operation();
+    const remaining = Number.isFinite(deadlineMs) ? Math.max(0, deadlineMs - Date.now()) : 350;
+    const waitMs = Math.min(350, remaining);
+    if (waitMs > 0) await new Promise((resolve) => setTimeout(resolve, waitMs));
+    return {
+      ...result,
+      popupObservation: {
+        observedForMs: Date.now() - startedAt,
+        childTabs: [...children.values()],
+        childTabsTruncated,
+        navigationObserved,
+        complete: false,
+      },
+    };
+  } catch (error) {
+    error.details = { ...(error.details || {}), popupObservedCount: children.size, navigationObserved };
+    throw error;
+  } finally {
+    chrome.tabs.onCreated.removeListener(onCreated);
+    chrome.tabs.onRemoved.removeListener(onRemoved);
+    chrome.tabs.onUpdated.removeListener(onUpdated);
+  }
 }
 
 function hasVerifiedNativeTerminalResult(result) {
@@ -3991,17 +4557,24 @@ async function dispatch(message) {
       const tab = await getApprovedTab(args.tabId, compiled);
       const maxTextChars = Math.max(1_000, Math.min(200_000, Number(args.maxTextChars || 50_000)));
       const maxElements = Math.max(1, Math.min(500, Number(args.maxElements || 200)));
-      return await executeInTab(tab.id, pageSnapshot, [maxTextChars, maxElements]);
+      return await executeInTab(tab.id, pageSnapshot, [maxTextChars, maxElements], "ISOLATED", { deadlineMs: message.deadlineMs, includeDocumentIdentity: true });
     }
 
     case "tabs.click": {
       const tab = await getApprovedTab(args.tabId, compiled);
-      return await executeInTab(tab.id, pageClick, [String(args.selector || "")], "MAIN");
+      return await observeTabAction(tab.id, () => executeInTab(tab.id, pageClick, [String(args.selector || ""), {
+        clickStrategy: args.clickStrategy ?? "adaptive-pointer",
+        deadlineMs: message.deadlineMs, errorsAsData: true,
+      }], "MAIN", { deadlineMs: message.deadlineMs, includeDocumentIdentity: true }), message.deadlineMs);
     }
 
     case "tabs.fill": {
       const tab = await getApprovedTab(args.tabId, compiled);
-      return await executeInTab(tab.id, pageFill, [String(args.selector || ""), String(args.value ?? ""), Boolean(args.submit)], "MAIN");
+      return await observeTabAction(tab.id, () => executeInTab(tab.id, pageFill, [String(args.selector || ""), String(args.value ?? ""), Boolean(args.submit), {
+        commit: args.commit || "change", normalization: args.normalization || "exact",
+        inputStrategy: args.inputStrategy ?? "set-value",
+        deadlineMs: message.deadlineMs, errorsAsData: true,
+      }], "MAIN", { deadlineMs: message.deadlineMs, includeDocumentIdentity: true }), message.deadlineMs);
     }
 
     default: {
@@ -4028,6 +4601,38 @@ chrome.windows.onFocusChanged.addListener((windowId) => {
   })().catch(() => {});
 });
 
+function pruneNativeOperations() {
+  const now = Date.now();
+  for (const [id, entry] of nativeOperations) {
+    const retentionMs = entry.readOnly ? 5 * 60 * 1000 : NATIVE_OPERATION_RETENTION_MS;
+    if (entry.state === "completed" && now - entry.acceptedAt > retentionMs) nativeOperations.delete(id);
+  }
+  let resultBytes = 0;
+  for (const entry of [...nativeOperations.values()].reverse()) {
+    if (!entry.response) continue;
+    const bytes = new TextEncoder().encode(JSON.stringify(entry.response)).length;
+    if (resultBytes + bytes > MAX_NATIVE_RETAINED_RESULT_BYTES) {
+      entry.response = { ok: entry.response.ok, result: null, error: entry.response.error, resultRetained: false };
+    } else resultBytes += bytes;
+  }
+}
+
+function nativeOperationReadOnly(method) {
+  return ["status", "tabs.list", "tabs.snapshot"].includes(method);
+}
+
+function nativeOperationHasCapacity(readOnly) {
+  const matching = [...nativeOperations.values()].filter((entry) => Boolean(entry.readOnly) === readOnly);
+  if (!readOnly) return matching.length < MAX_NATIVE_OPERATIONS;
+  while (matching.length >= 256) {
+    const index = matching.findIndex((entry) => entry.state === "completed");
+    if (index === -1) return false;
+    const [entry] = matching.splice(index, 1);
+    nativeOperations.delete(entry.id);
+  }
+  return true;
+}
+
 function scheduleReconnect() {
   if (reconnectTimer) return;
   reconnectTimer = setTimeout(() => {
@@ -4049,31 +4654,111 @@ async function connect() {
     profile = { signedIn: false, email: null, id: null, error: String(error?.message || error) };
   }
 
+  // Capture the originating port and generation. An old async completion must
+  // never use the mutable global port after reconnect.
+  let originatingPort;
   try {
-    port = chrome.runtime.connectNative(NATIVE_HOST);
+    originatingPort = chrome.runtime.connectNative(NATIVE_HOST);
   } catch (error) {
     scheduleReconnect();
     return;
   }
+  port = originatingPort;
+  const generation = NATIVE_INSTANCE_ID + ":" + (++nativeConnectionSequence);
+  let connected = true;
+  const reply = (message) => {
+    if (!connected || port !== originatingPort) return false;
+    try {
+      originatingPort.postMessage({ ...message, connectionGeneration: generation });
+      return true;
+    } catch {
+      connected = false;
+      if (port === originatingPort) port = null;
+      scheduleReconnect();
+      return false;
+    }
+  };
+  originatingPort.onDisconnect.addListener(() => {
+    connected = false;
+    if (port === originatingPort) {
+      port = null;
+      scheduleReconnect();
+    }
+    // Read lastError inside the callback to avoid an unhandled Chrome warning.
+    void chrome.runtime.lastError;
+  });
+  originatingPort.onMessage.addListener((message) => {
+    if (!message || typeof message !== "object" || typeof message.id !== "string"
+        || !/^[a-zA-Z0-9][a-zA-Z0-9._:-]{0,127}$/.test(message.id)) return;
+    if (message.connectionGeneration && message.connectionGeneration !== generation) return;
+    if (message.type === "operationStatus") {
+      const entry = nativeOperations.get(message.operationId);
+      reply({
+        type: "operationStatusResponse", id: message.id, operationId: message.operationId,
+        operation: entry ? { state: entry.state, ...(entry.response || {}) } : { state: "not_found" },
+      });
+      return;
+    }
+    if (message.type !== "request") return;
+    pruneNativeOperations();
+    const existing = nativeOperations.get(message.id);
+    if (existing) {
+      if (!message.fingerprint || existing.fingerprint !== message.fingerprint) {
+        reply({ type: "response", id: message.id, ok: false,
+          error: { code: "CHROME_OPERATION_ID_CONFLICT", message: "Operation ID already belongs to another request." } });
+      } else if (existing.response) {
+        reply({ type: "response", id: message.id, ...existing.response });
+      } else {
+        // Status is deliberately separate from a mutation request. No duplicate
+        // dispatch and no attachment of the old action to a new native port.
+        reply({ type: "response", id: message.id, ok: false,
+          error: { code: "CHROME_OPERATION_RECONCILIATION_REQUIRED", message: "The original operation is still running." } });
+      }
+      return;
+    }
+    const readOnly = nativeOperationReadOnly(message.method);
+    if (!nativeOperationHasCapacity(readOnly)) {
+      reply({ type: "response", id: message.id, ok: false,
+        error: { code: "CHROME_OPERATION_CAPACITY", message: "Retained operation limit reached." } });
+      return;
+    }
+    if (!connected || (Number.isFinite(message.deadlineMs) && Date.now() >= message.deadlineMs)) {
+      reply({ type: "response", id: message.id, ok: false, error: {
+        code: "CHROME_OPERATION_CANCELLED", message: "Operation deadline expired before dispatch.",
+        details: { operationId: message.id, state: "cancelled_before_dispatch", dispatched: false, stage: "extension-dispatch" },
+      } });
+      return;
+    }
+    const entry = {
+      id: message.id, fingerprint: message.fingerprint || null, readOnly,
+      acceptedAt: Date.now(), state: "dispatched", response: null,
+    };
+    nativeOperations.set(message.id, entry);
+    void (async () => {
+      let response;
+      try {
+        const result = await dispatch(message);
+        response = { ok: true, result };
+      } catch (error) {
+        response = { ok: false, error: errorPayload(error) };
+      }
+      entry.state = "completed";
+      entry.response = response;
+      entry.completedAt = Date.now();
+      // Save first even when the originating connection has disappeared. A
+      // subsequent status query can reconcile the outcome without replay.
+      reply({ type: "response", id: message.id, ...response });
+      pruneNativeOperations();
+    })().catch(() => {
+      entry.state = "completed";
+      entry.response = { ok: false, error: { code: "CHROME_EXTENSION_ERROR", message: "Operation response failed." } };
+    });
+  });
+  reply({ type: "ready", version: VERSION, buildId: LOADED_EXTENSION_BUILD_ID, extensionId: chrome.runtime.id, profile });
   try {
     const workspace = await initializeWorkspaceIfChromeFocused();
     if (workspace) await setWorkspaceGroupActivity(workspace);
   } catch {}
-
-  port.onMessage.addListener(async (message) => {
-    if (!message || message.type !== "request" || !message.id) return;
-    try {
-      const result = await dispatch(message);
-      port.postMessage({ type: "response", id: message.id, ok: true, result });
-    } catch (error) {
-      port.postMessage({ type: "response", id: message.id, ok: false, error: errorPayload(error) });
-    }
-  });
-  port.onDisconnect.addListener(() => {
-    port = null;
-    scheduleReconnect();
-  });
-  port.postMessage({ type: "ready", version: VERSION, extensionId: chrome.runtime.id, profile });
 }
 
 connect();

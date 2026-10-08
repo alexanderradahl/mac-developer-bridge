@@ -1,0 +1,51 @@
+{
+  "schemaVersion": 1,
+  "recordedAt": "2026-10-08T00:02:51.429Z",
+  "scope": "Workspace lifecycle source review and bounded audit correlation; no account contents retained in this public summary.",
+  "sourceReview": {
+    "workerPath": "chrome-extension/service-worker.js",
+    "workerSha256": "63e2e98872c05194053c345dc2d5a7b19d9d6079baeaae91df62c0a6c33f4d8f",
+    "comparedBase": "53f05edf99930cdb7fd53843fc4c852c9295860b",
+    "workspaceRegion": "From async function loadWorkspaceState through the start of async function getApprovedTab",
+    "workspaceRegionSha256": "699558d68a105288f41fa67a385c9b818cc3027664d941e9e5f971cf26482ede",
+    "workspaceRegionUnchanged": true,
+    "findings": [
+      "Extension startup/reload invokes initializeWorkspaceIfChromeFocused, which invokes workspace reconciliation.",
+      "Reconciliation can reset an invalid lease or a lease older than 70 minutes to workspace.html. A lease idle longer than 10 minutes is reset only when already on the idle page.",
+      "The reconciliation reset uses chrome.tabs.update and keeps the tab ID. It does not contain a tab-removal loop.",
+      "The explicit non-workspace tabs.close route is the sole chrome.tabs.remove call in the worker.",
+      "Normal tabs.list filters by approved URL patterns, so extension workspace.html pages are omitted from the normal HTTP/HTTPS inventory.",
+      "Discovery can adopt group tabs without existing lease records, and reservation selects an unleased group member. Missing prior lease/group state prevents retrospective ownership proof."
+    ]
+  },
+  "auditFindings": {
+    "investigatedCases": 3,
+    "explicitNavigationRequestObserved": true,
+    "explicitLocalWorkspaceReleaseObserved": true,
+    "oneMissingTabCauseUnresolved": true,
+    "callerAttributionAvailable": false
+  },
+  "writeInterferenceCheck": {
+    "provider": "Patreon",
+    "operations": [
+      {
+        "operationId": "patreon-town-native-price-20261007-01",
+        "method": "tabs.fill",
+        "state": "completed",
+        "outcome": "succeeded",
+        "dispatched": true
+      },
+      {
+        "operationId": "99a44960-826b-48b0-bf7a-ba0ddafb37e4",
+        "method": "tabs.click",
+        "state": "completed",
+        "outcome": "succeeded",
+        "dispatched": true
+      }
+    ],
+    "interveningReadCount": 1,
+    "additionalAuditedMutationsObserved": false,
+    "limitation": "No evidence of intervening MCP mutations; page-internal or manual activity cannot be excluded. Shared audit metadata does not identify the caller."
+  },
+  "causalLimit": "Reload can invoke pre-existing reconciliation. Without prior lease state or removal-event history, a missing tab cannot be attributed to reload or a particular caller."
+}

@@ -1,0 +1,263 @@
+{
+  "schemaVersion": 1,
+  "checkedAt": "2026-10-07T23:47:06.687Z",
+  "phase": "before",
+  "baselineGitCommit": "53f05edf99930cdb7fd53843fc4c852c9295860b",
+  "passed": false,
+  "browserVersion": "153.0.8010.0",
+  "reactVersion": "19.2.0",
+  "platform": "linux",
+  "architecture": "x64",
+  "nodeVersion": "v24.19.0",
+  "workerSha256": "12f9dbf0cb9db4d1196227cb09ac6a6a74e0af5400171560b04b5b1da20f8595",
+  "testSourceSha256": "ad614a4b151ec2da85bdd3e7098a9495a1cb45561f5090281645d7c145579665",
+  "fixtureSourceSha256": "2a1b82d611ae38e91608a409b3dd4b508cc0ff921e9f6dd37d315f424fe6dc7c",
+  "reactFixtureSha256": "997b6ead42b93326ba22c6d4ede34e84e8dfe00a7e7d4257e9b97828e3b8e3b3",
+  "fixtureReceiptCount": 4,
+  "expectedBaselineFailure": true,
+  "testScope": "Disposable local browser fixture; no provider account or existing browser attachment.",
+  "isolation": {
+    "newTemporaryProfile": true,
+    "noExistingBrowserAttachment": true,
+    "externalRequestsBlocked": 0,
+    "browserClosed": true,
+    "profileRemoved": true,
+    "serverClosed": true
+  },
+  "scenarioCount": 30,
+  "passedScenarios": 23,
+  "failedScenarios": 7,
+  "scenarios": [
+    {
+      "scenario": "ordinary-click",
+      "passed": true,
+      "durationMs": 63,
+      "applicationSaveCount": 1
+    },
+    {
+      "scenario": "mousedown-combobox",
+      "passed": true,
+      "durationMs": 50,
+      "applicationToggleCount": 1
+    },
+    {
+      "scenario": "passive-snapshot",
+      "passed": true,
+      "durationMs": 65,
+      "snapshotCount": 4,
+      "emittedEvents": {
+        "invalid": 0,
+        "input": 0,
+        "change": 0,
+        "focus": 0,
+        "blur": 0,
+        "submit": 0
+      }
+    },
+    {
+      "scenario": "controlled-currency",
+      "passed": true,
+      "durationMs": 147,
+      "serverReceivedAmount": 5,
+      "display": "5.00",
+      "submissions": 1
+    },
+    {
+      "scenario": "react-currency",
+      "passed": true,
+      "durationMs": 169,
+      "reactVersion": "19.2.0",
+      "serverReceivedAmount": 5,
+      "submissions": 1,
+      "reactOnChangeCount": 1
+    },
+    {
+      "scenario": "replace-accepted",
+      "passed": true,
+      "durationMs": 126,
+      "replacementCount": 1,
+      "committedCurrentElement": true
+    },
+    {
+      "scenario": "replace-rejected",
+      "passed": true,
+      "durationMs": 93,
+      "rejectedWithoutSubmitting": true
+    },
+    {
+      "scenario": "contenteditable",
+      "passed": true,
+      "durationMs": 422,
+      "exactEditableCases": 8,
+      "inputEventCounts": [
+        {
+          "native": 4,
+          "worker": 4
+        },
+        {
+          "native": 2,
+          "worker": 2
+        },
+        {
+          "native": 2,
+          "worker": 2
+        },
+        {
+          "native": 3,
+          "worker": 3
+        },
+        {
+          "native": 1,
+          "worker": 1
+        },
+        {
+          "native": 1,
+          "worker": 1
+        },
+        {
+          "native": 1,
+          "worker": 1
+        },
+        {
+          "native": 2,
+          "worker": 2
+        }
+      ]
+    },
+    {
+      "scenario": "contenteditable-rejected",
+      "passed": true,
+      "durationMs": 69
+    },
+    {
+      "scenario": "select",
+      "passed": true,
+      "durationMs": 61
+    },
+    {
+      "scenario": "select-rejected",
+      "passed": true,
+      "durationMs": 63
+    },
+    {
+      "scenario": "invalid-submit",
+      "passed": true,
+      "durationMs": 85,
+      "businessSubmissionCount": 0,
+      "validationPreventedSubmission": true
+    },
+    {
+      "scenario": "no-form-submit",
+      "passed": true,
+      "durationMs": 74
+    },
+    {
+      "scenario": "read-only",
+      "passed": true,
+      "durationMs": 54
+    },
+    {
+      "scenario": "focus-lock",
+      "passed": true,
+      "durationMs": 53,
+      "refusedAfterSynchronousFocusLock": true
+    },
+    {
+      "scenario": "beforeinput-lock",
+      "passed": true,
+      "durationMs": 55,
+      "refusedAfterSynchronousBeforeinputLock": true
+    },
+    {
+      "scenario": "cancel-beforeinput",
+      "passed": true,
+      "durationMs": 58
+    },
+    {
+      "scenario": "suspended-raf",
+      "passed": true,
+      "durationMs": 288,
+      "elapsedMs": 265,
+      "animationCallbacksExecuted": 0
+    },
+    {
+      "scenario": "hidden-first",
+      "passed": true,
+      "durationMs": 62
+    },
+    {
+      "scenario": "click-event-sequence",
+      "passed": false,
+      "durationMs": 63,
+      "error": "The final synthetic mouse click must preserve the measured native click semantics except trust\n+ actual - expected\n\n  {\n    button: 0,\n    buttons: 0,\n+   clientX: 0,\n+   clientY: 0,\n-   clientX: 208,\n-   clientY: 138,\n    constructor: 'PointerEvent',\n+   detail: 0,\n-   detail: 1,\n    isPrimary: false,\n+   pointerId: -1,\n+   pointerType: '',\n-   pointerId: 1,\n-   pointerType: 'mouse',\n    pressure: 0,\n    type: 'click',\n    viewIsWindow: true\n  }\n"
+    },
+    {
+      "scenario": "mouse-sensitive-menu",
+      "passed": false,
+      "durationMs": 79,
+      "error": "Expected values to be strictly deep-equal:\n+ actual - expected\n\n  {\n+   acceptedCount: 0,\n-   acceptedCount: 1,\n    clickAttempts: 1,\n    menuClosed: true,\n+   panelVisible: false\n-   panelVisible: true\n  }\n"
+    },
+    {
+      "scenario": "click-default-activation",
+      "passed": true,
+      "durationMs": 41,
+      "checkboxToggledOnce": true,
+      "localLinkActivated": true,
+      "preventDefaultRespected": true
+    },
+    {
+      "scenario": "react-native-edit-reference",
+      "passed": true,
+      "durationMs": 167,
+      "serverReceivedAmount": 10,
+      "submissions": 1,
+      "nativeReferenceAccepted": true
+    },
+    {
+      "scenario": "react-native-edit-setter",
+      "passed": true,
+      "durationMs": 178,
+      "displayRetained": true,
+      "businessAmountAccepted": false,
+      "applicationRejectionHonest": true
+    },
+    {
+      "scenario": "react-native-edit-insert-text",
+      "passed": false,
+      "durationMs": 178,
+      "error": "The React business model must accept the actual browser edit\n\n'null' !== '10'\n"
+    },
+    {
+      "scenario": "insert-text-supported",
+      "passed": false,
+      "durationMs": 132,
+      "error": "Expected values to be strictly equal:\n\n0 !== 1\n"
+    },
+    {
+      "scenario": "insert-text-unsupported",
+      "passed": false,
+      "durationMs": 76,
+      "error": "An unsupported selection type must refuse the explicit editing strategy"
+    },
+    {
+      "scenario": "insert-text-cancelled",
+      "passed": true,
+      "durationMs": 45,
+      "nativeEditOperations": 0,
+      "fallbackWrites": 0,
+      "rejectionReported": true
+    },
+    {
+      "scenario": "insert-text-command-failure",
+      "passed": false,
+      "durationMs": 83,
+      "error": "Cancelled, failed, or rejected explicit edits must report failure"
+    },
+    {
+      "scenario": "insert-text-rejected",
+      "passed": false,
+      "durationMs": 110,
+      "error": "Never retry an editing operation or silently fall back to a setter\n\n0 !== 1\n"
+    }
+  ]
+}

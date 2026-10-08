@@ -1,0 +1,205 @@
+{
+  "date": "2026-10-08",
+  "test": "Installed MDB owned loopback React and explicit-strategy acceptance",
+  "status": "passed",
+  "runtime": {
+    "bridgeVersion": "0.3.4",
+    "extensionVersion": "0.2.15",
+    "extensionBuild": "browser-reliability-20261007.4",
+    "workerSha256": "a0f51adf9ee3e2e7aa5aa9dad7370387f314de0e5b76d5adc2f983b2fb09058c",
+    "connectionGeneration": "54273704-d5db-400f-9381-307fe163833d:1"
+  },
+  "method": {
+    "publicMcpToolsOnly": true,
+    "arbitraryBrowserJavaScriptUsed": false,
+    "newTabsCreated": 0,
+    "explicitlyAuthorizedCompletedTaskTabReused": true,
+    "verifiedOriginalCompletedStateBeforeNavigation": true,
+    "tabRemainedInactive": true,
+    "noForegroundActivation": true,
+    "providerMutations": 0
+  },
+  "fixture": {
+    "ReactVersion": "19.2.0",
+    "ReactDOMVersion": "19.2.0",
+    "esbuildVersion": "0.25.11",
+    "host": "127.0.0.1",
+    "externalRequestsAllowed": false,
+    "cookieAccess": false,
+    "persistedReactSource": "tests/fixtures/chrome-installed-smoke-react.mjs",
+    "temporaryReactSourceByteEqualsPersistedSource": true,
+    "sourceHashes": {
+      "server.mjs": "61c662d9869ee62eeafb2c4f74ba142895cd270a452222773d03e550b47ffdd0",
+      "react-smoke.mjs": "7536b00bffa81070e4f8bf514ee545ef509ec9f916922c15b7c95874aae0a068",
+      "bundle.js": "0f2e5d71d74b37a069a1dd5ceabf39325e76f709a0eb3857885a14c0eb1290d8"
+    }
+  },
+  "initialEvidence": {
+    "reactBeforeInput": 0,
+    "reactInput": 0,
+    "reactChange": 0,
+    "nativeInput": 0,
+    "nativeChange": 0,
+    "nativeTextInput": 0,
+    "nativeBeforeInput": 0,
+    "edits": [],
+    "startVisibility": "hidden",
+    "startHasFocus": false,
+    "directMouseDown": 0,
+    "directClick": 0,
+    "directAccepted": 0,
+    "visibility": "hidden",
+    "hasFocus": false,
+    "activeElement": "BODY"
+  },
+  "observations": {
+    "actualReactModel": 10,
+    "displayedValue": "10.00",
+    "serverSubmissionCount": 1,
+    "serverReceipt": {
+      "receipts": [
+        {
+          "amount": 10,
+          "reactBeforeInput": 1,
+          "reactInput": 1,
+          "reactChange": 1
+        }
+      ]
+    },
+    "directClickAccepted": true,
+    "evidence": {
+      "reactBeforeInput": 1,
+      "reactInput": 1,
+      "reactChange": 1,
+      "nativeInput": 1,
+      "nativeChange": 1,
+      "nativeTextInput": 1,
+      "nativeBeforeInput": 1,
+      "edits": [
+        {
+          "type": "focus",
+          "isTrusted": false,
+          "visibility": "hidden",
+          "hasFocus": false,
+          "activeElement": "smoke-amount",
+          "relatedTarget": null
+        },
+        {
+          "type": "focusin",
+          "isTrusted": false,
+          "visibility": "hidden",
+          "hasFocus": false,
+          "activeElement": "smoke-amount",
+          "relatedTarget": null
+        },
+        {
+          "type": "beforeinput",
+          "isTrusted": false,
+          "visibility": "hidden",
+          "hasFocus": false,
+          "activeElement": "smoke-amount",
+          "relatedTarget": null
+        },
+        {
+          "type": "textInput",
+          "isTrusted": false,
+          "visibility": "hidden",
+          "hasFocus": false,
+          "activeElement": "smoke-amount",
+          "relatedTarget": null
+        },
+        {
+          "type": "input",
+          "isTrusted": true,
+          "visibility": "hidden",
+          "hasFocus": false,
+          "activeElement": "smoke-amount",
+          "relatedTarget": null
+        },
+        {
+          "type": "change",
+          "isTrusted": true,
+          "visibility": "hidden",
+          "hasFocus": false,
+          "activeElement": "BODY",
+          "relatedTarget": null
+        },
+        {
+          "type": "blur",
+          "isTrusted": false,
+          "visibility": "hidden",
+          "hasFocus": false,
+          "activeElement": "BODY",
+          "relatedTarget": null
+        },
+        {
+          "type": "focusout",
+          "isTrusted": false,
+          "visibility": "hidden",
+          "hasFocus": false,
+          "activeElement": "BODY",
+          "relatedTarget": null
+        }
+      ],
+      "startVisibility": "hidden",
+      "startHasFocus": false,
+      "directMouseDown": 0,
+      "directClick": 1,
+      "directAccepted": 1,
+      "visibility": "hidden",
+      "hasFocus": false,
+      "activeElement": "smoke-submit"
+    }
+  },
+  "operations": {
+    "fill": {
+      "operationId": "c9b6c9af-bac2-47cb-bf62-f4dcb684c8cb",
+      "inputStrategy": "native-insert-text-with-text-input",
+      "commit": "blur",
+      "normalization": "numeric",
+      "normalized": true,
+      "domValueRetained": true,
+      "focusEventFallbackUsed": true,
+      "blurEventFallbackUsed": true,
+      "applicationAccepted": null,
+      "outcomeVerified": false,
+      "trusted": false
+    },
+    "submit": {
+      "operationId": "225955ac-6a9c-421d-a4d3-b137c94b2c87",
+      "strategy": "adaptive-pointer-mouse-sequence",
+      "focusEventFallbackUsed": true,
+      "events": [
+        "pointerover",
+        "mouseover",
+        "pointermove",
+        "mousemove",
+        "pointerdown",
+        "mousedown",
+        "focus",
+        "focusin",
+        "pointerup",
+        "mouseup",
+        "click"
+      ]
+    },
+    "directClick": {
+      "operationId": "13c772b7-a90b-45ea-b97a-b13eafca3a5c",
+      "strategy": "dom-click",
+      "events": [
+        "click"
+      ],
+      "focusEventFallbackUsed": false
+    },
+    "finalSnapshotOperationId": "191c9d85-1aab-4906-8faf-89f11b350626"
+  },
+  "conclusion": "In the actual installed inactive Chrome document, one native text edit plus missing focus-family events commits the React amount and produces exactly one accepted server submission. The document remains hidden and unfocused. Existing native input/change events are preserved, synthetic focus events remain explicitly untrusted, and application acceptance is verified through fixture state and server evidence rather than inferred from the tool dispatch receipt.",
+  "cleanup": {
+    "portClosed": true,
+    "processGone": true,
+    "directoryRemoved": true,
+    "restored": true,
+    "operationId": "df1cf5c3-d6db-4124-a95e-4177e97a120a",
+    "tabNotClosedOrReleased": true
+  }
+}

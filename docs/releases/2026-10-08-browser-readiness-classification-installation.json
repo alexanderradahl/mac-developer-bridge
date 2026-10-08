@@ -1,0 +1,37 @@
+{
+  "installedAt": "2026-10-08T01:24:03.113942+00:00",
+  "bridgeVersion": "0.3.5",
+  "extensionVersion": "0.2.15",
+  "sourceBase": "e18b95ad3da55ca44d13cd90926e17778823cfae",
+  "files": [
+    {
+      "path": "bridge.mjs",
+      "beforeSha256": "9e79177096b4b7e2063a1e99ffb880d85c4eb76ae8a6dc490f55eca6027f6813",
+      "afterSha256": "dc9e5e55dc938665193206190b48a53da24916597eededebe0d9b0efb2040942",
+      "mode": 493
+    },
+    {
+      "path": "package.json",
+      "beforeSha256": "745bb9cb3624ec6b8ec114e36200e53ae2335bec04dbb373afd872c28888f34b",
+      "afterSha256": "71da5f2a5c2512526c33f646d0d0b7958099f77b7cc09710bc5fe54e15349b02",
+      "mode": 420
+    },
+    {
+      "path": "tests/chrome-background.mjs",
+      "beforeSha256": "4df3d78c3bb9ccbb4d7245e4b846c64466c2f7fc36af8fd6f96bdee017d537ab",
+      "afterSha256": "f9e440313999cabcacaa6b78f4344533e8043c754e38287aa3917d9b4ce16d7a",
+      "mode": 420
+    }
+  ],
+  "configurationFilesPreserved": 5,
+  "unrelatedTrackedFilesPreserved": 73,
+  "privateBackupCreated": true,
+  "activation": "See 2026-10-08-browser-readiness-activation-independent.json",
+  "maintenance": {
+    "bridgeChildRestarted": true,
+    "supervisorPreserved": true,
+    "extensionReloaded": false,
+    "nativeHostRestarted": false
+  },
+  "qualification": "Concurrent live worker edits in two Mato final-report handling blocks were present before this overlay and preserved. The browser action sections are unchanged from the tested release. The historical .4 installed browser proof is retained; this receipt does not assert equality of the current entire live worker with the release worker."
+}

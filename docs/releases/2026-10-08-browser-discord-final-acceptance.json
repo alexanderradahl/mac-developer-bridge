@@ -1,0 +1,78 @@
+{
+  "checkedAtUtc": "2026-10-08T00:57:30Z",
+  "provider": "Discord",
+  "runtime": {
+    "bridgeVersion": "0.3.4",
+    "extensionVersion": "0.2.15",
+    "extensionBuild": "browser-reliability-20261007.4",
+    "workerSha256": "a0f51adf9ee3e2e7aa5aa9dad7370387f314de0e5b76d5adc2f983b2fb09058c"
+  },
+  "status": "partial-acceptance",
+  "observations": {
+    "normalChannelControlsWorking": true,
+    "successfulControls": [
+      "Add members or roles",
+      "Edit Channel",
+      "Permissions",
+      "Advanced Roles/Members chooser",
+      "Close settings"
+    ],
+    "existingRoleChoices": 6,
+    "plannedMembershipRolesVisible": false,
+    "createOrManageRoleEntryVisibleInChannelPickers": false,
+    "serverLevelRoleCreationUnresolved": true
+  },
+  "privacyVerification": {
+    "privateChannelSwitchChecked": true,
+    "everyoneSelected": true,
+    "viewChannelDenyChecked": true,
+    "viewChannelAllowChecked": false,
+    "viewChannelPassthroughChecked": false,
+    "accessRolesEmpty": true,
+    "ownerAccessRetained": true,
+    "settingsChanged": false
+  },
+  "serverSettingsAttempt": {
+    "operationId": "discord-server-settings-background-focus-20261008-01",
+    "state": "completed",
+    "outcome": "succeeded",
+    "completedAt": "2026-10-08T00:47:58.181Z",
+    "browserExecutionCompleted": true,
+    "requestedSettingsViewObserved": false,
+    "applicationOutcome": "No server-settings view appeared in subsequent snapshot; browser completion is not application success."
+  },
+  "separateTimeout": {
+    "operationId": "8e24db13-198c-471d-8c3a-8ed17153d110",
+    "initialCode": "CHROME_EXTENSION_TIMEOUT",
+    "initialState": "outcome_unknown",
+    "reconciledState": "completed",
+    "reconciledOutcome": "failed",
+    "errorCode": "CHROME_OPERATION_DEADLINE_EXCEEDED",
+    "errorStage": "before-injection",
+    "actionDispatched": false,
+    "acceptedAt": "2026-10-08T00:50:43.228Z",
+    "completedAt": "2026-10-08T00:51:41.046Z",
+    "replayedWhileUnknown": false,
+    "distinction": "This expired before page injection and is not evidence of a rejected application click."
+  },
+  "successfulOperationIds": {
+    "rolePicker": "23912793-aac9-4e89-91a0-96c713aeb8da",
+    "channelOverview": "4b5e6a4e-65fa-4b03-96d3-6a9f21696035",
+    "channelPermissions": "9e9875dc-b9bf-4253-963b-44f1c28ea6cb",
+    "advancedRolesChooser": "71a36872-c5b3-4de7-9056-bbb1423a2fd2",
+    "closeSettings": "848a47b6-6539-4d7f-acb7-40656dc648fb",
+    "finalSnapshot": "0a16a9aa-c2a1-46a5-9843-6e1e5bb39ad8"
+  },
+  "finalState": {
+    "originalChannelViewRestored": true,
+    "settingsPaneClosed": true,
+    "unsavedControlsVisible": false
+  },
+  "changes": {
+    "roles": 0,
+    "memberships": 0,
+    "permissions": 0,
+    "messagesSent": 0,
+    "webhooks": 0
+  }
+}

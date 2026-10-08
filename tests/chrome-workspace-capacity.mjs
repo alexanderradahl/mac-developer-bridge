@@ -9,7 +9,7 @@ const workerSource = await fs.readFile(path.join(root, "chrome-extension", "serv
 const manifest = JSON.parse(await fs.readFile(path.join(root, "chrome-extension", "manifest.json"), "utf8"));
 const workerVersion = workerSource.match(/const VERSION = "([^"]+)";/)?.[1];
 assert.equal(workerVersion, manifest.version, "service worker and manifest versions should match");
-assert.equal(workerVersion, "0.2.11");
+assert.equal(workerVersion, "0.2.15");
 const helperMatch = workerSource.match(
   /function normalizeWorkspacePoolSize[\s\S]*?\n}\n\n(?=function errorPayload)/,
 );

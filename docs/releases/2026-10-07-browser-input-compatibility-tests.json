@@ -1,0 +1,247 @@
+{
+  "startedAt": "2026-10-07T23:46:57.665215+00:00",
+  "baseCommit": "53f05edf99930cdb7fd53843fc4c852c9295860b",
+  "bridgeVersion": "0.3.2",
+  "extensionVersion": "0.2.13",
+  "files": [
+    {
+      "path": "bridge.mjs",
+      "sha256": "35cd94cea6e52d4224cf46e40e0fb4229ab1a4c6b8e5391214bfc2a252f104d8"
+    },
+    {
+      "path": "chrome-extension/icons/icon-128.png",
+      "sha256": "bfefa7420795df71e1910bb494625479be1729559c4d2c1517bf0ef6ca6958ce"
+    },
+    {
+      "path": "chrome-extension/icons/icon-16.png",
+      "sha256": "b0915f00aab8a589f924704d52a168c6ff6ba3376f11d6431b08bde36929ad48"
+    },
+    {
+      "path": "chrome-extension/icons/icon-32.png",
+      "sha256": "e635470a81fca24f6943269df0d34b11c8fae8e2759842f0bcbcdfa9abd42875"
+    },
+    {
+      "path": "chrome-extension/icons/icon-48.png",
+      "sha256": "53b776f8e8362c9db35f0564746d876bcbc5d21e569bf82cb298227e3b057414"
+    },
+    {
+      "path": "chrome-extension/manifest.json",
+      "sha256": "c1127508260b3f74b023ab8e5891d15c8b8940049645fe6724f0305335808a69"
+    },
+    {
+      "path": "chrome-extension/service-worker.js",
+      "sha256": "63e2e98872c05194053c345dc2d5a7b19d9d6079baeaae91df62c0a6c33f4d8f"
+    },
+    {
+      "path": "chrome-extension/workspace.html",
+      "sha256": "e63fdde88e17ca59ce59e0c8b711c25b84226d32d46bc7f0177ccb392b9824ee"
+    },
+    {
+      "path": "lib/chatgpt-responses-adapter.mjs",
+      "sha256": "ffb9f6707965760a0b18f70ad2b27b8de894d39cb315bc45d04085ff6a418684"
+    },
+    {
+      "path": "lib/chrome-extension-client.mjs",
+      "sha256": "f1b453b8a112a76993e8a8e2e195607f1a41f63ed23afe89e7ac8042cd7b5237"
+    },
+    {
+      "path": "lib/chrome-operation-registry.mjs",
+      "sha256": "a11f3df727f7f2f648581a6a2c9e65584ca9fd12bad188fe59bd432e353e76cd"
+    },
+    {
+      "path": "lib/federation.mjs",
+      "sha256": "e89db110c7b562e835f4cf33448ca211c166391314366ceacb14869f84aaff39"
+    },
+    {
+      "path": "lib/ptyhelper.pl",
+      "sha256": "b4f6bae4987bb7a8624a938b854b2d8533c458c7fe3ccc3244edda8851938f4a"
+    },
+    {
+      "path": "mcp-http.mjs",
+      "sha256": "e56482ef259ed8dc9a2017b222284390a163964593209fa151308a011e937762"
+    },
+    {
+      "path": "package.json",
+      "sha256": "43a8545601586e5199c2f18d74691f5fdaae1c7483c6200e0ba7466d5b93bdfa"
+    },
+    {
+      "path": "scripts/approve-foreground-gui.sh",
+      "sha256": "a4269f4463edddecf6e05fe707abf84bb2b3d86ddc7e8e4858cb6d777261d1ce"
+    },
+    {
+      "path": "scripts/approve-personal-browser.sh",
+      "sha256": "5c84901203e64c3b23a8e2840004ff21f375a10832a29197ba2010ebf784252f"
+    },
+    {
+      "path": "scripts/chrome-native-host.mjs",
+      "sha256": "0740d356e804a5f04af68fab5cd9b271aba468c9f8b80c61f1a163b14f20fa6f"
+    },
+    {
+      "path": "scripts/disable.sh",
+      "sha256": "223682c41ded77766cecbfc6b620c3a79be31f9c3609bbd8b5a63c6a651c17e3"
+    },
+    {
+      "path": "scripts/doctor.sh",
+      "sha256": "d2ca8d8e60b2442fed487d708d24a50b9dac3d1f26b7b0a344574205b6e75c82"
+    },
+    {
+      "path": "scripts/enable.sh",
+      "sha256": "434cb03c1e1feaeb1dc1edaeee2cf1477d943800d40afb17a4834295574b15d8"
+    },
+    {
+      "path": "scripts/install-background-chrome.sh",
+      "sha256": "843f1530cf94c70a2408c39e6954de4bb3ea5aef187ac37b4e35a8935268ba52"
+    },
+    {
+      "path": "scripts/rotate-tunnel-key.sh",
+      "sha256": "cbd2fd137e65b2a2d8a8f3a293c0d588aae29bf83759e1f34a3222e5df2bd5b8"
+    },
+    {
+      "path": "scripts/run-bridge.sh",
+      "sha256": "a6abc639e02a28c7b423036c983b1dc0b63dc8761462271218adfdc98bbad72f"
+    },
+    {
+      "path": "scripts/run-tunnel.sh",
+      "sha256": "f3212f5bdf508dd875b07626ddf53c2d503a725cb371576481bddda0730fa3c3"
+    },
+    {
+      "path": "scripts/tcc-doctor.sh",
+      "sha256": "94cd0c7ea3835424f7071206e9aeeda194daa679571646bddd153c6f5a0af027"
+    },
+    {
+      "path": "scripts/uninstall-background-chrome.sh",
+      "sha256": "e297e0d764c78d834148ababd2972c58831d4d516c2e6af97ac192be46a61413"
+    },
+    {
+      "path": "tests/adversarial.mjs",
+      "sha256": "365dba0dc7f4a3efb209b31e9b92d1aefb2e39d3351ba01102d66a6097b5a3ab"
+    },
+    {
+      "path": "tests/chatgpt-conversation-runs.mjs",
+      "sha256": "b9cb06bb075d0ca564922756a06901662df41e8b50db7173088d99e1a6c72fc7"
+    },
+    {
+      "path": "tests/chatgpt-conversation.mjs",
+      "sha256": "e4956c6d02286a2788a52a4061a4423469f2737d798fa198886c1ff0fe657d08"
+    },
+    {
+      "path": "tests/chatgpt-handoff-diagnostics.mjs",
+      "sha256": "555a3612a630a6c754507bb11e3ec6789ea3a1071884712455274601a9033f62"
+    },
+    {
+      "path": "tests/chatgpt-installation-status.mjs",
+      "sha256": "7637e28e224dd4f0afc91bed1bee74e5a973a653d775adad115cd42a94d9cdce"
+    },
+    {
+      "path": "tests/chatgpt-responses.mjs",
+      "sha256": "25b112f11ab7308b1a117412c29853825c1fd99e09869391326a7293f60496dd"
+    },
+    {
+      "path": "tests/chatgpt-runtime.mjs",
+      "sha256": "8f7b013b87c9a0f63ff7429fe31f97c9d87d3b7c2bda9ea917ead89d986ea4bb"
+    },
+    {
+      "path": "tests/chrome-action-correctness.mjs",
+      "sha256": "7863c1328e4a4824df7aae7524b87f28066d225fc02c828ac1d3af14980040b0"
+    },
+    {
+      "path": "tests/chrome-actions-real-browser.mjs",
+      "sha256": "ad614a4b151ec2da85bdd3e7098a9495a1cb45561f5090281645d7c145579665"
+    },
+    {
+      "path": "tests/chrome-background.mjs",
+      "sha256": "018b78e68567aa5cc0ebaf59b6608f986bf3c0adc0f9a6a341c718337ce6e209"
+    },
+    {
+      "path": "tests/chrome-fill-background.mjs",
+      "sha256": "415a329007f37fa54af3e265da38dba75a97cbb1c69e34678ef7d90319af39b3"
+    },
+    {
+      "path": "tests/chrome-transport-reliability.mjs",
+      "sha256": "376ccc9c7685dcbbbd3d431a30b55717e6dfb258cd657956b7beae295a9bb661"
+    },
+    {
+      "path": "tests/chrome-workspace-capacity.mjs",
+      "sha256": "40fe09143d39abefaffd2133561b281553b3a0110b2189c5a61e6a375f71c690"
+    },
+    {
+      "path": "tests/federation.mjs",
+      "sha256": "427e9d389d2e1b5cf3304bc1002ce0a9e00312bc7c26689c09138e8f4b934d44"
+    },
+    {
+      "path": "tests/fixtures/chrome-actions.html",
+      "sha256": "2a1b82d611ae38e91608a409b3dd4b508cc0ff921e9f6dd37d315f424fe6dc7c"
+    },
+    {
+      "path": "tests/fixtures/chrome-react-currency.mjs",
+      "sha256": "997b6ead42b93326ba22c6d4ede34e84e8dfe00a7e7d4257e9b97828e3b8e3b3"
+    },
+    {
+      "path": "tests/fixtures/poisoned-repository.md",
+      "sha256": "f7d86cfe2e99f5261eb8fbe648701b3a0142178514ae7a7eb0fbea04763c6731"
+    },
+    {
+      "path": "tests/fixtures/poisoned-repository.mjs",
+      "sha256": "808790524799b166abd23acddeff169fa5fd221ec37aeb8ce8ad16aa2a2f0a3b"
+    },
+    {
+      "path": "tests/fixtures/stub-mcp-server.mjs",
+      "sha256": "44b66193ced7566bf7132fe6790bb2218b935c9cd5bcea1987f0b013bd1e7698"
+    },
+    {
+      "path": "tests/http.mjs",
+      "sha256": "a765718744a43b3e7f71f73e32514cda433965d7b2d83e3f61e968aa5833968d"
+    },
+    {
+      "path": "tests/installer-mock.sh",
+      "sha256": "891359681fc834d41707161781c9c2edd859e667cbcf6d07d015010ef8684512"
+    },
+    {
+      "path": "tests/integration.mjs",
+      "sha256": "a9421237f3b78add359ee5dd4ac2eb97952c743b6e53bf4f3420c821b11be1a5"
+    },
+    {
+      "path": "tests/oauth.mjs",
+      "sha256": "f327668d2a3c603185287b972733f0c3dddceb724f764a0afe9dc491ef8d9724"
+    },
+    {
+      "path": "tests/pty.mjs",
+      "sha256": "4e97d1f4ea620b6a99e5249a890cef4f8cd03b0052b72d4eec6f922e31870047"
+    },
+    {
+      "path": "tests/smoke.mjs",
+      "sha256": "1be6c6d8b12bf378f3ef59a78f195a340e2bd6d3beb051c31c25c5f8b9e9525b"
+    }
+  ],
+  "results": [
+    {
+      "command": [
+        "npm",
+        "run",
+        "check"
+      ],
+      "exitCode": 0,
+      "durationMs": 248
+    },
+    {
+      "command": [
+        "npm",
+        "test"
+      ],
+      "exitCode": 0,
+      "durationMs": 138663
+    },
+    {
+      "command": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "exitCode": 0,
+      "durationMs": 108
+    }
+  ],
+  "sourceStableDuringTests": true,
+  "passed": true,
+  "finishedAt": "2026-10-07T23:49:16.662987+00:00"
+}

@@ -1,0 +1,68 @@
+{
+  "checkedAt": "2026-10-08 01:26:29 UTC",
+  "status": "passed-with-existing-worker-source-qualification",
+  "scope": "Independent review and activation verification of readiness-timeout diagnostics only",
+  "review": {
+    "sourceDelta": "A failed read-only readiness host.status timeout is classified CHROME_PREFLIGHT_TIMEOUT before the action call.",
+    "currentInvocationActionSent": false,
+    "actualActionTimeoutPathChanged": false,
+    "actionOperationIdInvented": false,
+    "automaticRetryAdded": false,
+    "noCorrectnessBlockerFound": true,
+    "fixtureReviewed": "Real stalled-socket public MCP cases for click with omitted ID, click with possibly reused ID, and snapshot; host.status-only traffic, no journal/action ID, no late action.",
+    "baselineFailureAndPatchedPassReportedByImplementer": true,
+    "fullBrowserSuiteRerunByReviewer": false
+  },
+  "activatedRuntime": {
+    "bridgeVersion": "0.3.5",
+    "loadedBridgeSha256": "dc9e5e55dc938665193206190b48a53da24916597eededebe0d9b0efb2040942",
+    "newBridgeProcessVerified": true,
+    "extensionVersion": "0.2.15",
+    "extensionBuild": "browser-reliability-20261007.4",
+    "extensionReady": true,
+    "nativeHostBuildSha256": "2b082e13c21a502c504ae21398aa47befd4c1ade7bce7d653913719259e684e2",
+    "nativeHostBuildUnchanged": true,
+    "extensionMetadataUnchanged": true,
+    "connectionGenerationUnchanged": true,
+    "profileBindingUnchanged": true,
+    "profileMatchesBinding": true,
+    "operatorSettingsUnchanged": true,
+    "foregroundApprovalUnchanged": true,
+    "personalBrowserApprovalUnchanged": true,
+    "accessUnlockUnchanged": true,
+    "journalHealthy": true,
+    "foregroundApprovalPresent": false,
+    "personalBrowserApprovalPresent": false
+  },
+  "filesystem": {
+    "preservedConfigurationFiles": 5,
+    "configurationHashesAndModesMatch": true,
+    "preservedUnrelatedTrackedFiles": 73,
+    "unrelatedHashesAndModesMatch": true,
+    "installedOverlayFiles": 3,
+    "overlayHashesAndModesMatchExpected": true
+  },
+  "publicRead": {
+    "tool": "chrome_tabs",
+    "scope": "Filtered only to the temporary loopback fixture URL already cleaned up",
+    "outcome": "succeeded",
+    "state": "completed",
+    "operationId": "4daef305-b270-4f83-b597-47aca54622ba",
+    "resultCount": 0,
+    "providerPagesAccessed": false,
+    "mutationActions": 0
+  },
+  "workerQualification": {
+    "frozenTestedReleaseSha256": "a0f51adf9ee3e2e7aa5aa9dad7370387f314de0e5b76d5adc2f983b2fb09058c",
+    "liveDiskSha256": "a1fe9cd26b5886361299531c6820bc417b4783616ba31b5a6ddc2560645950c1",
+    "differenceAlreadyPresentInFreshPreinstallBaseline": true,
+    "differencePreserved": true,
+    "exactDiffScope": "Two ChatGPT/Mato final-report marker hunks only; generic click, fill, snapshot and transport sections unchanged.",
+    "workerReloadedByThisActivation": false,
+    "executingWorkerByteHashVerified": false,
+    "limitation": "The unchanged extension build label is not a whole-file executing-source hash. No claim of exact runtime byte equality to the frozen regression source is made."
+  },
+  "accountActions": 0,
+  "credentialsChanged": 0,
+  "permissionsChanged": 0
+}

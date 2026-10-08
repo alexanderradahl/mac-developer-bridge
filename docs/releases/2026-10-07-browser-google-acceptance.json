@@ -1,0 +1,78 @@
+{
+  "schemaVersion": 1,
+  "checkedAt": "2026-10-07T23:33:50.438Z",
+  "provider": "Google",
+  "runtime": {
+    "bridge": "0.3.1",
+    "extension": "0.2.12",
+    "extensionBuild": "browser-reliability-20261007.1"
+  },
+  "status": "blocked_on_google_passkey_after_partial_browser_acceptance",
+  "checks": [
+    {
+      "name": "Google Admin domain inventory",
+      "status": "passed",
+      "targetDomainPresent": false
+    },
+    {
+      "name": "Google Admin Add a domain",
+      "status": "provider_action_not_observed",
+      "attemptCount": 1,
+      "operation": {
+        "operationId": "6d85f52e-b061-4d18-b875-2650f24f1601",
+        "state": "completed",
+        "dispatchState": "dispatched",
+        "clicked": true,
+        "clickDispatched": true,
+        "trusted": false,
+        "outcomeVerified": false,
+        "activationObserved": null,
+        "mouseDownAllowed": false,
+        "navigationObserved": false,
+        "elapsedMs": 1862
+      }
+    },
+    {
+      "name": "Background workspace allocation",
+      "status": "blocked",
+      "code": "CHROME_WORKSPACE_EXHAUSTED"
+    },
+    {
+      "name": "Gmail account and native Send mail as inventory",
+      "status": "passed",
+      "targetSenderPresent": false
+    },
+    {
+      "name": "Gmail Add another email address",
+      "status": "provider_action_not_observed",
+      "attemptCount": 1,
+      "operation": {
+        "operationId": "949c7bf7-6b42-4b45-8cd5-0692263051c0",
+        "state": "completed",
+        "dispatchState": "dispatched",
+        "clicked": true,
+        "clickDispatched": true,
+        "trusted": false,
+        "outcomeVerified": false,
+        "activationObserved": null,
+        "mouseDownAllowed": true,
+        "navigationObserved": false,
+        "elapsedMs": 8557
+      }
+    },
+    {
+      "name": "Restore Admin page",
+      "status": "requires_owner_presence"
+    }
+  ],
+  "sideEffects": {
+    "googleDomainChanges": false,
+    "googleAliasChanges": false,
+    "gmailSenderChanges": false,
+    "dnsChanges": false,
+    "emailSent": false,
+    "credentialsCreated": false,
+    "incomingMailRoutingChanged": false
+  },
+  "remaining": "Owner passkey challenge and sender configuration remain incomplete; no email was sent."
+}

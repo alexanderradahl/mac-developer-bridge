@@ -1,0 +1,286 @@
+{
+  "schemaVersion": 1,
+  "checkedAt": "2026-10-07T23:47:06.687Z",
+  "phase": "after",
+  "baselineGitCommit": "53f05edf99930cdb7fd53843fc4c852c9295860b",
+  "passed": true,
+  "browserVersion": "153.0.8010.0",
+  "reactVersion": "19.2.0",
+  "platform": "linux",
+  "architecture": "x64",
+  "nodeVersion": "v24.19.0",
+  "workerSha256": "63e2e98872c05194053c345dc2d5a7b19d9d6079baeaae91df62c0a6c33f4d8f",
+  "testSourceSha256": "ad614a4b151ec2da85bdd3e7098a9495a1cb45561f5090281645d7c145579665",
+  "fixtureSourceSha256": "2a1b82d611ae38e91608a409b3dd4b508cc0ff921e9f6dd37d315f424fe6dc7c",
+  "reactFixtureSha256": "997b6ead42b93326ba22c6d4ede34e84e8dfe00a7e7d4257e9b97828e3b8e3b3",
+  "fixtureReceiptCount": 5,
+  "testScope": "Disposable local browser fixture; no provider account or existing browser attachment.",
+  "isolation": {
+    "newTemporaryProfile": true,
+    "noExistingBrowserAttachment": true,
+    "externalRequestsBlocked": 0,
+    "browserClosed": true,
+    "profileRemoved": true,
+    "serverClosed": true
+  },
+  "scenarioCount": 30,
+  "passedScenarios": 30,
+  "failedScenarios": 0,
+  "scenarios": [
+    {
+      "scenario": "ordinary-click",
+      "passed": true,
+      "durationMs": 79,
+      "applicationSaveCount": 1
+    },
+    {
+      "scenario": "mousedown-combobox",
+      "passed": true,
+      "durationMs": 61,
+      "applicationToggleCount": 1
+    },
+    {
+      "scenario": "passive-snapshot",
+      "passed": true,
+      "durationMs": 59,
+      "snapshotCount": 4,
+      "emittedEvents": {
+        "invalid": 0,
+        "input": 0,
+        "change": 0,
+        "focus": 0,
+        "blur": 0,
+        "submit": 0
+      }
+    },
+    {
+      "scenario": "controlled-currency",
+      "passed": true,
+      "durationMs": 135,
+      "serverReceivedAmount": 5,
+      "display": "5.00",
+      "submissions": 1
+    },
+    {
+      "scenario": "react-currency",
+      "passed": true,
+      "durationMs": 180,
+      "reactVersion": "19.2.0",
+      "serverReceivedAmount": 5,
+      "submissions": 1,
+      "reactOnChangeCount": 1
+    },
+    {
+      "scenario": "replace-accepted",
+      "passed": true,
+      "durationMs": 139,
+      "replacementCount": 1,
+      "committedCurrentElement": true
+    },
+    {
+      "scenario": "replace-rejected",
+      "passed": true,
+      "durationMs": 90,
+      "rejectedWithoutSubmitting": true
+    },
+    {
+      "scenario": "contenteditable",
+      "passed": true,
+      "durationMs": 353,
+      "exactEditableCases": 8,
+      "inputEventCounts": [
+        {
+          "native": 4,
+          "worker": 4
+        },
+        {
+          "native": 2,
+          "worker": 2
+        },
+        {
+          "native": 2,
+          "worker": 2
+        },
+        {
+          "native": 3,
+          "worker": 3
+        },
+        {
+          "native": 1,
+          "worker": 1
+        },
+        {
+          "native": 1,
+          "worker": 1
+        },
+        {
+          "native": 1,
+          "worker": 1
+        },
+        {
+          "native": 2,
+          "worker": 2
+        }
+      ]
+    },
+    {
+      "scenario": "contenteditable-rejected",
+      "passed": true,
+      "durationMs": 56
+    },
+    {
+      "scenario": "select",
+      "passed": true,
+      "durationMs": 66
+    },
+    {
+      "scenario": "select-rejected",
+      "passed": true,
+      "durationMs": 58
+    },
+    {
+      "scenario": "invalid-submit",
+      "passed": true,
+      "durationMs": 83,
+      "businessSubmissionCount": 0,
+      "validationPreventedSubmission": true
+    },
+    {
+      "scenario": "no-form-submit",
+      "passed": true,
+      "durationMs": 78
+    },
+    {
+      "scenario": "read-only",
+      "passed": true,
+      "durationMs": 47
+    },
+    {
+      "scenario": "focus-lock",
+      "passed": true,
+      "durationMs": 50,
+      "refusedAfterSynchronousFocusLock": true
+    },
+    {
+      "scenario": "beforeinput-lock",
+      "passed": true,
+      "durationMs": 49,
+      "refusedAfterSynchronousBeforeinputLock": true
+    },
+    {
+      "scenario": "cancel-beforeinput",
+      "passed": true,
+      "durationMs": 48
+    },
+    {
+      "scenario": "suspended-raf",
+      "passed": true,
+      "durationMs": 287,
+      "elapsedMs": 264,
+      "animationCallbacksExecuted": 0
+    },
+    {
+      "scenario": "hidden-first",
+      "passed": true,
+      "durationMs": 69
+    },
+    {
+      "scenario": "click-event-sequence",
+      "passed": true,
+      "durationMs": 55,
+      "clickCount": 1,
+      "nativePointerSemanticsMatched": true,
+      "trustPreservedAsSynthetic": true
+    },
+    {
+      "scenario": "mouse-sensitive-menu",
+      "passed": true,
+      "durationMs": 76,
+      "acceptedCount": 1,
+      "fixtureRequiresCoherentMouseClick": true,
+      "providerCauseEstablished": false
+    },
+    {
+      "scenario": "click-default-activation",
+      "passed": true,
+      "durationMs": 38,
+      "checkboxToggledOnce": true,
+      "localLinkActivated": true,
+      "preventDefaultRespected": true
+    },
+    {
+      "scenario": "react-native-edit-reference",
+      "passed": true,
+      "durationMs": 141,
+      "serverReceivedAmount": 10,
+      "submissions": 1,
+      "nativeReferenceAccepted": true
+    },
+    {
+      "scenario": "react-native-edit-setter",
+      "passed": true,
+      "durationMs": 163,
+      "displayRetained": true,
+      "businessAmountAccepted": false,
+      "applicationRejectionHonest": true
+    },
+    {
+      "scenario": "react-native-edit-insert-text",
+      "passed": true,
+      "durationMs": 166,
+      "reactVersion": "19.2.0",
+      "serverReceivedAmount": 10,
+      "submissions": 1,
+      "nativeEditOperations": 1,
+      "reactChanges": 1
+    },
+    {
+      "scenario": "insert-text-supported",
+      "passed": true,
+      "durationMs": 447,
+      "supportedControlTypes": [
+        "text",
+        "search",
+        "tel",
+        "url",
+        "password",
+        "textarea"
+      ],
+      "nativeCountsMatched": true
+    },
+    {
+      "scenario": "insert-text-unsupported",
+      "passed": true,
+      "durationMs": 56,
+      "refusedBeforeMutation": true,
+      "unsupportedTypes": [
+        "email",
+        "number"
+      ]
+    },
+    {
+      "scenario": "insert-text-cancelled",
+      "passed": true,
+      "durationMs": 35,
+      "nativeEditOperations": 0,
+      "fallbackWrites": 0,
+      "rejectionReported": true
+    },
+    {
+      "scenario": "insert-text-command-failure",
+      "passed": true,
+      "durationMs": 34,
+      "nativeEditOperations": 1,
+      "fallbackWrites": 0,
+      "rejectionReported": true
+    },
+    {
+      "scenario": "insert-text-rejected",
+      "passed": true,
+      "durationMs": 74,
+      "nativeEditOperations": 1,
+      "fallbackWrites": 0,
+      "rejectionReported": true
+    }
+  ]
+}

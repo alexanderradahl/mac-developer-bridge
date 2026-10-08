@@ -1,0 +1,151 @@
+{
+  "installedAt": "2026-10-07T23:53:30.962219+00:00",
+  "baseCommit": "53f05edf99930cdb7fd53843fc4c852c9295860b",
+  "bridgeVersion": "0.3.2",
+  "extensionVersion": "0.2.13",
+  "activeChatgptRunsAtInstall": 0,
+  "configurationFilesUnchanged": true,
+  "activationPendingAtInstallation": true,
+  "files": [
+    {
+      "path": "CHANGELOG.md",
+      "beforeSha256": "44c5e5a744afa4947d5d993e8a0326a97e371f3226c71c423c611f5c1023975d",
+      "afterSha256": "7183ecdee403cdee95528c821d707e04816a795e826e1d31df3561ae582af2a6",
+      "mode": 420,
+      "created": false
+    },
+    {
+      "path": "README.md",
+      "beforeSha256": "6cf1924c1a150d9ca84141041ec9f5dd50015a5cbe898e737af7cae0bbc4dcd1",
+      "afterSha256": "9f286e2d07413881e12ad6e41ef82adcbb88dc49111b3a86ce4f02406334e3c0",
+      "mode": 420,
+      "created": false
+    },
+    {
+      "path": "bridge.mjs",
+      "beforeSha256": "550ef940edb329ec4f776fb85725653fe886dc03bfbbe15281140fcc67b75d3f",
+      "afterSha256": "35cd94cea6e52d4224cf46e40e0fb4229ab1a4c6b8e5391214bfc2a252f104d8",
+      "mode": 493,
+      "created": false
+    },
+    {
+      "path": "chrome-extension/manifest.json",
+      "beforeSha256": "2f821fd49a0bbd98ebff9bb34bee471b461b43097f449ee3f7bfd4bc19a09fa5",
+      "afterSha256": "c1127508260b3f74b023ab8e5891d15c8b8940049645fe6724f0305335808a69",
+      "mode": 420,
+      "created": false
+    },
+    {
+      "path": "chrome-extension/service-worker.js",
+      "beforeSha256": "12f9dbf0cb9db4d1196227cb09ac6a6a74e0af5400171560b04b5b1da20f8595",
+      "afterSha256": "63e2e98872c05194053c345dc2d5a7b19d9d6079baeaae91df62c0a6c33f4d8f",
+      "mode": 420,
+      "created": false
+    },
+    {
+      "path": "docs/browser-action-reliability.md",
+      "beforeSha256": "bea23500cdadd1cb2ce01cfa8f9c2332ae1effb7f4398e3f89ee2a87bac98dee",
+      "afterSha256": "d2b567d9a14b69a92dbe14a9367505cad294a305c1aecc55dc1319f26a363947",
+      "mode": 420,
+      "created": false
+    },
+    {
+      "path": "package.json",
+      "beforeSha256": "9fb0634444952202eed8171f8c89733aaddc5244a60d806b0395e02c08d7413d",
+      "afterSha256": "43a8545601586e5199c2f18d74691f5fdaae1c7483c6200e0ba7466d5b93bdfa",
+      "mode": 420,
+      "created": false
+    },
+    {
+      "path": "tests/chrome-action-correctness.mjs",
+      "beforeSha256": "128af2c67d6b1204b79424510f194eba49d318ee2fa2a84d999cb8340856392e",
+      "afterSha256": "7863c1328e4a4824df7aae7524b87f28066d225fc02c828ac1d3af14980040b0",
+      "mode": 420,
+      "created": false
+    },
+    {
+      "path": "tests/chrome-actions-real-browser.mjs",
+      "beforeSha256": "916c51a3471988c134420eb2fc8b02c4d3745437c9217830d4a85772ab7bd6d2",
+      "afterSha256": "ad614a4b151ec2da85bdd3e7098a9495a1cb45561f5090281645d7c145579665",
+      "mode": 420,
+      "created": false
+    },
+    {
+      "path": "tests/chrome-background.mjs",
+      "beforeSha256": "fd1efb767a718506712a625fba937d09fc0e6afe71e762b3bb4529efb3249b97",
+      "afterSha256": "018b78e68567aa5cc0ebaf59b6608f986bf3c0adc0f9a6a341c718337ce6e209",
+      "mode": 420,
+      "created": false
+    },
+    {
+      "path": "tests/chrome-fill-background.mjs",
+      "beforeSha256": "efdb9415493cce1e0b0fd4d2eb07c02d6bc2bfdbf8a9c0470980c67e99399984",
+      "afterSha256": "415a329007f37fa54af3e265da38dba75a97cbb1c69e34678ef7d90319af39b3",
+      "mode": 420,
+      "created": false
+    },
+    {
+      "path": "tests/chrome-workspace-capacity.mjs",
+      "beforeSha256": "d5f0bfadae9c7072e8450f3f73afae17f6b7896d0b082d3ef61d42f55d9458f2",
+      "afterSha256": "40fe09143d39abefaffd2133561b281553b3a0110b2189c5a61e6a375f71c690",
+      "mode": 420,
+      "created": false
+    },
+    {
+      "path": "tests/fixtures/chrome-actions.html",
+      "beforeSha256": "0f9289257cac0bd0e16c7e04855df0932014195ffc4a51d57c16f1db2f144638",
+      "afterSha256": "2a1b82d611ae38e91608a409b3dd4b508cc0ff921e9f6dd37d315f424fe6dc7c",
+      "mode": 420,
+      "created": false
+    },
+    {
+      "path": "tests/fixtures/chrome-react-currency.mjs",
+      "beforeSha256": "eee6c75af081c9adae7fb4a7a339408909f6d164db995feb54595c9d976cbcfd",
+      "afterSha256": "997b6ead42b93326ba22c6d4ede34e84e8dfe00a7e7d4257e9b97828e3b8e3b3",
+      "mode": 420,
+      "created": false
+    },
+    {
+      "path": "docs/releases/2026-10-07-browser-discord-acceptance.json",
+      "beforeSha256": null,
+      "afterSha256": "145de191d80c52c327890596d89bbd94ee1792d01fa11391be0e646fd9a3d272",
+      "mode": 420,
+      "created": true
+    },
+    {
+      "path": "docs/releases/2026-10-07-browser-google-acceptance.json",
+      "beforeSha256": null,
+      "afterSha256": "56209fe678695603bad8a81aa40f54aabb6431ab66507140d8421d80abf7b989",
+      "mode": 420,
+      "created": true
+    },
+    {
+      "path": "docs/releases/2026-10-07-browser-input-compatibility-after.json",
+      "beforeSha256": null,
+      "afterSha256": "f183e9c6028ab9386508671318795f3e3d664280d4280259ee183ed0e629a6bf",
+      "mode": 420,
+      "created": true
+    },
+    {
+      "path": "docs/releases/2026-10-07-browser-input-compatibility-before.json",
+      "beforeSha256": null,
+      "afterSha256": "f014c863d01af1b1141e8fe96dd479962867eec207a7afb90e44cd0a9b245023",
+      "mode": 420,
+      "created": true
+    },
+    {
+      "path": "docs/releases/2026-10-07-browser-input-compatibility-tests.json",
+      "beforeSha256": null,
+      "afterSha256": "e21e38d880778de976f1bc980b262dfaa81e7d08a61c04b4a8907a1ecad1ec50",
+      "mode": 420,
+      "created": true
+    },
+    {
+      "path": "docs/releases/2026-10-07-browser-repair-activation.json",
+      "beforeSha256": null,
+      "afterSha256": "864b943f3e2d5068f16b7a4b9d345441fd135fcb727696a80914907e611da4a8",
+      "mode": 420,
+      "created": true
+    }
+  ]
+}

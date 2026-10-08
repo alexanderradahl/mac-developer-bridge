@@ -1,0 +1,215 @@
+{
+  "passed": true,
+  "browserVersion": "153.0.8010.0",
+  "reactVersion": "19.2.0",
+  "platform": "linux",
+  "architecture": "x64",
+  "nodeVersion": "v24.19.0",
+  "workerPath": "/workspace/scratch/03faab782ef0/mdb-browser-tests/chrome-extension/service-worker-candidate.js",
+  "workerSha256": "12f9dbf0cb9db4d1196227cb09ac6a6a74e0af5400171560b04b5b1da20f8595",
+  "testSourceSha256": "916c51a3471988c134420eb2fc8b02c4d3745437c9217830d4a85772ab7bd6d2",
+  "fixtureSourceSha256": "0f9289257cac0bd0e16c7e04855df0932014195ffc4a51d57c16f1db2f144638",
+  "reactFixtureSha256": "eee6c75af081c9adae7fb4a7a339408909f6d164db995feb54595c9d976cbcfd",
+  "isolation": {
+    "profilePath": "/tmp/mdb-browser-regression-WWcL0i",
+    "newTemporaryProfile": true,
+    "noExistingBrowserAttachment": true,
+    "networkRestrictedToFixtureOrigin": "http://127.0.0.1:40439",
+    "externalRequestsBlocked": 0,
+    "browserClosed": true,
+    "profileRemoved": true,
+    "serverClosed": true
+  },
+  "fixtureReceiptCount": 3,
+  "fixtureReceipts": [
+    {
+      "scenario": "controlled-currency",
+      "amount": 5,
+      "draft": "5"
+    },
+    {
+      "scenario": "react-currency",
+      "amount": 5,
+      "draft": "5.00"
+    },
+    {
+      "scenario": "replace-accepted",
+      "value": "retained"
+    }
+  ],
+  "scenarios": [
+    {
+      "scenario": "ordinary-click",
+      "passed": true,
+      "durationMs": 75,
+      "applicationSaveCount": 1
+    },
+    {
+      "scenario": "mousedown-combobox",
+      "passed": true,
+      "durationMs": 56,
+      "applicationToggleCount": 1
+    },
+    {
+      "scenario": "passive-snapshot",
+      "passed": true,
+      "durationMs": 56,
+      "snapshotCount": 4,
+      "emittedEvents": {
+        "invalid": 0,
+        "input": 0,
+        "change": 0,
+        "focus": 0,
+        "blur": 0,
+        "submit": 0
+      }
+    },
+    {
+      "scenario": "controlled-currency",
+      "passed": true,
+      "durationMs": 138,
+      "serverReceivedAmount": 5,
+      "display": "5.00",
+      "submissions": 1
+    },
+    {
+      "scenario": "react-currency",
+      "passed": true,
+      "durationMs": 182,
+      "reactVersion": "19.2.0",
+      "serverReceivedAmount": 5,
+      "submissions": 1,
+      "reactOnChangeCount": 1
+    },
+    {
+      "scenario": "replace-accepted",
+      "passed": true,
+      "durationMs": 144,
+      "replacementCount": 1,
+      "committedCurrentElement": true
+    },
+    {
+      "scenario": "replace-rejected",
+      "passed": true,
+      "durationMs": 87,
+      "rejectedWithoutSubmitting": true
+    },
+    {
+      "scenario": "contenteditable",
+      "passed": true,
+      "durationMs": 467,
+      "exactEditableCases": 8,
+      "inputEventCounts": [
+        {
+          "native": 4,
+          "worker": 4
+        },
+        {
+          "native": 2,
+          "worker": 2
+        },
+        {
+          "native": 2,
+          "worker": 2
+        },
+        {
+          "native": 3,
+          "worker": 3
+        },
+        {
+          "native": 1,
+          "worker": 1
+        },
+        {
+          "native": 1,
+          "worker": 1
+        },
+        {
+          "native": 1,
+          "worker": 1
+        },
+        {
+          "native": 2,
+          "worker": 2
+        }
+      ]
+    },
+    {
+      "scenario": "contenteditable-rejected",
+      "passed": true,
+      "durationMs": 63
+    },
+    {
+      "scenario": "select",
+      "passed": true,
+      "durationMs": 65
+    },
+    {
+      "scenario": "select-rejected",
+      "passed": true,
+      "durationMs": 59
+    },
+    {
+      "scenario": "invalid-submit",
+      "passed": true,
+      "durationMs": 90,
+      "businessSubmissionCount": 0,
+      "validationPreventedSubmission": true
+    },
+    {
+      "scenario": "no-form-submit",
+      "passed": true,
+      "durationMs": 71
+    },
+    {
+      "scenario": "read-only",
+      "passed": true,
+      "durationMs": 47
+    },
+    {
+      "scenario": "focus-lock",
+      "passed": true,
+      "durationMs": 47,
+      "refusedAfterSynchronousFocusLock": true
+    },
+    {
+      "scenario": "beforeinput-lock",
+      "passed": true,
+      "durationMs": 47,
+      "refusedAfterSynchronousBeforeinputLock": true
+    },
+    {
+      "scenario": "cancel-beforeinput",
+      "passed": true,
+      "durationMs": 45
+    },
+    {
+      "scenario": "suspended-raf",
+      "passed": true,
+      "durationMs": 286,
+      "elapsedMs": 264,
+      "animationCallbacksExecuted": 0
+    },
+    {
+      "scenario": "hidden-first",
+      "passed": true,
+      "durationMs": 57
+    }
+  ],
+  "sourceRepository": "https://github.com/alexanderradahl/mac-developer-bridge",
+  "sourceFile": "chrome-extension/service-worker.js",
+  "dependencyVersions": {
+    "playwright": "1.62.1",
+    "react": "19.2.0",
+    "react-dom": "19.2.0",
+    "esbuild": "0.25.11",
+    "@sparticuz/chromium": "153.0.0"
+  },
+  "osDescription": "Linux-6.18.44-x86_64-with-glibc2.39",
+  "limitations": [
+    "Runs the exact production page functions in isolated Linux headless Chromium.",
+    "Does not establish installed Mac runtime, native-host transport, trusted user gestures, or authenticated provider acceptance."
+  ],
+  "suiteRole": "deployment candidate preserving preexisting owner changes plus bridge repair",
+  "candidateSourcePath": "/Users/alexanderbenz/Downloads/mac-developer-bridge-worktrees/browser-reliability-deploy-20261007/chrome-extension/service-worker.js"
+}

@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "capturedAt": "2026-10-08T00:03:35.096Z",
+  "provider": "OpenAI",
+  "bridgeVersion": "0.3.2",
+  "extensionVersion": "0.2.13",
+  "saved": true,
+  "persistedListLabel": "Restricted",
+  "endpointPermissions": {
+    "List models": "Read",
+    "Responses (/v1/responses)": "Write",
+    "otherVisibleEndpoints": "None"
+  },
+  "unrelatedKeysModified": false,
+  "newKeyCreated": false,
+  "credentialValuesIncluded": false,
+  "expiryUnchanged": true,
+  "saveOperation": {
+    "operationId": "48eaeb0c-baa9-418a-be37-8ebe814b63f6",
+    "state": "completed",
+    "outcome": "succeeded",
+    "dispatched": true,
+    "dispatchState": "dispatched",
+    "elapsedMs": 949,
+    "retryable": false
+  },
+  "reopenedReadOperation": {
+    "operationId": "2cbbfe9f-3ecd-4504-90a2-25915d395a12",
+    "state": "completed",
+    "outcome": "succeeded",
+    "dispatched": true,
+    "dispatchState": "dispatched",
+    "elapsedMs": 1553,
+    "retryable": false
+  },
+  "apiValidationReceipt": "2026-10-07-openai-writer-restricted-api-validation.json"
+}

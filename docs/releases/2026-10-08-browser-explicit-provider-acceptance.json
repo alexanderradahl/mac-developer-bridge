@@ -1,0 +1,35 @@
+{
+  "bridgeVersion": "0.3.3",
+  "extensionVersion": "0.2.14",
+  "bridgeBuildId": "a5c7cf5fdf3f56e303aa3b36c4677d5e4a0d0e1d37d5c0e215fa70ebe3364a06",
+  "extensionBuildId": "browser-reliability-20261007.3",
+  "patreon": {
+    "workflow": "Unpublished membership tier form",
+    "inputStrategy": "text-input",
+    "commit": "blur",
+    "normalization": "exact",
+    "fillOperationId": "patreon-town-text-input-price-20261008-01",
+    "domValueRetained": true,
+    "applicationAccepted": null,
+    "saveStrategy": "dom-click",
+    "saveOperationId": "patreon-town-text-input-dom-save-20261008-01",
+    "saveDispatches": 1,
+    "readbackOperationId": "9273e409-c3fc-443d-8af7-9f7f17692019",
+    "sameDocumentAfterSave": true,
+    "validationMessage": "Please enter tier amount.",
+    "saved": false
+  },
+  "discord": {
+    "workflow": "Server settings entry",
+    "clickStrategy": "dom-click",
+    "clickOperationId": "discord-server-settings-dom-click-20261008-01",
+    "clickDispatches": 1,
+    "menuClosed": true,
+    "readbackOperationId": "0ff06805-6d7f-41f5-b72f-65344299e2a3",
+    "settingsViewObserved": false
+  },
+  "conclusion": "The explicit actions complete and retain honest unknown application acceptance. The requested provider outcomes remain unresolved in this build. A separate installed local fixture reproduced absent native focus/blur events in an inactive document; that finding is not yet proof of either provider's internal cause.",
+  "publishedContent": false,
+  "messagesSent": 0,
+  "recordedAt": "2026-10-08T00:38:29.538368+00:00"
+}

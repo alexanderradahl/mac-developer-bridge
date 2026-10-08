@@ -1,0 +1,57 @@
+{
+  "schemaVersion": 1,
+  "provider": "OpenAI",
+  "checkedAt": "2026-10-08T00:06:15.493044+00:00",
+  "result": "PASS",
+  "passed": true,
+  "model": "gpt-6.1-sol",
+  "credentialValuesPrinted": false,
+  "credentialMutation": false,
+  "responsesAttempts": 1,
+  "tls": {
+    "certificateVerification": true,
+    "hostnameVerification": true,
+    "caSource": "existing certifi bundle",
+    "initialAttempt": "Python default CA path absent; handshake failed before any HTTP response"
+  },
+  "modelsGet": {
+    "httpStatus": 200,
+    "exactModelMatches": true
+  },
+  "responses": {
+    "httpStatus": 200,
+    "status": "completed",
+    "requestedStore": false,
+    "reportedStore": false,
+    "outputMatchedExpected": true,
+    "outputCharacterCount": 2,
+    "usage": {
+      "input_tokens": 11,
+      "output_tokens": 5,
+      "total_tokens": 16
+    }
+  },
+  "requests": {
+    "model": {
+      "method": "GET",
+      "path": "/v1/models/gpt-6.1-sol"
+    },
+    "response": {
+      "method": "POST",
+      "path": "/v1/responses",
+      "input": "Reply with exactly OK.",
+      "max_output_tokens": 16,
+      "store": false,
+      "attempts": 1
+    }
+  },
+  "bounds": {
+    "privateGameSourceUsed": false,
+    "emailsOrPublicContentGenerated": false,
+    "credentialsRotated": false,
+    "secretMutated": false,
+    "deploymentsChanged": false,
+    "otherApiPermissionsTested": false,
+    "apiCredentialPersistedByValidator": false
+  }
+}

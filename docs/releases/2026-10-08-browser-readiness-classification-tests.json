@@ -1,0 +1,72 @@
+{
+  "recordedAt": "2026-10-08T01:24:03Z",
+  "bridgeVersion": "0.3.5",
+  "extensionVersion": "0.2.15",
+  "sourceBase": "e18b95ad3da55ca44d13cd90926e17778823cfae",
+  "scope": "Classify readiness timeouts before browser action submission",
+  "sourceHashes": {
+    "bridge.mjs": "dc9e5e55dc938665193206190b48a53da24916597eededebe0d9b0efb2040942",
+    "package.json": "71da5f2a5c2512526c33f646d0d0b7958099f77b7cc09710bc5fe54e15349b02",
+    "tests/chrome-background.mjs": "f9e440313999cabcacaa6b78f4344533e8043c754e38287aa3917d9b4ce16d7a"
+  },
+  "baseline": {
+    "version": "0.3.4",
+    "fixture": "real delayed UNIX readiness socket through public MCP tools/call",
+    "passed": false,
+    "expectedCode": "CHROME_PREFLIGHT_TIMEOUT",
+    "actualCode": "CHROME_HOST_TIMEOUT",
+    "durationMs": 1234
+  },
+  "after": {
+    "passed": true,
+    "checks": [
+      {
+        "command": "npm run check",
+        "exitCode": 0
+      },
+      {
+        "command": "node tests/chrome-background.mjs",
+        "exitCode": 0
+      },
+      {
+        "command": "node tests/chrome-transport-reliability.mjs",
+        "exitCode": 0,
+        "behavioralGroups": 16
+      },
+      {
+        "command": "git diff --check",
+        "exitCode": 0
+      }
+    ],
+    "combinedDurationMs": 5421,
+    "preflightCases": [
+      "click without caller operation ID",
+      "click with a possibly reused caller operation ID",
+      "read-only snapshot"
+    ],
+    "observedWireMethods": [
+      "host.status",
+      "host.status",
+      "host.status"
+    ],
+    "browserActionsDispatched": 0,
+    "actionJournalCreated": false,
+    "lateReadinessResponseDidNotDispatch": true,
+    "operationIdOmitted": true,
+    "earlierOperationLifecycleNotClaimed": true,
+    "automaticRetryNotSuggested": true,
+    "postDispatchUnknownOutcomeAndOperationIdPreserved": true
+  },
+  "independentReview": {
+    "passed": true,
+    "scope": "timeout branch limited to read-only readiness; action client and native paths unchanged"
+  },
+  "browserEngineEvidence": {
+    "extensionChanged": false,
+    "nativeChanged": false,
+    "priorFullGate": "2026-10-08-browser-background-focus-tests.json",
+    "priorIsolatedScenarios": 42,
+    "priorInstalledAcceptance": "2026-10-08-browser-installed-loopback-acceptance-after.json",
+    "qualification": "The earlier complete suite and 42-scenario browser-engine proof apply to the unchanged release extension; this follow-up changes only the bridge readiness error boundary."
+  }
+}
