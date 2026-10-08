@@ -1,0 +1,57 @@
+{
+  "schemaVersion": 1,
+  "verifiedAt": "2026-10-08T00:33:19.389148+00:00",
+  "release": {
+    "bridgeVersion": "0.3.3",
+    "extensionVersion": "0.2.14",
+    "extensionBuildId": "browser-reliability-20261007.3"
+  },
+  "buildVerification": {
+    "bridgeLoadedBuildId": "a5c7cf5fdf3f56e303aa3b36c4677d5e4a0d0e1d37d5c0e215fa70ebe3364a06",
+    "installedWorkerSha256": "8f9e097a1c438468a17f72d2455743c4b58327e17271d4b7a97739b27c02226e",
+    "nativeHostLoadedBuildId": "72d9e6ced8b9076b55bfc00fbf490d2c692dc1ccb8f8e667d0a0d38d9a493835",
+    "nativeBuildAlgorithm": "SHA256 of ordered installed bytes: scripts/chrome-native-host.mjs, lib/chrome-operation-registry.mjs, lib/chrome-extension-client.mjs",
+    "loadedBridgeMatchesInstalledSource": true,
+    "loadedNativeHostMatchesComputedBuild": true,
+    "nativeHostBuildUnchanged": true,
+    "extensionReady": true,
+    "extensionReadyAt": "2026-10-08T00:31:30.399Z",
+    "installedFilesChecked": 14,
+    "allInstalledFilesMatchTestedReleaseAndInstallationReceipt": true
+  },
+  "preservation": {
+    "runtimeComparisons": 27,
+    "allRuntimeComparisonsUnchanged": true,
+    "exactConfigurationFilesCompared": 5,
+    "allConfigurationBytesAndModesUnchanged": true,
+    "profileBindingMatches": true,
+    "extensionManifestUnchangedExceptVersion": true,
+    "wrapperBytes": 125,
+    "wrapperMode": "0o700",
+    "ownedSocketSymlinkHealthy": true,
+    "existingSupervisorParentPreserved": true,
+    "journalHealthy": true
+  },
+  "publicMcp": {
+    "verificationMethod": "Authenticated MCP tools/list; no tools/call",
+    "httpStatus": 200,
+    "toolCount": 38,
+    "clickStrategy": {
+      "enum": [
+        "adaptive-pointer",
+        "dom-click"
+      ],
+      "default": "adaptive-pointer"
+    },
+    "inputStrategy": {
+      "enum": [
+        "set-value",
+        "insert-text",
+        "text-input"
+      ],
+      "default": "set-value"
+    },
+    "operationStatusAdvertised": true
+  },
+  "scope": "Independent activation and schema verification only. Browser/provider behavior is covered by separate test and acceptance receipts. No account actions, configuration changes, reloads, or model requests were performed by this verification."
+}

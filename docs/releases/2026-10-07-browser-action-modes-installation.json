@@ -1,0 +1,110 @@
+{
+  "installedAt": "2026-10-08T00:31:23.497927+00:00",
+  "baseCommit": "53f05edf99930cdb7fd53843fc4c852c9295860b",
+  "bridgeVersion": "0.3.3",
+  "extensionVersion": "0.2.14",
+  "activeChatgptRunsAtInstall": 0,
+  "configurationFilesUnchanged": true,
+  "unrelatedSourceFilesPreserved": 44,
+  "activationPendingAtInstallation": true,
+  "files": [
+    {
+      "path": "CHANGELOG.md",
+      "beforeSha256": "7183ecdee403cdee95528c821d707e04816a795e826e1d31df3561ae582af2a6",
+      "afterSha256": "f0b4a2236c37fafa6e0454465b2624ce15fa7d20494ef4128b31fd20a8089bb7",
+      "mode": 420,
+      "created": false
+    },
+    {
+      "path": "README.md",
+      "beforeSha256": "9f286e2d07413881e12ad6e41ef82adcbb88dc49111b3a86ce4f02406334e3c0",
+      "afterSha256": "3fe4348b0a54037c41acddf292eaba4d5315d5ecb2948c8bc84d22e7e3760022",
+      "mode": 420,
+      "created": false
+    },
+    {
+      "path": "bridge.mjs",
+      "beforeSha256": "35cd94cea6e52d4224cf46e40e0fb4229ab1a4c6b8e5391214bfc2a252f104d8",
+      "afterSha256": "a5c7cf5fdf3f56e303aa3b36c4677d5e4a0d0e1d37d5c0e215fa70ebe3364a06",
+      "mode": 493,
+      "created": false
+    },
+    {
+      "path": "chrome-extension/manifest.json",
+      "beforeSha256": "c1127508260b3f74b023ab8e5891d15c8b8940049645fe6724f0305335808a69",
+      "afterSha256": "8a7dc8d3d8505b871ef8a084f71e683c2cdc79e15cbeb76d3519d1fe81bd5156",
+      "mode": 420,
+      "created": false
+    },
+    {
+      "path": "chrome-extension/service-worker.js",
+      "beforeSha256": "63e2e98872c05194053c345dc2d5a7b19d9d6079baeaae91df62c0a6c33f4d8f",
+      "afterSha256": "8f9e097a1c438468a17f72d2455743c4b58327e17271d4b7a97739b27c02226e",
+      "mode": 420,
+      "created": false
+    },
+    {
+      "path": "docs/browser-action-reliability.md",
+      "beforeSha256": "d2b567d9a14b69a92dbe14a9367505cad294a305c1aecc55dc1319f26a363947",
+      "afterSha256": "57651131b24859964bde1bcb2c28f9649d59d50bc3d21f5742e10a6dd8819268",
+      "mode": 420,
+      "created": false
+    },
+    {
+      "path": "package.json",
+      "beforeSha256": "43a8545601586e5199c2f18d74691f5fdaae1c7483c6200e0ba7466d5b93bdfa",
+      "afterSha256": "293654f2d033b7ec5df734a2c2284144c7929b5c58c9466cefee14083acc1621",
+      "mode": 420,
+      "created": false
+    },
+    {
+      "path": "tests/chrome-action-correctness.mjs",
+      "beforeSha256": "7863c1328e4a4824df7aae7524b87f28066d225fc02c828ac1d3af14980040b0",
+      "afterSha256": "7c67a7aa6f77808ee80fedd6bdc97721b43f2a538d64b93699e93fd2ad4a4b09",
+      "mode": 420,
+      "created": false
+    },
+    {
+      "path": "tests/chrome-actions-real-browser.mjs",
+      "beforeSha256": "ad614a4b151ec2da85bdd3e7098a9495a1cb45561f5090281645d7c145579665",
+      "afterSha256": "8c522c08739638174db57b750e7464c3edf13221a3038e21ebf077e72913141c",
+      "mode": 420,
+      "created": false
+    },
+    {
+      "path": "tests/chrome-background.mjs",
+      "beforeSha256": "018b78e68567aa5cc0ebaf59b6608f986bf3c0adc0f9a6a341c718337ce6e209",
+      "afterSha256": "f778eeda41c251afdb5972b9323b03b112e42771d7e8859509e5ee7c22b05964",
+      "mode": 420,
+      "created": false
+    },
+    {
+      "path": "tests/chrome-fill-background.mjs",
+      "beforeSha256": "415a329007f37fa54af3e265da38dba75a97cbb1c69e34678ef7d90319af39b3",
+      "afterSha256": "fd8422cbf354ea9199f6fdff516b5822fb34c0937db7fb91d0930971e500dd95",
+      "mode": 420,
+      "created": false
+    },
+    {
+      "path": "tests/chrome-workspace-capacity.mjs",
+      "beforeSha256": "40fe09143d39abefaffd2133561b281553b3a0110b2189c5a61e6a375f71c690",
+      "afterSha256": "36efa99da720195e0f7eb4a4a539290c1ec8a485164317c0044f9171b9c52d7e",
+      "mode": 420,
+      "created": false
+    },
+    {
+      "path": "tests/fixtures/chrome-actions.html",
+      "beforeSha256": "2a1b82d611ae38e91608a409b3dd4b508cc0ff921e9f6dd37d315f424fe6dc7c",
+      "afterSha256": "9696bf8786dab922fcfce7bbe377434ffb58b4b64fc55b7d02676b6170caa606",
+      "mode": 420,
+      "created": false
+    },
+    {
+      "path": "tests/fixtures/chrome-react-currency.mjs",
+      "beforeSha256": "997b6ead42b93326ba22c6d4ede34e84e8dfe00a7e7d4257e9b97828e3b8e3b3",
+      "afterSha256": "daff8c471f1b3c2ec49d220e8a32b36d8950dd7b98b08d7b393cf5cd9b44e2ac",
+      "mode": 420,
+      "created": false
+    }
+  ]
+}

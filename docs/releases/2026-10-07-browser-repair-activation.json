@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "verifiedAt": "2026-10-07T23:34:32.331Z",
+  "result": "PASS: installed runtime identity, preserved runtime configuration, and advertised MCP schemas",
+  "release": {
+    "bridgeVersion": "0.3.1",
+    "bridgeBuildId": "550ef940edb329ec4f776fb85725653fe886dc03bfbbe15281140fcc67b75d3f",
+    "extensionVersion": "0.2.12",
+    "extensionBuildId": "browser-reliability-20261007.1",
+    "nativeHostBuildId": "72d9e6ced8b9076b55bfc00fbf490d2c692dc1ccb8f8e667d0a0d38d9a493835"
+  },
+  "verification": {
+    "bridgeLoadedMatchesInstalled": true,
+    "nativeLoadedMatchesInstalled": true,
+    "extensionReady": true,
+    "profileBindingMatches": true,
+    "installedFileCount": 25,
+    "allInstalledFilesMatchReceipt": true,
+    "manifestUnchangedExceptVersion": true,
+    "runtimeFieldsCompared": 25,
+    "allRuntimeFieldsUnchanged": true,
+    "configurationFileByteHashesVerified": false
+  },
+  "publicMcp": {
+    "httpStatus": 200,
+    "toolCount": 38,
+    "method": "tools/list"
+  },
+  "limitations": [
+    "A preinstallation configuration-file hash baseline was not captured for this first activation; preservation is limited to reported runtime values and separately backed-up wrapper bytes.",
+    "An existing client catalog can retain older schemas until refreshed."
+  ]
+}

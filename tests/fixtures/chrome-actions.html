@@ -78,7 +78,16 @@
       const response = await receipt({ amount: state.amount, draft: state.draft });
       document.getElementById('server-receipt').value = JSON.stringify(await response.json());
     });
-  } else if (scenario === 'react-currency') {
+  } else if (scenario === 'react-currency' || scenario.startsWith('react-native-edit-') || scenario.startsWith('react-text-input-')) {
+    state.execCommands = 0;
+    const nativeExecCommand = document.execCommand.bind(document);
+    document.execCommand = (...args) => { state.execCommands++; return nativeExecCommand(...args); };
+    state.editEvents = [];
+    state.cancelReactBeforeInput = scenario === 'react-text-input-react-cancelled';
+    if (scenario === 'react-text-input-dom-cancelled') document.addEventListener('textInput', event => { if (event.target.id === 'react-amount') event.preventDefault(); }, true);
+    for (const type of ['beforeinput', 'textInput', 'input', 'change', 'blur']) document.addEventListener(type, event => {
+      if (event.target.id === 'react-amount') state.editEvents.push({ type: event.type, inputType: event.inputType, data: event.data, trusted: event.isTrusted });
+    }, true);
     const script = document.createElement('script');
     script.src = '/react-fixture.js';
     document.body.append(script);
@@ -138,6 +147,95 @@
     document.getElementById('background').addEventListener('input', event => { state.accepted = event.currentTarget.value; });
   } else if (scenario === 'hidden-first') {
     root.innerHTML = '<input class="field" hidden value="hidden"><input class="field" value="visible">';
+  } else if (scenario === 'click-event-sequence') {
+    root.innerHTML = '<button id="mouse-action" style="position:absolute;left:100px;top:100px;width:200px;height:60px">Mouse action</button>';
+    state.sequence = [];
+    const target = document.getElementById('mouse-action');
+    for (const type of ['pointerover', 'mouseover', 'pointermove', 'mousemove', 'pointerdown', 'mousedown', 'focus', 'pointerup', 'mouseup', 'click']) target.addEventListener(type, event => state.sequence.push({ type: event.type, constructor: event.constructor.name, trusted: event.isTrusted, detail: event.detail, button: event.button, buttons: event.buttons, pointerId: event.pointerId, pointerType: event.pointerType, isPrimary: event.isPrimary, clientX: event.clientX, clientY: event.clientY, pressure: event.pressure, viewIsWindow: event.view === window }));
+    target.addEventListener('click', () => state.saves++);
+  } else if (scenario === 'mouse-sensitive-menu') {
+    // An event-coherence regression fixture, not an imitation of Discord or
+    // evidence about why a particular provider rejected a synthetic event.
+    root.innerHTML = '<div id="mouse-menu" role="menu"><div id="mouse-menu-action" role="menuitem" tabindex="0" style="padding:20px">Server Settings</div></div><section id="roles-panel" hidden>Roles</section>';
+    const action = document.getElementById('mouse-menu-action');
+    let pointer;
+    action.addEventListener('pointerdown', event => { pointer = { id: event.pointerId, x: event.clientX, y: event.clientY }; });
+    action.addEventListener('click', event => {
+      state.lastMenuEvent = { constructor: event.constructor.name, detail: event.detail, pointerType: event.pointerType, pointerId: event.pointerId, x: event.clientX, y: event.clientY, viewIsWindow: event.view === window, pointer };
+      document.getElementById('mouse-menu').hidden = true;
+      state.clickAttempts = (state.clickAttempts || 0) + 1;
+      if (event instanceof PointerEvent && event.detail === 1 && event.pointerType === 'mouse' && event.pointerId === pointer?.id && Math.abs(event.clientX - pointer.x) <= 1 && Math.abs(event.clientY - pointer.y) <= 1 && event.view === window) {
+        document.getElementById('roles-panel').hidden = false;
+        state.saves++;
+      }
+    });
+  } else if (scenario === 'click-default-activation' || scenario === 'dom-click-default-activation') {
+    root.innerHTML = '<input id="check-default" type="checkbox"><input id="check-cancelled" type="checkbox"><a id="link-default" href="#activation-target">Follow local link</a><a id="link-cancelled" href="#must-not-activate">Cancelled local link</a>';
+    for (const id of ['check-default', 'check-cancelled']) {
+      for (const type of ['input', 'change']) document.getElementById(id).addEventListener(type, () => count(`${id}:${type}`));
+    }
+    for (const id of ['check-cancelled', 'link-cancelled']) document.getElementById(id).addEventListener('click', event => event.preventDefault());
+  } else if (scenario === 'dom-click-direct-menu') {
+    // This control deliberately closes/disarms on mousedown. Pure DOM click
+    // is an explicit alternative; this fixture does not identify a provider.
+    root.innerHTML = '<div id="direct-menu"><div id="direct-action" role="menuitem" tabindex="0" style="padding:16px">Open settings</div></div><section id="direct-result" hidden>Settings opened</section>';
+    state.disarmed = false;
+    state.actionTrace = [];
+    const action = document.getElementById('direct-action');
+    for (const type of ['pointerover', 'mouseover', 'pointerdown', 'mousedown', 'focus', 'mouseup', 'click']) action.addEventListener(type, () => state.actionTrace.push(type));
+    action.addEventListener('mousedown', () => { state.disarmed = true; document.getElementById('direct-menu').hidden = true; });
+    action.addEventListener('click', () => { if (!state.disarmed) { state.saves++; document.getElementById('direct-result').hidden = false; } });
+  } else if (scenario === 'dom-click-refused') {
+    root.innerHTML = '<button id="direct-disabled" disabled>Disabled</button><button id="direct-expired">Expired action</button>';
+    for (const target of root.querySelectorAll('button')) for (const type of ['pointerdown', 'mousedown', 'focus', 'click']) target.addEventListener(type, () => count(type));
+  } else if (scenario === 'insert-text-supported') {
+    root.innerHTML = ['text', 'search', 'tel', 'url', 'password'].map(type => `<input id="edit-${type}" type="${type}" value="123">`).join('') + '<textarea id="edit-textarea">before</textarea>';
+    state.fieldEvents = {};
+    state.execCommands = 0;
+    const nativeExecCommand = document.execCommand.bind(document);
+    document.execCommand = (...args) => { state.execCommands++; return nativeExecCommand(...args); };
+    for (const field of root.querySelectorAll('input,textarea')) {
+      state.fieldEvents[field.id] = [];
+      for (const type of ['beforeinput', 'input', 'change']) field.addEventListener(type, event => state.fieldEvents[field.id].push({ type: event.type, inputType: event.inputType, data: event.data, trusted: event.isTrusted }));
+    }
+  } else if (scenario === 'insert-text-unsupported') {
+    root.innerHTML = '<input id="edit-email" type="email" value="before@example.test"><input id="edit-number" type="number" value="7">';
+    state.execCommands = 0;
+    const nativeExecCommand = document.execCommand.bind(document);
+    document.execCommand = (...args) => { state.execCommands++; return nativeExecCommand(...args); };
+    for (const field of root.querySelectorAll('input')) field.addEventListener('input', () => count('input'));
+  } else if (['insert-text-cancelled', 'insert-text-command-failure', 'insert-text-rejected'].includes(scenario)) {
+    root.innerHTML = '<input id="edit-failure" value="before">';
+    state.execCommands = 0;
+    const nativeExecCommand = document.execCommand.bind(document);
+    document.execCommand = (...args) => { state.execCommands++; return scenario === 'insert-text-command-failure' ? false : nativeExecCommand(...args); };
+    const field = document.getElementById('edit-failure');
+    field.addEventListener('beforeinput', event => { count('beforeinput'); if (scenario === 'insert-text-cancelled') event.preventDefault(); });
+    field.addEventListener('input', () => { count('input'); if (scenario === 'insert-text-rejected') field.value = 'rejected'; });
+  } else if (scenario === 'active-focus-blur-native') {
+    root.innerHTML = '<input id="focus-case" type="text">';
+    state.focusEvents = [];
+    for (const type of ['focus', 'focusin', 'blur', 'focusout']) document.addEventListener(type, event => {
+      if (event.target.id === 'focus-case') state.focusEvents.push({ type, trusted: event.isTrusted, hasFocus: document.hasFocus(), activeElement: document.activeElement?.id || document.activeElement?.tagName });
+    }, true);
+  } else if (['text-input-value-change', 'text-input-replaced', 'text-input-handler-edit', 'text-input-handler-same-value'].includes(scenario)) {
+    root.innerHTML = '<input id="text-intent" value="before">';
+    state.execCommands = 0;
+    state.handlerCommands = 0;
+    const nativeExecCommand = document.execCommand.bind(document);
+    document.execCommand = (...args) => { state.execCommands++; return nativeExecCommand(...args); };
+    const field = document.getElementById('text-intent');
+    for (const type of ['beforeinput', 'textInput', 'input', 'change']) document.addEventListener(type, event => { if (event.target.id === 'text-intent') count(type); }, true);
+    field.addEventListener('textInput', () => {
+      if (scenario === 'text-input-value-change') field.value = 'handler-owned';
+      if (scenario === 'text-input-replaced') {
+        const replacement = field.cloneNode(); replacement.value = 'replacement-owned'; field.replaceWith(replacement); replacement.focus(); state.replacements++;
+      }
+      if (scenario === 'text-input-handler-edit' || scenario === 'text-input-handler-same-value') {
+        state.handlerCommands++; document.execCommand('insertText', false, 'handler-owned');
+        if (scenario === 'text-input-handler-same-value') { field.value = 'before'; field.setSelectionRange(0, field.value.length); }
+      }
+    });
   } else {
     root.textContent = 'Unknown regression scenario';
   }

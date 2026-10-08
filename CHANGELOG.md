@@ -3,6 +3,28 @@
 - Fixed MDB workspace lease reuse races: long ChatGPT turns keep retrying transient heartbeat failures, stale non-idle leases are retained until a hard bound, and release/reclaim waits for the extension idle navigation to actually commit before making a tab reusable.
 ## Unreleased
 
+### Inactive-tab form commits (bridge 0.3.4 / extension 0.2.15)
+
+- Reproduce a real installed-extension gap: in an inactive Chrome document, native focus and blur can change the active element without emitting the focus events used by framework form handlers.
+- Observe native focus events and supply only missing events for a verified target transition in an unfocused document. Recheck focus, target identity, editability and deadline between callbacks; keep events untrusted and preserve the background-only focus policy.
+- Apply the same guarded target-focus behavior at existing adaptive click focus sites. Explicit direct DOM clicks retain their single-click, no-prelude contract.
+- Report whether focus or blur event fallback was used, and keep application acceptance separate from DOM retention.
+
+
+### Explicit browser action compatibility (bridge 0.3.3 / extension 0.2.14)
+
+- Added `chrome_click.click_strategy: "dom-click"` for a single programmatic activation without pointer, hover, mousedown or focus side effects. The default adaptive pointer sequence and its wire payload remain unchanged.
+- Added explicit `chrome_fill.input_strategy: "text-input"` for text inputs and textarea controls that require legacy `textInput` handling. The sequence supplies React's `onBeforeInput` notification, then performs one native edit; cancellation, handler mutation, selection, focus, replacement, editability and deadline guards prevent a second or stale edit.
+- Kept both compatibility choices inside the existing operation journal, target/access checks and diagnostic redaction. Neither adds permissions, hardware-trusted input, owner presence or automatic fallback.
+- The underlying provider acceptance is recorded separately from generic browser regression results.
+
+### Browser input compatibility (bridge 0.3.2 / extension 0.2.13)
+
+- Corrected the final pointer click to preserve mouse pointer identity, target coordinates, window view and detail 1; mouseup now carries the matching click count. A real Chromium comparison reproduced the earlier keyboard-style click after a pointer sequence.
+- Added explicit `chrome_fill.input_strategy: "insert-text"` for supported text controls, preserving full-selection, cancellation, editability, replacement and deadline checks. The browser edit runs once, with no value-setter fallback or duplicate input event.
+- Kept `set-value` as the default and preserved its existing operation fingerprint, including when callers name that default explicitly.
+- Retained all existing access, audit, profile and publication boundaries. Browser editing does not grant user activation or complete account-owner challenges.
+
 ### Browser action reliability (bridge 0.3.1 / extension 0.2.12)
 
 - Fixed ordinary clicks suppressed by unrelated popup changes and made snapshots read validation state without firing validation events.

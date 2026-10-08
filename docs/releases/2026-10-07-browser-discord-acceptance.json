@@ -1,0 +1,99 @@
+{
+  "schemaVersion": 1,
+  "checkedAt": "2026-10-07T23:35:04.262Z",
+  "provider": "Discord",
+  "runtime": {
+    "bridge": "0.3.1",
+    "extension": "0.2.12",
+    "extensionBuild": "browser-reliability-20261007.1"
+  },
+  "status": "server_menu_passed_settings_not_opened",
+  "checks": [
+    {
+      "name": "Server inventory",
+      "status": "passed"
+    },
+    {
+      "name": "Server actions",
+      "status": "passed",
+      "attemptCount": 1,
+      "operation": {
+        "operationId": "a9ba7023-24c6-4dc7-b9c9-adca91bd7079",
+        "clicked": true,
+        "clickDispatched": true,
+        "activation": "click",
+        "trusted": false,
+        "outcomeVerified": false,
+        "activationObserved": null,
+        "elapsedMs": 731
+      }
+    },
+    {
+      "name": "Server Settings",
+      "status": "provider_action_not_observed",
+      "attemptCount": 1,
+      "operation": {
+        "operationId": "62f013aa-0f62-49cb-986d-b60610ea86d3",
+        "clicked": true,
+        "clickDispatched": true,
+        "activation": "click",
+        "trusted": false,
+        "outcomeVerified": false,
+        "activationObserved": null,
+        "elapsedMs": 817
+      }
+    }
+  ],
+  "sideEffects": {
+    "rolesCreated": 0,
+    "rolePermissionsChanged": false,
+    "channelsChanged": false,
+    "messagesSent": false,
+    "webhookAccessed": false
+  },
+  "latestCheckedAt": "2026-10-07T23:55:45.729Z",
+  "latestVerifiedRuntime": {
+    "bridge": "0.3.2",
+    "extension": "0.2.13",
+    "extensionBuild": "browser-reliability-20261007.2"
+  },
+  "followup": {
+    "workerSha256": "63e2e98872c05194053c345dc2d5a7b19d9d6079baeaae91df62c0a6c33f4d8f",
+    "outcome": "Server menu opens; settings transition was not observed on fresh readback.",
+    "checks": [
+      {
+        "name": "Server actions",
+        "status": "passed",
+        "attemptCount": 1,
+        "operation": {
+          "operationId": "fe2880fc-a1e9-47f7-b72a-ab4a68c9f548",
+          "clicked": true,
+          "clickDispatched": true,
+          "activation": "click",
+          "trusted": false,
+          "outcomeVerified": false,
+          "elapsedMs": 18370
+        }
+      },
+      {
+        "name": "Server Settings",
+        "status": "provider_action_not_observed",
+        "attemptCount": 1,
+        "operation": {
+          "operationId": "9d9b2523-306d-442c-8f6c-534aa713b3cf",
+          "clicked": true,
+          "clickDispatched": true,
+          "activation": "click",
+          "trusted": false,
+          "outcomeVerified": false,
+          "elapsedMs": 387
+        }
+      }
+    ],
+    "repeatedCompletedAction": false,
+    "rolesCreated": 0,
+    "permissionsChanged": false,
+    "messagesSent": false,
+    "webhookAccessed": false
+  }
+}

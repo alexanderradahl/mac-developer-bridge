@@ -1,10 +1,10 @@
-# Browser action reliability: bridge 0.3.1 / extension 0.2.12
+# Browser action reliability: bridge 0.3.4 / extension 0.2.15
 
 ## Purpose and scope
 
 The October 7 repair addresses browser actions that acknowledged dispatch without establishing the expected page change. It repairs generic DOM actions, the native transport and diagnostic reporting. It does not add extension permissions, a general script-evaluation tool, a debugger backend, cookie access, a foreground browser-control route or automatic publication.
 
-The isolated source branch starts at `94704cf6858f7ac5e315181a1b2d4a54e9df64b0`. The running checkout also contains prior local changes. Installation must preserve those changes and use the separately tested combined candidate. [Original-state hashes](releases/2026-10-07-browser-repair-original-state.json) are the preservation guard.
+Initial repair development began at `94704cf6858f7ac5e315181a1b2d4a54e9df64b0`. The owner's prior local changes were verified byte-for-byte against composer revision `58fe6df295067668e8e0bfeb22730e7598b273cb`; the released repair branch builds on that revision. The first installed repair is commit `53f05edf99930cdb7fd53843fc4c852c9295860b`. The input-compatibility followup preserves that combined source. [Original-state hashes](releases/2026-10-07-browser-repair-original-state.json) and the installation receipts record preservation.
 
 ## Observable action contract
 
@@ -18,9 +18,24 @@ The isolated source branch starts at `94704cf6858f7ac5e315181a1b2d4a54e9df64b0`.
 
 `clicked` means an actual click event was dispatched. A control that activates on mousedown can have `clicked: false` with activation recorded separately. `submitted` is an alias for an observed submit event, not a copy of the caller's submit flag. A prevented submit event can be normal for a JavaScript application, so its `submitDefaultPrevented` value is reported separately.
 
+### Click event compatibility
+
+The pointer sequence finishes with a click carrying the same target coordinates, mouse pointer identity, window view and click count as its preceding events. The earlier `HTMLElement.click()` finish produced a keyboard-style event with detail 0 and coordinates 0/0 after a mouse sequence. The [native Chromium baseline](releases/2026-10-07-browser-input-compatibility-before.json) records that mismatch; the [followup regression](releases/2026-10-07-browser-input-compatibility-after.json) compares the corrected sequence and checks default activation. Synthetic events remain untrusted, and an account workflow still needs a fresh application readback.
+
+The default `click_strategy: "adaptive-pointer"` retains that sequence. An explicitly selected `click_strategy: "dom-click"` performs one `HTMLElement.click()` after the normal target, visibility, disabled-state and deadline checks. It sends no pointer/hover/down prelude and does not focus the target. This is a separate programmatic activation choice for controls whose pointer handlers interfere with their click action; it is not a trusted hardware click or an automatic retry after a failed pointer sequence. Omitted and explicitly selected defaults retain the older wire payload; choosing `dom-click` changes the operation fingerprint.
+
+~~~json
+{
+  "tab_id": 123,
+  "selector": "#settings",
+  "click_strategy": "dom-click",
+  "operation_id": "settings-direct-20261007-01"
+}
+~~~
+
 ### Fill options
 
-Existing calls retain the default `commit: "change"` and `normalization: "exact"`. For a numeric field that commits on blur:
+Existing calls retain the defaults `input_strategy: "set-value"`, `commit: "change"` and `normalization: "exact"`. For a numeric field that commits on blur:
 
 ~~~json
 {
@@ -34,6 +49,26 @@ Existing calls retain the default `commit: "change"` and `normalization: "exact"
 ~~~
 
 Numeric comparison is opt-in and limited to numeric input types or numeric/decimal input modes. It permits equivalent decimal formatting such as `5` and `5.00`, while preserving exact comparison for identifiers and ordinary text. Decimal normalization does not collapse different large integers through floating-point rounding.
+
+For a text control that ignores direct value-setter events, choose `input_strategy: "insert-text"`. It selects the complete current value and invokes the browser's native text-editing command exactly once. Supported inputs are text, search, tel, url and password, plus textarea; unsupported control types are rejected before focus or mutation. Contenteditable retains its existing native editing behavior. The operation respects canceled edit intent and rechecks selection, focus, editability, replacement and deadline boundaries. If the browser does not accept the operation, there is no automatic value-setter fallback. Prefer `commit: "blur"` for native edits: the browser supplies its normal change event. Explicit `commit: "change"` sends a synthetic change while the field stays focused, and a later blur can produce an additional native change; use that mode only when its event semantics are intended. It does not add browser user activation or satisfy passkeys or other owner-presence challenges.
+
+~~~json
+{
+  "tab_id": 123,
+  "selector": "#amount",
+  "value": "10.00",
+  "input_strategy": "insert-text",
+  "commit": "blur",
+  "normalization": "exact",
+  "operation_id": "amount-native-edit-20261007-01"
+}
+~~~
+
+The additional explicit `input_strategy: "text-input"` supports text inputs and textarea controls whose framework listens for the legacy `textInput` event. It sends cancelable edit intent and one legacy TextEvent before the existing single native editing command. The React 19.2 probe measured that ordinary browser typing invokes React's `onBeforeInput` through this event, while `execCommand("insertText")` alone does not. This establishes a framework compatibility difference, not the cause of any particular provider failure.
+
+This strategy rechecks cancellation, selection, focus, value changes, replacement, editability and the deadline after the legacy handler runs. It never follows a canceled or handler-mutated intent with another edit, and it has no fallback. It rejects unsupported controls, including contenteditable, before focus. Existing contenteditable and `insert-text` behavior is unchanged. Use `commit: "blur"` when one normal change event is intended. Event compatibility does not grant browser user activation or owner presence.
+
+Omitted and explicitly selected `set-value` use the existing wire payload so older stable operation IDs remain compatible. Selecting either `insert-text` or `text-input` is a distinct logical action and contributes to the operation fingerprint.
 
 The implementation resolves the current field after framework updates and checks its identity, visibility, editability and connectivity. Focus and beforeinput handlers can synchronously replace or lock a field, so editability is checked again before subsequent mutations. A rejected edit is not automatically written again. Contenteditable readback follows native block and line-break structure and retains exact spaces and line breaks.
 
@@ -125,3 +160,11 @@ No browser binary, third-party bundle or node_modules directory is vendored in t
 7. Use the supported Chrome tools for a disposable loopback smoke and fresh provider-state checks. A lost response must be reconciled before any account action is repeated.
 
 The original host predates the new journal. Its missing persisted operation records do not prove that its transient pending map is empty. No old operation is replayed during upgrade.
+
+## Inactive-tab focus and blur commits
+
+The installed-extension acceptance page exposed a difference from an active headless page: a native focus/blur pair changed the document's active element but did not emit focus, focusin, blur or focusout while the document was hidden and unfocused. The React input handler ran, but the onBlur handler did not commit its model value.
+
+For an actual target transition in an unfocused document, the fill path now observes the native event family and supplies only absent events. It checks the target, current focus, editability and deadline between callbacks. Native events are not duplicated, synthetic events remain untrusted, and the call does not activate the tab or window. The existing adaptive-click focus sites use the same bounded target-focus principle; direct DOM click mode still has no focus prelude.
+
+Action receipts expose whether focus or blur event fallback was used. A retained DOM value still does not establish that the provider saved its application state; verify a fresh provider readback. The release receipts separate active-page regressions, installed inactive-page acceptance, and provider outcomes.

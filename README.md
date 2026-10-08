@@ -164,7 +164,9 @@ A normal workflow is:
 Profile binding is always enforced. In relaxed mode the extension permits normal HTTP/HTTPS sites without a per-site grant. In Strict mode, each `chrome-background` approval is stored as its own mode-0600 file under `$DATA_DIR/chrome-background-grants/`, expires after at most 15 minutes, and is merged with other still-live approvals. Expired files are pruned automatically and URL patterns are enforced inside Chrome. Federated personal-browser providers keep their separate single-use behavior.
 
 
-#### Browser action results and timeout reconciliation (0.3.1)
+#### Browser action results and timeout reconciliation (0.3.4)
+
+Pointer clicks carry a consistent mouse identity, click count, target coordinates and window view throughout the sequence. For text controls that ignore direct value-setter events, `chrome_fill` supports an explicit `input_strategy: "insert-text"` with `commit: "blur"`. This invokes the browser's text-editing command once; it does not fall back to another write or supply browser user activation. The default strategy remains `set-value`. Use `input_strategy: "text-input"` when a text input or textarea requires legacy `textInput` handling, such as React's `onBeforeInput`: cancelable intent is followed by one guarded native edit. The separate `click_strategy: "dom-click"` activates a control once without the default pointer/hover sequence. Both choices are explicit, preserve existing defaults, and never trigger an automatic retry or fallback.
 
 `chrome_snapshot` reads validity passively. It does not call validation methods or dispatch form events. `chrome_click` reports dispatched events and observed activation separately; an unrelated popup changing during mousedown does not suppress an ordinary button click.
 

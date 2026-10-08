@@ -137,7 +137,7 @@ function startFakeExtensionHost() {
     ready(profile = { signedIn: true, email: "bound@example.com", id: "123456789012345678901" }) {
       child.stdin.write(frameNative({
         type: "ready",
-        version: "0.2.12",
+        version: "0.2.15",
         instanceId: "fixture-extension-instance",
         connectionGeneration: "fixture-connection-1",
         buildId: "browser-reliability-20261007-fixture",
@@ -219,14 +219,14 @@ try {
   assert.ok(manifest.permissions.includes("tabGroups"));
   assert.ok(manifest.permissions.includes("storage"));
   assert.ok(manifest.icons?.["16"] && manifest.icons?.["128"]);
-  assert.equal(manifest.version, "0.2.12");
+  assert.equal(manifest.version, "0.2.15");
   assert.equal(manifest.permissions.includes("debugger"), false, "realistic click support must not require Chrome debugger permission");
   await Promise.all([16, 32, 48, 128].map(async (size) => {
     const stat = await fs.stat(path.join(root, "chrome-extension", "icons", `icon-${size}.png`));
     assert.ok(stat.size > 0, `expected non-empty ${size}px extension icon`);
   }));
   const workerSource = await fs.readFile(path.join(root, "chrome-extension", "service-worker.js"), "utf8");
-  assert.match(workerSource, /const VERSION = "0\.2\.12"/);
+  assert.match(workerSource, /const VERSION = "0\.2\.15"/);
   assert.match(workerSource, /WORKSPACE_GROUP_TITLE = "MDB"/);
   assert.match(workerSource, /chrome\.tabs\.group/);
   assert.match(workerSource, /chrome\.tabGroups\.query/);
@@ -323,10 +323,15 @@ try {
   const fillSchema = toolByName.get("chrome_fill")?.inputSchema;
   assert.deepEqual(fillSchema?.properties.commit.enum, ["change", "blur"]);
   assert.deepEqual(fillSchema?.properties.normalization.enum, ["exact", "numeric"]);
+  assert.deepEqual(fillSchema?.properties.input_strategy.enum, ["set-value", "insert-text", "text-input"]);
   assert.equal(fillSchema.properties.commit.default, "change");
   assert.equal(fillSchema.properties.normalization.default, "exact");
+  assert.equal(fillSchema.properties.input_strategy.default, "set-value");
   assert.ok(fillSchema.properties.operation_id.pattern);
-  assert.ok(toolByName.get("chrome_click").inputSchema.properties.operation_id);
+  const clickSchema = toolByName.get("chrome_click")?.inputSchema;
+  assert.ok(clickSchema?.properties.operation_id);
+  assert.deepEqual(clickSchema.properties.click_strategy.enum, ["adaptive-pointer", "dom-click"]);
+  assert.equal(clickSchema.properties.click_strategy.default, "adaptive-pointer");
   const statusTool = toolByName.get("chrome_operation_status");
   assert.deepEqual(statusTool?.inputSchema.required, ["operation_id"]);
   assert.equal(statusTool.annotations.readOnlyHint, true);
@@ -393,6 +398,7 @@ try {
   assert.equal(host.seen.at(-1).id, fillOperationId);
   assert.equal(host.seen.at(-1).args.commit, "blur");
   assert.equal(host.seen.at(-1).args.normalization, "numeric");
+  assert.equal("inputStrategy" in host.seen.at(-1).args, false, "default fill must preserve the old wire payload for retained operation IDs");
   assert.equal(host.seen.at(-1).args.value, fillCanary);
   assert.equal(host.seen.at(-1).args.submit, false);
   assert.ok(Number.isSafeInteger(host.seen.at(-1).deadlineMs));
@@ -402,10 +408,19 @@ try {
   const sameFill = await bridgeTool(bridge, "chrome_fill", fillArgs);
   assert.equal(sameFill.result.isError, false, sameFill.result.content[0].text);
   assert.equal(host.seen.length, beforeDuplicate, "a same-ID identical action must not be dispatched twice");
+  const explicitDefaultFill = await bridgeTool(bridge, "chrome_fill", { ...fillArgs, input_strategy: "set-value" });
+  assert.equal(explicitDefaultFill.result.isError, false, explicitDefaultFill.result.content[0].text);
+  assert.equal(host.seen.length, beforeDuplicate, "explicit set-value and the omitted default must keep the same operation identity");
   const conflictingFill = await bridgeTool(bridge, "chrome_fill", { ...fillArgs, value: "different-value" });
   assert.equal(conflictingFill.result.isError, true);
   assert.equal(conflictingFill.result.structuredContent.code, "CHROME_OPERATION_ID_CONFLICT");
   assert.equal(host.seen.length, beforeDuplicate, "a same-ID different action must be rejected before dispatch");
+  for (const input_strategy of ["insert-text", "text-input"]) {
+    const conflictingStrategy = await bridgeTool(bridge, "chrome_fill", { ...fillArgs, input_strategy });
+    assert.equal(conflictingStrategy.result.isError, true);
+    assert.equal(conflictingStrategy.result.structuredContent.code, "CHROME_OPERATION_ID_CONFLICT");
+    assert.equal(host.seen.length, beforeDuplicate, "changing the input strategy under an existing operation ID must not dispatch another edit");
+  }
 
   const observed = await bridgeTool(bridge, "chrome_operation_status", { operation_id: fillOperationId });
   assert.equal(observed.result.isError, false, observed.result.content[0].text);
@@ -419,18 +434,92 @@ try {
   }
   assert.doesNotMatch(JSON.stringify(observed), new RegExp(fillCanary));
 
-  for (const invalid of [
+  for (const [index, invalid] of [
     { commit: "keypress" }, { normalization: "guess" }, { operation_id: "short" },
+    { input_strategy: "automatic" }, { input_strategy: 42 }, { input_strategy: null }, { input_strategy: "" },
     { operation_id: "https://example.invalid/secret" }, { operation_id: 42 },
-  ]) {
+  ].entries()) {
     const before = host.seen.length;
-    const rejected = await bridgeTool(bridge, "chrome_fill", { ...fillArgs, ...invalid });
+    const rejected = await bridgeTool(bridge, "chrome_fill", { ...fillArgs, operation_id: `fill-invalid-option-${index}-20261007`, ...invalid });
     assert.equal(rejected.result.isError, true, "invalid options must be rejected");
+    assert.notEqual(rejected.result.structuredContent.code, "CHROME_OPERATION_ID_CONFLICT", "a retained ID must not mask missing option validation");
+    if ("input_strategy" in invalid) assert.match(rejected.result.content[0].text, /input_strategy/);
     assert.equal(host.seen.length, before, "invalid options must fail before native dispatch");
   }
   const invalidStatus = await bridgeTool(bridge, "chrome_operation_status", { operation_id: "../unsafe" });
   assert.equal(invalidStatus.result.isError, true);
   assert.equal(host.seen.length, beforeDuplicate);
+
+  const insertTextArgs = {
+    ...fillArgs, input_strategy: "insert-text", operation_id: "fill-insert-text-contract-20261007",
+  };
+  const insertText = await bridgeTool(bridge, "chrome_fill", insertTextArgs);
+  assert.equal(insertText.result.isError, false, insertText.result.content[0].text);
+  assert.equal(host.seen.length, beforeDuplicate + 1, "explicit insert-text must dispatch exactly one edit");
+  assert.equal(host.seen.at(-1).method, "tabs.fill");
+  assert.equal(host.seen.at(-1).id, insertTextArgs.operation_id);
+  assert.equal(host.seen.at(-1).args.inputStrategy, "insert-text");
+  assert.equal(host.seen.at(-1).args.commit, "blur");
+  assert.equal(host.seen.at(-1).args.value, fillCanary);
+  assert.deepEqual(new Set(host.seen.at(-1).allowedUrlPatterns), new Set(["http://*:*/*", "https://*:*/*"]));
+  const duplicateInsertText = await bridgeTool(bridge, "chrome_fill", insertTextArgs);
+  assert.equal(duplicateInsertText.result.isError, false, duplicateInsertText.result.content[0].text);
+  assert.equal(host.seen.length, beforeDuplicate + 1, "same-ID insert-text must not be replayed");
+
+  const beforeTextInput = host.seen.length;
+  const textInputArgs = {
+    ...fillArgs, input_strategy: "text-input", operation_id: "fill-text-input-contract-20261007",
+  };
+  const textInput = await bridgeTool(bridge, "chrome_fill", textInputArgs);
+  assert.equal(textInput.result.isError, false, textInput.result.content[0].text);
+  assert.equal(host.seen.length, beforeTextInput + 1, "explicit text-input must dispatch exactly one edit");
+  assert.equal(host.seen.at(-1).method, "tabs.fill");
+  assert.equal(host.seen.at(-1).id, textInputArgs.operation_id);
+  assert.equal(host.seen.at(-1).args.inputStrategy, "text-input");
+  assert.equal(host.seen.at(-1).args.commit, "blur");
+  assert.equal(host.seen.at(-1).args.value, fillCanary);
+  const duplicateTextInput = await bridgeTool(bridge, "chrome_fill", textInputArgs);
+  assert.equal(duplicateTextInput.result.isError, false, duplicateTextInput.result.content[0].text);
+  assert.equal(host.seen.length, beforeTextInput + 1, "same-ID text-input must not be replayed");
+  const changedNativeStrategy = await bridgeTool(bridge, "chrome_fill", { ...insertTextArgs, input_strategy: "text-input" });
+  assert.equal(changedNativeStrategy.result.isError, true);
+  assert.equal(changedNativeStrategy.result.structuredContent.code, "CHROME_OPERATION_ID_CONFLICT");
+  assert.equal(host.seen.length, beforeTextInput + 1, "text-input must not overwrite a retained insert-text identity");
+
+  const clickArgs = { tab_id: 42, selector: "#save", operation_id: "click-contract-20261007" };
+  const beforeClick = host.seen.length;
+  const clickContract = await bridgeTool(bridge, "chrome_click", clickArgs);
+  assert.equal(clickContract.result.isError, false, clickContract.result.content[0].text);
+  assert.equal(host.seen.length, beforeClick + 1);
+  assert.equal(host.seen.at(-1).method, "tabs.click");
+  assert.equal(host.seen.at(-1).id, clickArgs.operation_id);
+  assert.deepEqual(host.seen.at(-1).args, { tabId: 42, selector: "#save" }, "default click must preserve the old wire payload");
+  const sameClick = await bridgeTool(bridge, "chrome_click", clickArgs);
+  assert.equal(sameClick.result.isError, false, sameClick.result.content[0].text);
+  const explicitDefaultClick = await bridgeTool(bridge, "chrome_click", { ...clickArgs, click_strategy: "adaptive-pointer" });
+  assert.equal(explicitDefaultClick.result.isError, false, explicitDefaultClick.result.content[0].text);
+  assert.equal(host.seen.length, beforeClick + 1, "omitted and explicit default clicks must deduplicate without replay");
+  const conflictingClick = await bridgeTool(bridge, "chrome_click", { ...clickArgs, click_strategy: "dom-click" });
+  assert.equal(conflictingClick.result.isError, true);
+  assert.equal(conflictingClick.result.structuredContent.code, "CHROME_OPERATION_ID_CONFLICT");
+  assert.equal(host.seen.length, beforeClick + 1, "changing click strategy must fail before a second dispatch");
+  for (const [index, click_strategy] of ["adaptive", "automatic", 42, null, ""].entries()) {
+    const rejected = await bridgeTool(bridge, "chrome_click", { ...clickArgs, operation_id: `click-invalid-option-${index}-20261007`, click_strategy });
+    assert.equal(rejected.result.isError, true);
+    assert.match(rejected.result.content[0].text, /click_strategy/);
+    assert.equal(host.seen.length, beforeClick + 1, "invalid click strategies must fail before dispatch");
+  }
+  const domClickArgs = { ...clickArgs, click_strategy: "dom-click", operation_id: "click-dom-contract-20261007" };
+  const domClick = await bridgeTool(bridge, "chrome_click", domClickArgs);
+  assert.equal(domClick.result.isError, false, domClick.result.content[0].text);
+  assert.equal(host.seen.length, beforeClick + 2, "explicit dom-click must dispatch exactly once");
+  assert.equal(host.seen.at(-1).method, "tabs.click");
+  assert.equal(host.seen.at(-1).id, domClickArgs.operation_id);
+  assert.equal(host.seen.at(-1).args.clickStrategy, "dom-click");
+  assert.deepEqual(new Set(host.seen.at(-1).allowedUrlPatterns), new Set(["http://*:*/*", "https://*:*/*"]));
+  const duplicateDomClick = await bridgeTool(bridge, "chrome_click", domClickArgs);
+  assert.equal(duplicateDomClick.result.isError, false, duplicateDomClick.result.content[0].text);
+  assert.equal(host.seen.length, beforeClick + 2, "same-ID dom-click must not be replayed");
 
   const errorCanary = "MDB-ERROR-CANARY-9f2c6e03";
   host.respond("tabs.fill", () => ({
@@ -442,6 +531,7 @@ try {
         inputStrategy: "native-value-setter", commit: "blur", normalization: "numeric",
         targetReplaced: true, documentId: "fixture-document", tabId: 42, frameId: 0,
         popupObservedCount: 1, navigationObserved: false, outcomeVerified: false,
+        focusEventFallbackUsed: true, blurEventFallbackUsed: false,
         selector: "#secret-control", value: errorCanary,
         url: "https://private.invalid/?credential=" + errorCanary,
         pagePayload: "<private>" + errorCanary + "</private>",
@@ -467,6 +557,8 @@ try {
   assert.equal(safe.popupObservedCount, 1);
   assert.equal(safe.navigationObserved, false);
   assert.equal(safe.outcomeVerified, false);
+  assert.equal(safe.focusEventFallbackUsed, true);
+  assert.equal(safe.blurEventFallbackUsed, false);
   assert.doesNotMatch(JSON.stringify(diagnostic), /MDB-ERROR-CANARY|private\.invalid|secret-control|pagePayload|<private>/);
   const fillAudit = await fs.readFile(auditFile, "utf8");
   assert.ok(!fillAudit.includes(fillCanary), "successful fill value leaked into full audit mode");

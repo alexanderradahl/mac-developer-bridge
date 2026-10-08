@@ -87,6 +87,7 @@ const origin = `http://127.0.0.1:${server.address().port}`;
 const profilePath = await fs.mkdtemp(path.join(os.tmpdir(), 'mdb-browser-regression-'));
 await fs.chmod(profilePath, 0o700);
 const results = [];
+const compatibilityMeasurements = {};
 let context;
 let browserVersion;
 let fatalError;
@@ -115,7 +116,8 @@ async function scenario(name, run) {
         ]);
       } finally { clearTimeout(timer); }
     };
-    const result = await run(page, call);
+    const record = value => { compatibilityMeasurements[name] = value; };
+    const result = await run(page, call, record);
     assert.deepEqual(errors, [], 'Fixture application raised an unexpected error');
     results.push({ scenario: name, passed: true, durationMs: Math.round(performance.now() - start), ...result });
   } catch (error) {
@@ -341,6 +343,280 @@ try {
     assert.equal(await page.locator('.field').nth(1).inputValue(), 'visible replacement');
     assert.equal(result.selectedVisible, true);
   });
+
+  await scenario('click-event-sequence', async (page, call, record) => {
+    const box = await page.locator('#mouse-action').boundingBox();
+    await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+    const native = await page.evaluate(() => fixtureState.sequence);
+    assert.equal(await page.evaluate(() => fixtureState.saves), 1);
+    await page.evaluate(() => { document.getElementById('mouse-action').blur(); fixtureState.sequence = []; fixtureState.saves = 0; });
+    const result = success(await call('pageClick', '#mouse-action'));
+    const worker = await page.evaluate(() => fixtureState.sequence);
+    record({ native, worker });
+    const clickProperties = event => Object.fromEntries(Object.entries(event).filter(([key]) => key !== 'trusted'));
+    assert.deepEqual(clickProperties(worker.find(event => event.type === 'click')), clickProperties(native.find(event => event.type === 'click')), 'The final synthetic mouse click must preserve the measured native click semantics except trust');
+    assert.equal(worker.find(event => event.type === 'mouseup').detail, 1, 'mouseup must retain the same click count as mousedown');
+    assert.ok(worker.filter(event => event.type !== 'focus').every(event => event.viewIsWindow));
+    assert.equal(worker.find(event => event.type === 'click').trusted, false, 'Synthetic action must not impersonate trusted hardware input');
+    assert.equal(await page.evaluate(() => fixtureState.saves), 1);
+    assert.equal(result.clicked, true);
+    return { clickCount: 1, nativePointerSemanticsMatched: true, trustPreservedAsSynthetic: true };
+  });
+
+  await scenario('mouse-sensitive-menu', async (page, call, record) => {
+    await page.locator('#mouse-menu-action').click();
+    const native = await page.evaluate(() => fixtureState.lastMenuEvent);
+    record({ native });
+    assert.equal(await page.locator('#roles-panel').isVisible(), true, 'The fixture must accept a native mouse click');
+    await page.evaluate(() => { document.getElementById('mouse-menu').hidden = false; document.getElementById('roles-panel').hidden = true; fixtureState.saves = 0; fixtureState.clickAttempts = 0; });
+    success(await call('pageClick', '#mouse-menu-action'));
+    const observed = await page.evaluate(() => ({ panelVisible: !document.getElementById('roles-panel').hidden, menuClosed: document.getElementById('mouse-menu').hidden, acceptedCount: fixtureState.saves, clickAttempts: fixtureState.clickAttempts }));
+    record({ native, worker: observed, workerEvent: await page.evaluate(() => fixtureState.lastMenuEvent) });
+    assert.deepEqual(observed, { panelVisible: true, menuClosed: true, acceptedCount: 1, clickAttempts: 1 });
+    return { acceptedCount: 1, fixtureRequiresCoherentMouseClick: true, providerCauseEstablished: false };
+  });
+
+  await scenario('click-default-activation', async (page, call, record) => {
+    success(await call('pageClick', '#check-default'));
+    success(await call('pageClick', '#check-cancelled'));
+    success(await call('pageClick', '#link-default'));
+    success(await call('pageClick', '#link-cancelled'));
+    const observed = await page.evaluate(() => ({ checked: document.getElementById('check-default').checked, cancelledChecked: document.getElementById('check-cancelled').checked, events: fixtureState.events, hash: location.hash }));
+    record(observed);
+    assert.deepEqual(observed, { checked: true, cancelledChecked: false, events: { 'check-default:input': 1, 'check-default:change': 1 }, hash: '#activation-target' });
+    return { checkboxToggledOnce: true, localLinkActivated: true, preventDefaultRespected: true };
+  });
+
+  await scenario('react-native-edit-reference', async (page, call, record) => {
+    await page.locator('#react-amount').waitFor({ state: 'visible' });
+    await page.locator('#react-amount').focus();
+    await page.keyboard.insertText('10');
+    await page.keyboard.press('Tab');
+    assert.equal(await page.locator('#react-model').textContent(), '10');
+    await page.locator('button[type=submit]').click();
+    await page.waitForFunction(() => document.getElementById('react-receipt').textContent.includes('received'));
+    const recorded = receipts.filter(receipt => receipt.scenario === 'react-native-edit-reference');
+    assert.deepEqual(recorded, [{ scenario: 'react-native-edit-reference', amount: 10, draft: '10.00' }]);
+    const observed = await page.evaluate(() => ({ events: fixtureState.editEvents, reactChanges: fixtureState.events.reactChange, execCommands: fixtureState.execCommands }));
+    record(observed);
+    return { serverReceivedAmount: 10, submissions: 1, nativeReferenceAccepted: true };
+  });
+
+  await scenario('react-native-edit-setter', async (page, call, record) => {
+    await page.locator('#react-amount').waitFor({ state: 'visible' });
+    const result = success(await call('pageFill', '#react-amount', '10', true, { commit: 'blur', normalization: 'numeric' }));
+    const observed = await page.evaluate(() => ({ display: document.getElementById('react-amount').value, model: document.getElementById('react-model').textContent, businessError: document.getElementById('react-error').textContent, saves: fixtureState.saves, execCommands: fixtureState.execCommands, events: fixtureState.editEvents }));
+    record(observed);
+    assert.equal(observed.display, '10');
+    assert.equal(observed.model, 'null');
+    assert.equal(observed.businessError, 'Missing committed amount');
+    assert.equal(observed.saves, 0);
+    assert.equal(observed.execCommands, 0, 'Default strategy must remain explicit value assignment');
+    assert.equal(result.domValueRetained, true);
+    assert.equal(result.applicationAccepted, null);
+    assert.equal(result.outcomeVerified, false);
+    assert.equal(receipts.filter(receipt => receipt.scenario === 'react-native-edit-setter').length, 0);
+    return { displayRetained: true, businessAmountAccepted: false, applicationRejectionHonest: true };
+  });
+
+  await scenario('react-native-edit-insert-text', async (page, call, record) => {
+    await page.locator('#react-amount').waitFor({ state: 'visible' });
+    const result = success(await call('pageFill', '#react-amount', '10', true, { commit: 'blur', normalization: 'numeric', inputStrategy: 'insert-text' }));
+    const observed = await page.evaluate(() => ({ display: document.getElementById('react-amount').value, model: document.getElementById('react-model').textContent, businessError: document.getElementById('react-error').textContent, events: fixtureState.editEvents, execCommands: fixtureState.execCommands, reactChanges: fixtureState.events.reactChange }));
+    record(observed);
+    assert.equal(observed.model, '10', 'The React business model must accept the actual browser edit');
+    assert.equal(observed.display, '10.00');
+    assert.equal(observed.execCommands, 1, 'One explicit editing operation, with no fallback write');
+    assert.equal(observed.reactChanges, 1);
+    assert.equal(observed.events.filter(event => event.type === 'input').length, 1);
+    assert.equal(observed.events.filter(event => event.type === 'change').length, 1, 'Blur must not duplicate the native change event');
+    await page.waitForFunction(() => document.getElementById('react-receipt').textContent.includes('received'));
+    const recorded = receipts.filter(receipt => receipt.scenario === 'react-native-edit-insert-text');
+    assert.deepEqual(recorded, [{ scenario: 'react-native-edit-insert-text', amount: 10, draft: '10.00' }]);
+    assert.equal(result.applicationAccepted, null);
+    assert.equal(result.outcomeVerified, false);
+    return { reactVersion, serverReceivedAmount: 10, submissions: 1, nativeEditOperations: 1, reactChanges: 1 };
+  });
+
+  await scenario('insert-text-supported', async (page, call, record) => {
+    const cases = [];
+    record(cases);
+    for (const type of ['text', 'search', 'tel', 'url', 'password', 'textarea']) {
+      const value = type === 'textarea' ? 'A\nB' : '10';
+      const selector = `#edit-${type}`;
+      const native = await page.locator(selector).evaluate((field, value) => {
+        field.focus(); field.setSelectionRange(0, field.value.length);
+        const commandReturned = document.execCommand('insertText', false, value);
+        field.blur();
+        const reference = { commandReturned, events: fixtureState.fieldEvents[field.id] };
+        field.value = field.tagName === 'TEXTAREA' ? 'before' : '123';
+        fixtureState.fieldEvents[field.id] = []; fixtureState.execCommands = 0;
+        return reference;
+      }, value);
+      assert.equal(native.commandReturned, true);
+      const result = success(await call('pageFill', selector, value, false, { commit: 'blur', inputStrategy: 'insert-text' }));
+      const worker = await page.locator(selector).evaluate(field => ({ value: field.value, events: fixtureState.fieldEvents[field.id], execCommands: fixtureState.execCommands }));
+      cases.push({ type, native, worker, reportedStrategy: result.inputStrategy });
+      assert.equal(worker.value, value);
+      assert.equal(worker.execCommands, 1);
+      for (const eventType of ['input', 'change']) assert.equal(worker.events.filter(event => event.type === eventType).length, native.events.filter(event => event.type === eventType).length, `${type} ${eventType} count must match one native editing operation`);
+      assert.equal(worker.events.filter(event => event.type === 'beforeinput').length, 1, 'A single cancellable intent event must precede the native edit');
+      assert.equal(result.domValueRetained, true);
+    }
+    return { supportedControlTypes: cases.map(item => item.type), nativeCountsMatched: true };
+  });
+
+  await scenario('insert-text-unsupported', async (page, call, record) => {
+    for (const [selector, original, requested] of [['#edit-email', 'before@example.test', 'after@example.test'], ['#edit-number', '7', '10']]) {
+      const response = await call('pageFill', selector, requested, false, { inputStrategy: 'insert-text' });
+      record({ selector, response, actualValue: await page.locator(selector).inputValue() });
+      assert.ok(response.error?.code, 'An unsupported selection type must refuse the explicit editing strategy');
+      assert.equal(await page.locator(selector).inputValue(), original);
+    }
+    assert.equal(await page.evaluate(() => fixtureState.execCommands), 0);
+    assert.equal(await page.evaluate(() => fixtureState.events.input || 0), 0);
+    return { refusedBeforeMutation: true, unsupportedTypes: ['email', 'number'] };
+  });
+
+  for (const name of ['insert-text-cancelled', 'insert-text-command-failure', 'insert-text-rejected']) {
+    await scenario(name, async (page, call, record) => {
+      const response = await call('pageFill', '#edit-failure', '10', false, { commit: 'blur', inputStrategy: 'insert-text' });
+      const observed = await page.evaluate(() => ({ value: document.getElementById('edit-failure').value, events: fixtureState.events, execCommands: fixtureState.execCommands }));
+      record({ ...observed, response });
+      assert.ok(response.error?.code, 'Cancelled, failed, or rejected explicit edits must report failure');
+      assert.equal(observed.value, name === 'insert-text-rejected' ? 'rejected' : 'before');
+      assert.equal(observed.execCommands, name === 'insert-text-cancelled' ? 0 : 1, 'Never retry an editing operation or silently fall back to a setter');
+      assert.equal(observed.events.input || 0, name === 'insert-text-rejected' ? 1 : 0);
+      return { nativeEditOperations: observed.execCommands, fallbackWrites: 0, rejectionReported: true };
+    });
+  }
+
+  await scenario('dom-click-direct-menu', async (page, call, record) => {
+    success(await call('pageClick', '#direct-action'));
+    const adaptive = await page.evaluate(() => ({ disarmed: fixtureState.disarmed, saves: fixtureState.saves, events: fixtureState.actionTrace }));
+    assert.equal(adaptive.saves, 0, 'Fixture must demonstrate why a caller might select pure DOM activation');
+    assert.equal(adaptive.disarmed, true);
+    await page.evaluate(() => { document.getElementById('direct-menu').hidden = false; fixtureState.disarmed = false; fixtureState.actionTrace = []; fixtureState.saves = 0; document.getElementById('direct-action').blur(); });
+    const result = success(await call('pageClick', '#direct-action', { clickStrategy: 'dom-click' }));
+    const direct = await page.evaluate(() => ({ disarmed: fixtureState.disarmed, saves: fixtureState.saves, events: fixtureState.actionTrace, settingsVisible: !document.getElementById('direct-result').hidden }));
+    record({ adaptive, direct, result });
+    assert.deepEqual(direct, { disarmed: false, saves: 1, events: ['click'], settingsVisible: true });
+    assert.deepEqual(result.events, ['click']);
+    assert.equal(result.clicked, true);
+    assert.equal(result.trusted, false);
+    return { directActivationCount: 1, noHoverDownFocusPrelude: true, providerCauseEstablished: false };
+  });
+
+  await scenario('dom-click-default-activation', async (page, call, record) => {
+    for (const selector of ['#check-default', '#check-cancelled', '#link-default', '#link-cancelled']) {
+      const result = success(await call('pageClick', selector, { clickStrategy: 'dom-click' }));
+      assert.deepEqual(result.events, ['click']);
+    }
+    const observed = await page.evaluate(() => ({ checked: document.getElementById('check-default').checked, cancelledChecked: document.getElementById('check-cancelled').checked, events: fixtureState.events, hash: location.hash }));
+    record(observed);
+    assert.deepEqual(observed, { checked: true, cancelledChecked: false, events: { 'check-default:input': 1, 'check-default:change': 1 }, hash: '#activation-target' });
+    return { checkboxToggledOnce: true, linkActivatedOnce: true, cancellationRespected: true };
+  });
+
+  await scenario('dom-click-refused', async (page, call, record) => {
+    const disabled = await call('pageClick', '#direct-disabled', { clickStrategy: 'dom-click' });
+    const expired = await call('pageClick', '#direct-expired', { clickStrategy: 'dom-click', deadlineMs: Date.now() - 1000 });
+    const events = await page.evaluate(() => fixtureState.events);
+    record({ disabled, expired, events });
+    assert.equal(disabled.error?.code, 'CHROME_ELEMENT_DISABLED');
+    assert.equal(expired.error?.code, 'CHROME_OPERATION_DEADLINE_EXCEEDED');
+    assert.deepEqual(events, {});
+    return { disabledAndExpiredRefusedBeforeAction: true };
+  });
+
+  await scenario('react-text-input-existing-strategy', async (page, call, record) => {
+    await page.locator('#react-amount').waitFor({ state: 'visible' });
+    const result = success(await call('pageFill', '#react-amount', '10', true, { commit: 'blur', normalization: 'numeric', inputStrategy: 'insert-text' }));
+    const observed = await page.evaluate(() => ({ value: document.getElementById('react-amount').value, model: document.getElementById('react-model').textContent, error: document.getElementById('react-error').textContent, events: fixtureState.editEvents, reactBeforeInput: fixtureState.events.reactBeforeInput || 0, reactInput: fixtureState.events.reactInput || 0, reactChange: fixtureState.events.reactChange || 0, execCommands: fixtureState.execCommands }));
+    record(observed);
+    assert.equal(observed.value, '10');
+    assert.equal(observed.model, 'null');
+    assert.equal(observed.error, 'Missing committed amount');
+    assert.equal(observed.reactBeforeInput, 0, 'Existing insert-text semantics must remain unchanged');
+    assert.equal(observed.reactInput, 1);
+    assert.equal(observed.reactChange, 1);
+    assert.equal(observed.execCommands, 1);
+    assert.equal(result.applicationAccepted, null);
+    assert.equal(receipts.filter(item => item.scenario === 'react-text-input-existing-strategy').length, 0);
+    return { existingStrategyUnchanged: true, rejectionNotMisrepresented: true };
+  });
+
+  await scenario('react-text-input-accept', async (page, call, record) => {
+    await page.locator('#react-amount').waitFor({ state: 'visible' });
+    const result = success(await call('pageFill', '#react-amount', '10', true, { commit: 'blur', normalization: 'numeric', inputStrategy: 'text-input' }));
+    const observed = await page.evaluate(() => ({ value: document.getElementById('react-amount').value, model: document.getElementById('react-model').textContent, events: fixtureState.editEvents, beforeInputs: fixtureState.reactBeforeInputEvents, reactBeforeInput: fixtureState.events.reactBeforeInput || 0, reactInput: fixtureState.events.reactInput || 0, reactChange: fixtureState.events.reactChange || 0, execCommands: fixtureState.execCommands }));
+    record(observed);
+    assert.equal(observed.model, '10');
+    assert.equal(observed.value, '10.00');
+    assert.equal(observed.reactBeforeInput, 1);
+    assert.equal(observed.reactInput, 1);
+    assert.equal(observed.reactChange, 1);
+    assert.equal(observed.execCommands, 1);
+    assert.deepEqual(observed.events.map(event => event.type), ['beforeinput', 'textInput', 'input', 'change', 'blur']);
+    assert.deepEqual(observed.beforeInputs, [{ nativeType: 'textInput', data: '10', trusted: false }]);
+    await page.waitForFunction(() => document.getElementById('react-receipt').textContent.includes('received'));
+    const saved = receipts.filter(item => item.scenario === 'react-text-input-accept');
+    assert.deepEqual(saved, [{ scenario: 'react-text-input-accept', amount: 10, draft: '10.00' }]);
+    assert.equal(result.applicationAccepted, null);
+    assert.equal(result.outcomeVerified, false);
+    return { serverReceivedAmount: 10, submissions: 1, nativeEditOperations: 1, reactBeforeInputDeliveredOnce: true };
+  });
+
+  for (const name of ['react-text-input-dom-cancelled', 'react-text-input-react-cancelled']) {
+    await scenario(name, async (page, call, record) => {
+      await page.locator('#react-amount').waitFor({ state: 'visible' });
+      const response = await call('pageFill', '#react-amount', '10', true, { commit: 'blur', normalization: 'numeric', inputStrategy: 'text-input' });
+      const observed = await page.evaluate(() => ({ value: document.getElementById('react-amount').value, events: fixtureState.editEvents, reactBeforeInput: fixtureState.events.reactBeforeInput || 0, reactInput: fixtureState.events.reactInput || 0, reactChange: fixtureState.events.reactChange || 0, execCommands: fixtureState.execCommands }));
+      record({ response, observed });
+      assert.ok(response.error?.code);
+      assert.equal(observed.value, '');
+      assert.equal(observed.reactBeforeInput, 1);
+      assert.equal(observed.reactInput, 0);
+      assert.equal(observed.reactChange, 0);
+      assert.equal(observed.execCommands, 0);
+      assert.deepEqual(observed.events.map(event => event.type), ['beforeinput', 'textInput']);
+      assert.equal(receipts.filter(item => item.scenario === name).length, 0);
+      return { cancellationRespected: true, nativeEditOperations: 0, submissions: 0 };
+    });
+  }
+
+  for (const name of ['text-input-value-change', 'text-input-replaced', 'text-input-handler-edit', 'text-input-handler-same-value']) {
+    await scenario(name, async (page, call, record) => {
+      const response = await call('pageFill', '#text-intent', '10', false, { commit: 'blur', inputStrategy: 'text-input' });
+      const observed = await page.evaluate(() => ({ value: document.getElementById('text-intent').value, events: fixtureState.events, execCommands: fixtureState.execCommands, handlerCommands: fixtureState.handlerCommands, replacements: fixtureState.replacements }));
+      record({ response, observed });
+      assert.ok(response.error?.code, 'A reentrant handler mutation must be reported before a second edit');
+      assert.equal(observed.value, name === 'text-input-replaced' ? 'replacement-owned' : name === 'text-input-handler-same-value' ? 'before' : 'handler-owned');
+      assert.equal(observed.events.beforeinput, 1);
+      assert.equal(observed.events.textInput, 1);
+      assert.equal(observed.execCommands, name.startsWith('text-input-handler-') ? 1 : 0, 'The worker must not issue its own command after a handler mutation');
+      assert.equal(observed.handlerCommands, name.startsWith('text-input-handler-') ? 1 : 0);
+      assert.equal(observed.events.input || 0, name.startsWith('text-input-handler-') ? 1 : 0);
+      if (name.startsWith('text-input-handler-')) assert.equal(response.error.code, 'CHROME_TEXT_EDIT_ALREADY_HANDLED');
+      assert.equal(observed.replacements, name === 'text-input-replaced' ? 1 : 0);
+      return { handlerMutationPreserved: true, workerNativeEditOperations: 0, fallbackWrites: 0 };
+    });
+  }
+  await scenario('active-focus-blur-native', async (page, call, record) => {
+    const variants = [];
+    for (const inputStrategy of ['set-value', 'insert-text', 'text-input']) {
+      await page.evaluate(() => { document.getElementById('focus-case').value = ''; fixtureState.focusEvents = []; });
+      const result = success(await call('pageFill', '#focus-case', '10', false, { inputStrategy, commit: 'blur' }));
+      const observed = await page.evaluate(() => ({ events: fixtureState.focusEvents, hasFocus: document.hasFocus(), activeElement: document.activeElement?.id || document.activeElement?.tagName }));
+      variants.push({ inputStrategy, result, observed });
+      assert.equal(observed.hasFocus, true, 'This scenario verifies preservation of native events in an active document');
+      assert.deepEqual(observed.events.map(event => event.type), ['focus', 'focusin', 'blur', 'focusout']);
+      assert.ok(observed.events.every(event => event.trusted), 'No synthetic duplicates may be added when native focus events were delivered');
+      assert.equal(observed.activeElement, 'BODY');
+    }
+    record({ variants });
+    return { nativeFocusEventsPreserved: true, duplicateSyntheticEvents: 0, strategies: variants.length };
+  });
 } catch (error) {
   fatalError = { message: error.message, stack: error.stack };
 } finally {
@@ -350,7 +626,7 @@ try {
   profileRemoved = await fs.stat(profilePath).then(() => false, error => error.code === 'ENOENT');
 }
 
-const passed = !fatalError && results.length === 19 && results.every(result => result.passed) && profileRemoved && browserClosed;
+const passed = !fatalError && results.length === 42 && results.every(result => result.passed) && profileRemoved && browserClosed;
 console.log(JSON.stringify({
   passed,
   browserVersion,
@@ -376,6 +652,7 @@ console.log(JSON.stringify({
   fixtureReceiptCount: receipts.length,
   fixtureReceipts: receipts,
   scenarios: results,
+  compatibilityMeasurements,
   ...(fatalError ? { fatalError } : {}),
 }, null, 2));
 if (!passed) process.exitCode = 1;

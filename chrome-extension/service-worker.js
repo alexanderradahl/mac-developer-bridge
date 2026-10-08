@@ -1,7 +1,7 @@
 const NATIVE_HOST = "io.github.alexanderradahl.mac_developer_bridge";
-const VERSION = "0.2.12";
+const VERSION = "0.2.15";
 // Immutable identity of the executing release, sent on every native handshake.
-const LOADED_EXTENSION_BUILD_ID = "browser-reliability-20261007.1";
+const LOADED_EXTENSION_BUILD_ID = "browser-reliability-20261007.4";
 const NATIVE_INSTANCE_ID = crypto.randomUUID();
 const NATIVE_OPERATION_RETENTION_MS = 24 * 60 * 60 * 1000;
 const MAX_NATIVE_OPERATIONS = 5_000;
@@ -3363,7 +3363,9 @@ function pageSnapshot(maxTextChars, maxElements) {
 async function pageClick(selector, options = {}) {
   let actionDispatched = false;
   let clickDispatched = false;
+  let focusEventFallbackUsed = false;
   let stage = "resolve";
+  const clickStrategy = options.clickStrategy ?? "adaptive-pointer";
   const deadline = Number(options.deadlineMs);
   const assertDeadline = () => {
     if (Number.isFinite(deadline) && Date.now() >= deadline) {
@@ -3374,6 +3376,11 @@ async function pageClick(selector, options = {}) {
   };
   try {
     assertDeadline();
+    if (!["adaptive-pointer", "dom-click"].includes(clickStrategy)) {
+      const error = new Error("Click strategy must be adaptive-pointer or dom-click.");
+      error.code = "CHROME_CLICK_STRATEGY_INVALID";
+      throw error;
+    }
     const element = document.querySelector(selector);
     if (!(element instanceof Element)) {
       const error = new Error("No element matches the click selector.");
@@ -3391,7 +3398,7 @@ async function pageClick(selector, options = {}) {
       error.code = "CHROME_ELEMENT_DISABLED";
       throw error;
     }
-    element.scrollIntoView({ block: "center", inline: "center", behavior: "instant" });
+    if (clickStrategy === "adaptive-pointer") element.scrollIntoView({ block: "center", inline: "center", behavior: "instant" });
     const rect = element.getBoundingClientRect();
     const style = getComputedStyle(element);
     if (rect.width <= 0 || rect.height <= 0 || style.visibility === "hidden" || style.display === "none" || style.opacity === "0") {
@@ -3411,7 +3418,7 @@ async function pageClick(selector, options = {}) {
     const clientX = Math.max(0, Math.min(Math.max(0, window.innerWidth - 1), rect.left + rect.width / 2));
     const clientY = Math.max(0, Math.min(Math.max(0, window.innerHeight - 1), rect.top + rect.height / 2));
     const common = {
-      bubbles: true, cancelable: true, composed: true, clientX, clientY,
+      bubbles: true, cancelable: true, composed: true, view: window, clientX, clientY,
       screenX: Number(window.screenX || 0) + clientX,
       screenY: Number(window.screenY || 0) + clientY, button: 0,
     };
@@ -3421,13 +3428,67 @@ async function pageClick(selector, options = {}) {
       events.push(type);
       actionDispatched = true;
       return element.dispatchEvent(new PointerEvent(type, {
-        ...common, buttons, pointerId: 1, pointerType: "mouse", isPrimary: true, pressure: buttons ? 0.5 : 0,
+        ...common, button: ["pointerdown", "pointerup"].includes(type) ? 0 : -1,
+        buttons, pointerId: 1, pointerType: "mouse", isPrimary: true, pressure: buttons ? 0.5 : 0,
       }));
     };
     const dispatchMouse = (type, buttons) => {
       events.push(type);
       actionDispatched = true;
-      return element.dispatchEvent(new MouseEvent(type, { ...common, buttons, detail: type === "mousedown" ? 1 : 0 }));
+      return element.dispatchEvent(new MouseEvent(type, { ...common, buttons, detail: ["mousedown", "mouseup"].includes(type) ? 1 : 0 }));
+    };
+    const focusTarget = () => {
+      const assertFocusable = () => {
+        assertTarget();
+        if (isDisabled()) {
+          const error = new Error("The click target became disabled during its focus transition.");
+          error.code = "CHROME_ELEMENT_DISABLED";
+          throw error;
+        }
+      };
+      assertFocusable();
+      if (typeof document.hasFocus !== "function" || document.hasFocus()) {
+        try { element.focus({ preventScroll: true }); } catch {}
+        return;
+      }
+      const activeBefore = document.activeElement;
+      const types = ["focus", "focusin"];
+      const observed = new Set();
+      const observe = (event) => { if (event.target === element) observed.add(event.type); };
+      for (const type of types) {
+        element.addEventListener(type, observe, true);
+        document.addEventListener(type, observe, true);
+      }
+      try {
+        try { element.focus({ preventScroll: true }); } catch {}
+        if (activeBefore !== element && document.activeElement === element && !document.hasFocus()) {
+          const relatedTarget = activeBefore instanceof Element
+            && activeBefore !== document.body && activeBefore !== document.documentElement ? activeBefore : null;
+          for (const type of types) {
+            if (observed.has(type)) continue;
+            assertFocusable();
+            if (document.activeElement !== element) {
+              const error = new Error("The page changed focus before the remaining click events.");
+              error.code = "CHROME_FOCUS_CHANGED";
+              throw error;
+            }
+            focusEventFallbackUsed = true;
+            events.push(type);
+            element.dispatchEvent(new FocusEvent(type, { bubbles: type === "focusin", composed: true, relatedTarget }));
+          }
+          assertFocusable();
+          if (document.activeElement !== element) {
+            const error = new Error("The page changed focus before the remaining click events.");
+            error.code = "CHROME_FOCUS_CHANGED";
+            throw error;
+          }
+        }
+      } finally {
+        for (const type of types) {
+          element.removeEventListener(type, observe, true);
+          document.removeEventListener(type, observe, true);
+        }
+      }
     };
     const semanticSelector = '[role="combobox"],[aria-haspopup]:not([aria-haspopup="false"])';
     const control = element.matches(semanticSelector) ? element : element.closest(semanticSelector);
@@ -3457,6 +3518,39 @@ async function pageClick(selector, options = {}) {
       || before.dataState !== after.dataState
       || before.associatedPopupCount !== after.associatedPopupCount;
     const before = readActivationState();
+    if (clickStrategy === "dom-click") {
+      if (!(element instanceof HTMLElement) || typeof HTMLElement.prototype.click !== "function") {
+        const error = new Error("Direct DOM click requires an HTML element with native click activation.");
+        error.code = "CHROME_CLICK_STRATEGY_UNSUPPORTED";
+        throw error;
+      }
+      assertTarget();
+      if (isDisabled()) {
+        const error = new Error("The click target became disabled before dispatch.");
+        error.code = "CHROME_ELEMENT_DISABLED";
+        throw error;
+      }
+      stage = "click";
+      // This explicit alternative performs only native HTMLElement.click().
+      // It does not scroll, hover, focus, or send a pointer/mouse prelude, and it
+      // is never selected automatically after another strategy has dispatched.
+      actionDispatched = true;
+      clickDispatched = true;
+      events.push("click");
+      HTMLElement.prototype.click.call(element);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      const after = readActivationState();
+      return {
+        clicked: clickDispatched, clickDispatched, actionDispatched, focusEventFallbackUsed,
+        activationObserved: semanticMouseDownControl ? stateChanged(before, after) : null,
+        applicationAccepted: null, outcomeVerified: false, selector,
+        strategy: "dom-click", activation: "click", trusted: false,
+        pointerDownAllowed: null, mouseDownAllowed: null, semanticMouseDownControl,
+        keyboardFallbackUsed: false, stateChangedOnMouseDown: false,
+        before, afterMouseDown: null, after, clientX: null, clientY: null, events,
+        title: document.title, url: location.href,
+      };
+    }
     stage = "pointer-down";
     dispatchPointer("pointerover", 0);
     dispatchMouse("mouseover", 0);
@@ -3466,7 +3560,7 @@ async function pageClick(selector, options = {}) {
     assertTarget();
     const mouseDownAllowed = pointerDownAllowed ? dispatchMouse("mousedown", 1) : null;
     if (mouseDownAllowed && element instanceof HTMLElement) {
-      try { element.focus({ preventScroll: true }); } catch {}
+      focusTarget();
     }
     await new Promise((resolve) => setTimeout(resolve, 0));
     stage = "after-mousedown";
@@ -3487,8 +3581,15 @@ async function pageClick(selector, options = {}) {
       events.push("click");
       actionDispatched = true;
       clickDispatched = true;
-      if (typeof element.click === "function") element.click();
-      else element.dispatchEvent(new MouseEvent("click", { ...common, buttons: 0, detail: 1 }));
+      // HTMLElement.click() creates a zero-detail activation with no pointer
+      // coordinates. Finish this mouse sequence with a matching pointer click;
+      // applications can distinguish it from keyboard-style activation. It is
+      // still an untrusted DOM event, with normal cancelable default actions.
+      const clickOptions = { ...common, buttons: 0, detail: 1 };
+      const clickEvent = typeof PointerEvent === "function"
+        ? new PointerEvent("click", { ...clickOptions, pointerId: 1, pointerType: "mouse", pressure: 0 })
+        : new MouseEvent("click", clickOptions);
+      element.dispatchEvent(clickEvent);
       activation = "click";
     }
     await new Promise((resolve) => setTimeout(resolve, 0));
@@ -3502,7 +3603,7 @@ async function pageClick(selector, options = {}) {
       stage = "keyboard-fallback";
       assertTarget();
       if (element instanceof HTMLElement) {
-        try { element.focus({ preventScroll: true }); } catch {}
+        focusTarget();
       }
       const keyCommon = { bubbles: true, cancelable: true, composed: true, key: "ArrowDown", code: "ArrowDown" };
       events.push("keydown:ArrowDown");
@@ -3519,6 +3620,7 @@ async function pageClick(selector, options = {}) {
       clicked: clickDispatched,
       clickDispatched,
       actionDispatched,
+      focusEventFallbackUsed,
       activationObserved: semanticMouseDownControl ? stateChanged(before, after) : null,
       outcomeVerified: false,
       selector,
@@ -3535,7 +3637,7 @@ async function pageClick(selector, options = {}) {
       url: location.href,
     };
   } catch (error) {
-    const details = { stage, actionDispatched, clickDispatched, outcomeVerified: false };
+    const details = { stage, actionDispatched, clickDispatched, focusEventFallbackUsed, outcomeVerified: false };
     error.details = { ...(error.details || {}), ...details };
     if (!options.errorsAsData) throw error;
     return { __mdbPageActionError: { code: error.code || "CHROME_CLICK_FAILED", ...details } };
@@ -3547,8 +3649,11 @@ async function pageFill(selector, value, submit, options = {}) {
   let actionDispatched = false;
   let targetReplaced = false;
   let inputStrategy = null;
+  let focusEventFallbackUsed = false;
+  let blurEventFallbackUsed = false;
   const commit = options.commit || "change";
   const normalization = options.normalization || "exact";
+  const requestedInputStrategy = options.inputStrategy ?? "set-value";
   const deadline = Number(options.deadlineMs);
   const fail = (code, message) => { const error = new Error(message); error.code = code; throw error; };
   const assertDeadline = () => {
@@ -3560,6 +3665,7 @@ async function pageFill(selector, value, submit, options = {}) {
     assertDeadline();
     if (!["change", "blur"].includes(commit)) fail("CHROME_FILL_COMMIT_INVALID", "Fill commit must be change or blur.");
     if (!["exact", "numeric"].includes(normalization)) fail("CHROME_FILL_NORMALIZATION_INVALID", "Fill normalization must be exact or numeric.");
+    if (!["set-value", "insert-text", "text-input"].includes(requestedInputStrategy)) fail("CHROME_FILL_INPUT_STRATEGY_INVALID", "Fill input strategy must be set-value, insert-text, or text-input.");
     const documentAtStart = document;
     const matches = [...document.querySelectorAll(selector)];
     if (!matches.length) fail("CHROME_ELEMENT_NOT_FOUND", "No element matches the fill selector.");
@@ -3593,6 +3699,15 @@ async function pageFill(selector, value, submit, options = {}) {
     }
     if (element instanceof HTMLSelectElement && element.multiple) {
       fail("CHROME_SELECT_MULTIPLE_UNSUPPORTED", "A multiple select needs an explicit multi-value operation.");
+    }
+    const legacyTextInput = requestedInputStrategy === "text-input";
+    if (legacyTextInput && element.isContentEditable) {
+      fail("CHROME_FILL_INPUT_STRATEGY_UNSUPPORTED", "Legacy text-input editing requires a supported native text input or textarea.");
+    }
+    const nativeTextEdit = ["insert-text", "text-input"].includes(requestedInputStrategy) && !element.isContentEditable;
+    if (nativeTextEdit && !(element instanceof HTMLTextAreaElement
+      || element instanceof HTMLInputElement && ["text", "search", "tel", "url", "password"].includes(type))) {
+      fail("CHROME_FILL_INPUT_STRATEGY_UNSUPPORTED", "Native text editing requires a text, search, tel, url, or password input, a textarea, or contenteditable.");
     }
     if (normalization === "numeric" && !(element instanceof HTMLInputElement
       && (["number", "range"].includes(type) || ["decimal", "numeric"].includes(element.getAttribute("inputmode"))))) {
@@ -3688,9 +3803,64 @@ async function pageFill(selector, value, submit, options = {}) {
       try { requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(finish, 0))); }
       catch { finish(); }
     });
-    const focus = (candidate) => {
-      try { candidate.focus({ preventScroll: true }); } catch { candidate.focus(); }
+    const transitionFocus = (candidate, direction) => {
+      const gainingFocus = direction === "focus";
+      const types = gainingFocus ? ["focus", "focusin"] : ["blur", "focusout"];
+      const activeBefore = document.activeElement;
+      const transitioning = gainingFocus ? activeBefore !== candidate : activeBefore === candidate;
+      const observed = new Set();
+      const observe = (event) => {
+        if (event.target === candidate) observed.add(event.type);
+      };
+      const assertCurrent = () => {
+        assertDeadline();
+        if (resolveCurrent() !== candidate) fail("CHROME_TARGET_CHANGED", "The field changed during its focus transition.");
+        assertEditable();
+      };
+      const transitionReached = () => gainingFocus
+        ? document.activeElement === candidate : document.activeElement !== candidate;
+      assertCurrent();
+      for (const type of types) {
+        candidate.addEventListener(type, observe, true);
+        document.addEventListener(type, observe, true);
+      }
+      try {
+        if (gainingFocus) {
+          try { candidate.focus({ preventScroll: true }); } catch { candidate.focus(); }
+        } else {
+          candidate.blur();
+          if (document.activeElement === candidate) fail("CHROME_FOCUS_CHANGED", "The field kept or regained focus during its requested blur commit.");
+        }
+        // In a genuinely inactive Chrome tab these native methods change
+        // activeElement but can omit the entire focus event family. Supply
+        // only missing events for that actual transition; never activate the
+        // tab or duplicate events that the browser already dispatched.
+        if (transitioning && typeof document.hasFocus === "function" && !document.hasFocus()
+          && transitionReached()) {
+          const relatedTarget = gainingFocus && activeBefore instanceof Element
+            && activeBefore !== document.body && activeBefore !== document.documentElement ? activeBefore : null;
+          for (const type of types) {
+            if (observed.has(type)) continue;
+            assertCurrent();
+            if (!transitionReached()) fail("CHROME_FOCUS_CHANGED", "The page changed focus during the field commit; no remaining focus event was dispatched.");
+            if (gainingFocus) focusEventFallbackUsed = true;
+            else blurEventFallbackUsed = true;
+            candidate.dispatchEvent(new FocusEvent(type, {
+              bubbles: type === "focusin" || type === "focusout",
+              composed: true, relatedTarget,
+            }));
+          }
+          assertDeadline();
+          if (!transitionReached()) fail("CHROME_FOCUS_CHANGED", "The page changed focus during the field commit.");
+        }
+      } finally {
+        for (const type of types) {
+          candidate.removeEventListener(type, observe, true);
+          document.removeEventListener(type, observe, true);
+        }
+      }
     };
+    const focus = (candidate) => transitionFocus(candidate, "focus");
     stage = "focus";
     actionDispatched = true;
     focus(element);
@@ -3712,8 +3882,29 @@ async function pageFill(selector, value, submit, options = {}) {
       element.dispatchEvent(new Event("input", { bubbles: true, composed: true }));
       resolveCurrent().dispatchEvent(new Event("change", { bubbles: true }));
     } else {
-      inputStrategy = element.isContentEditable ? "contenteditable-insert-text" : "native-value-setter";
-      // Frameworks receive a cancelable edit intent before the native setter.
+      inputStrategy = element.isContentEditable ? "contenteditable-insert-text"
+        : legacyTextInput ? "native-insert-text-with-text-input"
+          : nativeTextEdit ? "native-insert-text" : "native-value-setter";
+      let selectedValue = null;
+      const assertNativeTextSelection = () => {
+        if (document.activeElement !== element || String(element.value) !== selectedValue
+          || element.selectionStart !== 0 || element.selectionEnd !== selectedValue.length) {
+          fail("CHROME_TEXT_EDIT_SELECTION_CHANGED", "The native text edit lost its focused full-value selection; no editing operation was dispatched.");
+        }
+      };
+      if (nativeTextEdit) {
+        const prototype = element instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+        const selectRange = prototype.setSelectionRange;
+        if (typeof selectRange !== "function") fail("CHROME_FILL_INPUT_STRATEGY_UNSUPPORTED", "The control does not support a native text selection.");
+        selectedValue = String(element.value);
+        try { selectRange.call(element, 0, selectedValue.length); }
+        catch { fail("CHROME_FILL_INPUT_STRATEGY_UNSUPPORTED", "The control did not accept a full-value text selection."); }
+        if (resolveCurrent() !== original) fail("CHROME_TARGET_CHANGED", "The field changed while selecting its text; no edit was dispatched.");
+        assertEditable();
+        assertNativeTextSelection();
+        assertDeadline();
+      }
+      // Frameworks receive a cancelable edit intent before the selected edit.
       // These remain untrusted DOM events, not browser-level user activation.
       const beforeInput = new InputEvent("beforeinput", {
         bubbles: true, cancelable: true, composed: true, inputType: "insertText", data: expectedValue,
@@ -3721,6 +3912,7 @@ async function pageFill(selector, value, submit, options = {}) {
       if (!element.dispatchEvent(beforeInput)) fail("CHROME_INPUT_CANCELLED", "The page cancelled the beforeinput event.");
       if (resolveCurrent() !== original) fail("CHROME_TARGET_CHANGED", "The field changed before the value could be written.");
       assertEditable();
+      assertDeadline();
       if (element.isContentEditable) {
         const selection = window.getSelection();
         if (!selection) fail("CHROME_ELEMENT_NOT_FILLABLE", "The editable document has no text selection.");
@@ -3736,6 +3928,37 @@ async function pageFill(selector, value, submit, options = {}) {
         finally { element.removeEventListener("input", observeInput); }
         if (!inserted) fail("CHROME_CONTENTEDITABLE_INPUT_UNSUPPORTED", "The browser did not accept the editable text operation.");
         if (!inputObserved) element.dispatchEvent(new InputEvent("input", { bubbles: true, composed: true, inputType: "insertText", data: expectedValue }));
+      } else if (nativeTextEdit) {
+        // Use one explicit browser editing operation. Never replay a rejected
+        // edit with the setter, and never duplicate browser-emitted input events
+        // (multiline textarea edits can emit several from this single command).
+        assertNativeTextSelection();
+        if (legacyTextInput) {
+          // Some framework before-input handlers listen to the browser's legacy
+          // textInput event. This explicit strategy supplies that cancelable
+          // intent before the one native edit; it is not a second text write.
+          let textInput;
+          try {
+            textInput = document.createEvent("TextEvent");
+            textInput.initTextEvent("textInput", true, true, window, expectedValue);
+          } catch {
+            fail("CHROME_TEXT_INPUT_EVENT_UNSUPPORTED", "The browser does not support the requested legacy text-input event.");
+          }
+          let inputHandledByPage = false;
+          const observePageInput = () => { inputHandledByPage = true; };
+          element.addEventListener("input", observePageInput, true);
+          let textInputAllowed;
+          try { textInputAllowed = element.dispatchEvent(textInput); }
+          finally { element.removeEventListener("input", observePageInput, true); }
+          if (!textInputAllowed) fail("CHROME_INPUT_CANCELLED", "The page cancelled the textInput event.");
+          if (inputHandledByPage) fail("CHROME_TEXT_EDIT_ALREADY_HANDLED", "The page handled text-input intent with its own input event; no additional edit was dispatched.");
+          if (resolveCurrent() !== original) fail("CHROME_TARGET_CHANGED", "The field changed during text-input intent; no native edit was dispatched.");
+          assertEditable();
+          assertNativeTextSelection();
+          assertDeadline();
+        }
+        const inserted = document.execCommand("insertText", false, expectedValue);
+        if (!inserted) fail("CHROME_TEXT_EDIT_UNSUPPORTED", "The browser did not accept the native text editing operation.");
       } else {
         const prototype = element instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
         const setter = Object.getOwnPropertyDescriptor(prototype, "value")?.set;
@@ -3743,7 +3966,9 @@ async function pageFill(selector, value, submit, options = {}) {
         setter.call(element, expectedValue);
         element.dispatchEvent(new InputEvent("input", { bubbles: true, composed: true, inputType: "insertText", data: expectedValue }));
       }
-      resolveCurrent().dispatchEvent(new Event("change", { bubbles: true }));
+      // A native text edit produces its own change event on a real blur. Keep
+      // that single commit event when blur was explicitly requested.
+      if (!(nativeTextEdit && commit === "blur")) resolveCurrent().dispatchEvent(new Event("change", { bubbles: true }));
     }
     stage = "framework-commit";
     await waitForFrameworkCommit();
@@ -3759,7 +3984,9 @@ async function pageFill(selector, value, submit, options = {}) {
       resolveCurrent();
       if (element !== beforeBlur) fail("CHROME_TARGET_CHANGED", "The field changed while preparing its blur commit.");
       assertEditable();
-      element.blur();
+      assertDeadline();
+      if (document.activeElement !== element) fail("CHROME_FOCUS_CHANGED", "The field did not receive focus for its requested blur commit.");
+      transitionFocus(element, "blur");
       await waitForFrameworkCommit();
       resolveCurrent();
     }
@@ -3843,6 +4070,8 @@ async function pageFill(selector, value, submit, options = {}) {
       trusted: false,
       actionDispatched,
       targetReplaced,
+      focusEventFallbackUsed,
+      blurEventFallbackUsed,
       commit, normalization, inputStrategy,
       normalized: actualValue !== expectedValue,
       validation,
@@ -3866,7 +4095,7 @@ async function pageFill(selector, value, submit, options = {}) {
       url: location.href,
     };
   } catch (error) {
-    const details = { stage, actionDispatched, targetReplaced, commit, normalization, inputStrategy, outcomeVerified: false };
+    const details = { stage, actionDispatched, targetReplaced, focusEventFallbackUsed, blurEventFallbackUsed, commit, normalization, inputStrategy, outcomeVerified: false };
     error.details = { ...(error.details || {}), ...details };
     if (!options.errorsAsData) throw error;
     return { __mdbPageActionError: { code: error.code || "CHROME_FILL_FAILED", ...details } };
@@ -4334,6 +4563,7 @@ async function dispatch(message) {
     case "tabs.click": {
       const tab = await getApprovedTab(args.tabId, compiled);
       return await observeTabAction(tab.id, () => executeInTab(tab.id, pageClick, [String(args.selector || ""), {
+        clickStrategy: args.clickStrategy ?? "adaptive-pointer",
         deadlineMs: message.deadlineMs, errorsAsData: true,
       }], "MAIN", { deadlineMs: message.deadlineMs, includeDocumentIdentity: true }), message.deadlineMs);
     }
@@ -4342,6 +4572,7 @@ async function dispatch(message) {
       const tab = await getApprovedTab(args.tabId, compiled);
       return await observeTabAction(tab.id, () => executeInTab(tab.id, pageFill, [String(args.selector || ""), String(args.value ?? ""), Boolean(args.submit), {
         commit: args.commit || "change", normalization: args.normalization || "exact",
+        inputStrategy: args.inputStrategy ?? "set-value",
         deadlineMs: message.deadlineMs, errorsAsData: true,
       }], "MAIN", { deadlineMs: message.deadlineMs, includeDocumentIdentity: true }), message.deadlineMs);
     }

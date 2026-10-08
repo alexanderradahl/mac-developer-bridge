@@ -1,0 +1,109 @@
+{
+  "schemaVersion": 1,
+  "capturedAt": "2026-10-08T00:03:35.409Z",
+  "bridgeVersion": "0.3.2",
+  "extensionVersion": "0.2.13",
+  "provider": "Patreon",
+  "pagePublished": false,
+  "tierAttempts": 3,
+  "persistedTierRecordsVerified": 1,
+  "unsavedTierRecords": 2,
+  "verifiedReadOperations": [
+    {
+      "operationId": "f7687fd1-31f0-412c-95fb-25fbabcb1bc5",
+      "state": "completed",
+      "outcome": "succeeded",
+      "dispatched": true,
+      "dispatchState": "dispatched",
+      "elapsedMs": 917,
+      "retryable": false
+    }
+  ],
+  "nativePriceCases": [
+    {
+      "input": {
+        "actionDispatched": true,
+        "applicationAccepted": null,
+        "commit": "blur",
+        "domValueRetained": true,
+        "filled": true,
+        "inputStrategy": "native-insert-text",
+        "normalization": "exact",
+        "outcomeVerified": false,
+        "trusted": false
+      },
+      "inputOperation": {
+        "operationId": "patreon-town-native-price-20261007-01",
+        "state": "completed",
+        "outcome": "succeeded",
+        "dispatched": true,
+        "dispatchState": "dispatched",
+        "elapsedMs": 2928,
+        "retryable": false
+      },
+      "saveOperation": {
+        "operationId": "99a44960-826b-48b0-bf7a-ba0ddafb37e4",
+        "state": "completed",
+        "outcome": "succeeded",
+        "dispatched": true,
+        "dispatchState": "dispatched",
+        "elapsedMs": 403,
+        "retryable": false
+      },
+      "readbackOperation": {
+        "operationId": "77701992-a15a-4a8b-a295-8d48054c3f85",
+        "state": "completed",
+        "outcome": "succeeded",
+        "dispatched": true,
+        "dispatchState": "dispatched",
+        "elapsedMs": 10,
+        "retryable": false
+      },
+      "providerRejection": "missing-amount",
+      "persisted": false
+    },
+    {
+      "input": {
+        "actionDispatched": true,
+        "applicationAccepted": null,
+        "commit": "blur",
+        "domValueRetained": true,
+        "filled": true,
+        "inputStrategy": "native-insert-text",
+        "normalization": "exact",
+        "outcomeVerified": false,
+        "trusted": false
+      },
+      "inputOperation": {
+        "operationId": "patreon-town-native-integer-20261007-01",
+        "state": "completed",
+        "outcome": "succeeded",
+        "dispatched": true,
+        "dispatchState": "dispatched",
+        "elapsedMs": 1939,
+        "retryable": false
+      },
+      "saveOperation": {
+        "operationId": "78f27902-4095-47bb-8d82-651f7e70dc22",
+        "state": "completed",
+        "outcome": "succeeded",
+        "dispatched": true,
+        "dispatchState": "dispatched",
+        "elapsedMs": 449,
+        "retryable": false
+      },
+      "readbackOperation": {
+        "operationId": "b8684873-2dc7-4c14-924f-9df589f5faab",
+        "state": "completed",
+        "outcome": "succeeded",
+        "dispatched": true,
+        "dispatchState": "dispatched",
+        "elapsedMs": 17,
+        "retryable": false
+      },
+      "providerRejection": "missing-amount",
+      "persisted": false
+    }
+  ],
+  "limitation": "DOM value retention and completed browser dispatch did not establish provider acceptance; unsuccessful saves remain recorded as failures."
+}

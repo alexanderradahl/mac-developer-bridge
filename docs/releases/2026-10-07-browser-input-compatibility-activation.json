@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "verifiedAt": "2026-10-07T23:55:56.405Z",
+  "result": "PASS: followup activation identity, preserved configuration, and advertised MCP schema",
+  "release": {
+    "bridgeVersion": "0.3.2",
+    "bridgeBuildId": "35cd94cea6e52d4224cf46e40e0fb4229ab1a4c6b8e5391214bfc2a252f104d8",
+    "extensionVersion": "0.2.13",
+    "extensionBuildId": "browser-reliability-20261007.2",
+    "nativeHostBuildId": "72d9e6ced8b9076b55bfc00fbf490d2c692dc1ccb8f8e667d0a0d38d9a493835"
+  },
+  "verification": {
+    "bridgeLoadedMatchesInstalled": true,
+    "nativeLoadedMatchesInstalled": true,
+    "extensionReady": true,
+    "profileBindingMatches": true,
+    "installedFileCount": 20,
+    "allInstalledFilesMatchReceipt": true,
+    "manifestUnchangedExceptVersion": true,
+    "runtimeFieldsCompared": 25,
+    "allRuntimeFieldsUnchanged": true,
+    "configurationFileByteHashesVerified": true
+  },
+  "publicMcp": {
+    "httpStatus": 200,
+    "toolCount": 38,
+    "method": "tools/list",
+    "inputStrategySchemaMatches": true,
+    "commitDefault": "change",
+    "normalizationDefault": "exact",
+    "stableOperationIdAvailable": true,
+    "operationStatusPresent": true,
+    "operationStatusReadOnly": true
+  },
+  "limitations": [
+    "Existing client catalogs may require schema refresh. Provider acceptance is recorded separately."
+  ]
+}

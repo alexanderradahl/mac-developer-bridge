@@ -12,7 +12,7 @@ import { fileURLToPath } from "node:url";
 import { createFederation, consumePersonalApproval } from "./lib/federation.mjs";
 import { backgroundChromeCall, backgroundChromeStatus, backgroundChromeOperationStatus, safeChromeDiagnostics } from "./lib/chrome-extension-client.mjs";
 
-const BRIDGE_VERSION = "0.3.1";
+const BRIDGE_VERSION = "0.3.4";
 const SERVER_NAME = "mac-developer-bridge";
 const SERVER_TITLE = "Mac Developer Bridge";
 const MODERN_PROTOCOL = "2026-07-28";
@@ -923,6 +923,7 @@ const TOOLS = [
       properties: {
         tab_id: { type: "integer", minimum: 0 },
         selector: { type: "string", minLength: 1, maxLength: 10000 },
+        click_strategy: { type: "string", enum: ["adaptive-pointer", "dom-click"], default: "adaptive-pointer", description: "Adaptive-pointer preserves the existing pointer sequence and conditional combobox keyboard activation. Explicit dom-click invokes HTMLElement.click once, without hover, pointer-down/up, or focus prelude. Neither strategy provides browser user activation. The selected strategy is never automatically retried or switched." },
         operation_id: { type: "string", minLength: 8, maxLength: 128, pattern: "^[A-Za-z0-9][A-Za-z0-9_.:-]{7,127}$", description: "Optional stable ID for this exact click. Use the returned ID to reconcile a timeout before any retry." },
       },
       required: ["tab_id", "selector"],
@@ -933,7 +934,7 @@ const TOOLS = [
   {
     name: "chrome_fill",
     title: "Fill Chrome field in background",
-    description: "Fill an editable field in an MDB Chrome tab and verify the current connected control after framework updates. Optional blur commit and numeric normalization are explicit. DOM retention and observed submission do not prove application acceptance or persistence. File inputs remain foreground-only.",
+    description: "Fill an editable field in an MDB Chrome tab and verify the current connected control after framework updates. Optional blur commit, numeric normalization, and browser editing strategies are explicit. DOM retention and observed submission do not prove application acceptance or persistence. File inputs remain foreground-only.",
     inputSchema: {
       type: "object",
       properties: {
@@ -943,6 +944,7 @@ const TOOLS = [
         submit: { type: "boolean", default: false, description: "If true, request form submission after filling. This can trigger external side effects." },
         commit: { type: "string", enum: ["change", "blur"], default: "change", description: "Use blur to commit controls that update their application state when focus leaves the field." },
         normalization: { type: "string", enum: ["exact", "numeric"], default: "exact", description: "Numeric permits equivalent finite numeric display formatting such as 5 to 5.00. Use exact for identifiers and ordinary text." },
+        input_strategy: { type: "string", enum: ["set-value", "insert-text", "text-input"], default: "set-value", description: "Set-value preserves existing behavior. Insert-text uses one browser editing command on text/search/tel/url/password inputs, textareas, or contenteditable. Text-input adds one cancelable legacy textInput event before that command for text/search/tel/url/password inputs and textareas; contenteditable is unsupported for text-input. Use commit blur for native edit commitment. Unsupported controls fail; no automatic fallback or retry. These strategies do not provide browser user activation." },
         operation_id: { type: "string", minLength: 8, maxLength: 128, pattern: "^[A-Za-z0-9][A-Za-z0-9_.:-]{7,127}$", description: "Optional stable ID for this exact fill request. Query its status after an uncertain timeout." },
       },
       required: ["tab_id", "selector", "value"],
@@ -3685,8 +3687,13 @@ async function dispatchTool(name, args) {
     case "chrome_click": {
       const tabId = requireInteger(args, "tab_id", 0, 2_147_483_647);
       const selector = requireString(args, "selector");
+      const clickStrategy = args.click_strategy === undefined ? "adaptive-pointer" : requireString(args, "click_strategy");
+      if (!["adaptive-pointer", "dom-click"].includes(clickStrategy)) throw new Error("'click_strategy' must be adaptive-pointer or dom-click");
       if (selector.length > 10_000) throw new Error("'selector' must be at most 10000 characters");
-      return await callBackgroundChrome(name, "tabs.click", { tabId, selector }, { operationId: chromeOperationId(args) });
+      // Preserve retained operation identities for omitted and explicit defaults.
+      const clickArgs = { tabId, selector };
+      if (clickStrategy === "dom-click") clickArgs.clickStrategy = clickStrategy;
+      return await callBackgroundChrome(name, "tabs.click", clickArgs, { operationId: chromeOperationId(args) });
     }
 
     case "chrome_fill": {
@@ -3696,11 +3703,17 @@ async function dispatchTool(name, args) {
       const submit = optionalBoolean(args, "submit", false);
       const commit = optionalString(args, "commit", "change");
       const normalization = optionalString(args, "normalization", "exact");
+      const inputStrategy = args.input_strategy === undefined ? "set-value" : requireString(args, "input_strategy");
       if (!["change", "blur"].includes(commit)) throw new Error("'commit' must be change or blur");
       if (!["exact", "numeric"].includes(normalization)) throw new Error("'normalization' must be exact or numeric");
+      if (!["set-value", "insert-text", "text-input"].includes(inputStrategy)) throw new Error("'input_strategy' must be set-value, insert-text, or text-input");
       if (selector.length > 10_000) throw new Error("'selector' must be at most 10000 characters");
       if (value.length > 500_000) throw new Error("'value' must be at most 500000 characters");
-      return await callBackgroundChrome(name, "tabs.fill", { tabId, selector, value, submit, commit, normalization }, { operationId: chromeOperationId(args) });
+      // Keep the default wire payload identical to earlier releases so retained
+      // operation IDs still deduplicate. The worker also defaults to set-value.
+      const fillArgs = { tabId, selector, value, submit, commit, normalization };
+      if (inputStrategy !== "set-value") fillArgs.inputStrategy = inputStrategy;
+      return await callBackgroundChrome(name, "tabs.fill", fillArgs, { operationId: chromeOperationId(args) });
     }
 
     case "chrome_operation_status": {
