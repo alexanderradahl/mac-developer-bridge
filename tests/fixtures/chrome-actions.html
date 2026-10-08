@@ -16,7 +16,53 @@
   const receipt = (body) => fetch('/receipt', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ scenario, ...body }) });
   const nativeValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value');
 
-  if (scenario === 'ordinary-click') {
+  if (scenario.startsWith('drag-')) {
+    root.innerHTML = '<div id="roles"><div id="staff">Staff</div><div id="target">Regular</div><div id="source" draggable="true">Member bot</div><div id="last">Last</div></div><output id="drag-receipt"></output>';
+    for (const row of root.querySelectorAll('#roles > div')) row.style.cssText = 'padding:16px;margin:8px;border:1px solid;width:240px;height:28px';
+    const source = document.getElementById('source'), target = document.getElementById('target');
+    state.dragEvents = [];
+    state.drops = 0;
+    state.order = () => Array.from(document.querySelectorAll('#roles > div'), row => row.id);
+    for (const type of ['dragstart', 'drag', 'dragenter', 'dragover', 'dragleave', 'drop', 'dragend']) {
+      document.addEventListener(type, event => {
+        state.dragEvents.push({ type, target: event.target.id, trusted: event.isTrusted });
+      }, true);
+    }
+    if (scenario === 'drag-pointer-only') source.removeAttribute('draggable');
+    if (scenario === 'drag-disabled') target.setAttribute('aria-disabled', 'true');
+    source.addEventListener('dragstart', event => {
+      if (scenario === 'drag-cancelled') { event.preventDefault(); return; }
+      event.dataTransfer.setData('application/x-mdb-fixture-role', 'source');
+      event.dataTransfer.effectAllowed = 'move';
+    });
+    target.addEventListener('dragover', event => {
+      if (scenario === 'drag-not-accepted') return;
+      event.preventDefault();
+      if (scenario === 'drag-effect-incompatible') event.dataTransfer.effectAllowed = 'all';
+      if (scenario === 'drag-before') target.style.marginTop = '120px';
+      event.dataTransfer.dropEffect = scenario === 'drag-effect-none' ? 'none' : scenario === 'drag-effect-incompatible' ? 'copy' : 'move';
+      if (scenario === 'drag-replaced') target.replaceWith(target.cloneNode(true));
+      if (scenario === 'drag-over-deadline') {
+        const clock = Date.now;
+        Date.now = () => clock() + 60_000;
+      }
+    });
+    target.addEventListener('drop', async event => {
+      event.preventDefault();
+      if (event.dataTransfer.getData('application/x-mdb-fixture-role') !== 'source') throw new Error('Application drag identity missing');
+      ++state.drops;
+      const rect = target.getBoundingClientRect();
+      document.getElementById('roles').insertBefore(source, event.clientY < rect.top + rect.height / 2 ? target : target.nextSibling);
+      const order = state.order();
+      if (scenario === 'drag-after-drop-replaced') source.replaceWith(source.cloneNode(true));
+      const response = await receipt({ order, drops: state.drops });
+      document.getElementById('drag-receipt').textContent = JSON.stringify(await response.json());
+    });
+    fetch('/saved-order?scenario=' + encodeURIComponent(scenario)).then(response => response.json()).then(saved => {
+      if (saved.order) for (const id of saved.order) document.getElementById('roles').append(document.getElementById(id));
+      root.dataset.ready = 'true';
+    });
+  } else if (scenario === 'ordinary-click') {
     root.innerHTML = '<button id="save">Save</button><div id="unrelated"></div><output id="saved">0</output>';
     document.getElementById('save').addEventListener('mousedown', () => {
       const popup = document.createElement('div');

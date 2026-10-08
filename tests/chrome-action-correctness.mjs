@@ -130,7 +130,7 @@ const scenarios = [];
 }
 {
   const clickStart = source.indexOf("async function pageClick(");
-  const clickEnd = source.indexOf("\nasync function pageFill(", clickStart);
+  const clickEnd = source.indexOf("\nasync function pageDrag(", clickStart);
   assert.ok(clickStart >= 0 && clickEnd > clickStart);
   const clickSource = source.slice(clickStart, clickEnd);
   class FakeEvent {
@@ -185,7 +185,7 @@ const scenarios = [];
 }
 {
   const clickStart = source.indexOf("async function pageClick(");
-  const clickSource = source.slice(clickStart, source.indexOf("\nasync function pageFill(", clickStart));
+  const clickSource = source.slice(clickStart, source.indexOf("\nasync function pageDrag(", clickStart));
   class FakeEvent {
     constructor(type, init) { this.type = type; Object.assign(this, init); }
   }
@@ -254,7 +254,7 @@ const scenarios = [];
 }
 {
   const clickStart = source.indexOf("async function pageClick(");
-  const clickSource = source.slice(clickStart, source.indexOf("\nasync function pageFill(", clickStart));
+  const clickSource = source.slice(clickStart, source.indexOf("\nasync function pageDrag(", clickStart));
   class FakeEvent {
     constructor(type, init = {}) { this.type = type; Object.assign(this, init); }
   }

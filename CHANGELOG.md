@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.6 — 2026-10-08
+
+- Add a bounded `chrome_drag` action for explicit HTML5 draggable controls and passive draggable discovery in snapshots.
+- Preserve original element identities, target acceptance, per-stage deadline checks and durable action IDs; expose dispatched-drop uncertainty without retries.
+- Add native/isolated-browser persistence cases and public MCP transport regressions without new extension permissions or runtime dependencies.
+
 - Fixed MDB workspace lease reuse races: long ChatGPT turns keep retrying transient heartbeat failures, stale non-idle leases are retained until a hard bound, and release/reclaim waits for the extension idle navigation to actually commit before making a tab reusable.
 ## Unreleased
 

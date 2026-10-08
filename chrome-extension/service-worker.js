@@ -1,7 +1,7 @@
 const NATIVE_HOST = "io.github.alexanderradahl.mac_developer_bridge";
-const VERSION = "0.2.15";
+const VERSION = "0.2.16";
 // Immutable identity of the executing release, sent on every native handshake.
-const LOADED_EXTENSION_BUILD_ID = "browser-reliability-20261007.4";
+const LOADED_EXTENSION_BUILD_ID = "browser-drag-20261008.1";
 const NATIVE_INSTANCE_ID = crypto.randomUUID();
 const NATIVE_OPERATION_RETENTION_MS = 24 * 60 * 60 * 1000;
 const MAX_NATIVE_OPERATIONS = 5_000;
@@ -3282,7 +3282,7 @@ function pageSnapshot(maxTextChars, maxElements) {
 
   const bodyText = (document.body?.innerText || "").slice(0, maxTextChars);
   const candidates = [...document.querySelectorAll(
-    'a[href],button,input,textarea,select,[contenteditable]:not([contenteditable="false"]),summary,[role=button],[role=link],[role=textbox],[role=searchbox],[role=checkbox],[role=radio],[role=switch],[role=tab],[role=combobox],[role=listbox],[role=menu],[role=menuitem],[role=menuitemradio],[role=menuitemcheckbox],[role=option],[role=slider],[role=spinbutton],[role=treeitem],[tabindex]:not([tabindex="-1"])',
+    'a[href],button,input,textarea,select,[draggable="true"],[contenteditable]:not([contenteditable="false"]),summary,[role=button],[role=link],[role=textbox],[role=searchbox],[role=checkbox],[role=radio],[role=switch],[role=tab],[role=combobox],[role=listbox],[role=menu],[role=menuitem],[role=menuitemradio],[role=menuitemcheckbox],[role=option],[role=slider],[role=spinbutton],[role=treeitem],[tabindex]:not([tabindex="-1"])',
   )];
   const elements = [];
   for (const element of candidates) {
@@ -3316,6 +3316,7 @@ function pageSnapshot(maxTextChars, maxElements) {
       placeholder: element.getAttribute("placeholder"),
       href: element instanceof HTMLAnchorElement ? element.href : null,
       disabled: Boolean(element.disabled) || element.matches(":disabled") || element.getAttribute("aria-disabled") === "true",
+      draggable: element instanceof HTMLElement && element.draggable === true,
       readOnly: Boolean(element.readOnly) || element.getAttribute("aria-readonly") === "true",
       inputMode: element.getAttribute("inputmode"),
       min: element.getAttribute("min"),
@@ -3641,6 +3642,167 @@ async function pageClick(selector, options = {}) {
     error.details = { ...(error.details || {}), ...details };
     if (!options.errorsAsData) throw error;
     return { __mdbPageActionError: { code: error.code || "CHROME_CLICK_FAILED", ...details } };
+  }
+}
+
+async function pageDrag(sourceSelector, targetSelector, options = {}) {
+  let stage = "resolve";
+  let actionDispatched = false;
+  let dragStarted = false;
+  let dropDispatched = false;
+  let dragEndDispatched = false;
+  const events = [];
+  const deadline = Number(options.deadlineMs);
+  const position = options.targetPosition ?? "center";
+  const fail = (code, message) => { const error = new Error(message); error.code = code; throw error; };
+  const assertDeadline = () => {
+    if (Number.isFinite(deadline) && Date.now() >= deadline) {
+      fail("CHROME_OPERATION_DEADLINE_EXCEEDED", "The drag deadline elapsed; reconcile the page before another action.");
+    }
+  };
+  try {
+    assertDeadline();
+    if (!["before", "center", "after"].includes(position)) fail("CHROME_DRAG_POSITION_INVALID", "Drag target position must be before, center or after.");
+    const resolve = (selector) => {
+      let matches;
+      try { matches = document.querySelectorAll(selector); } catch { fail("CHROME_SELECTOR_INVALID", "The drag selector is not valid CSS."); }
+      if (matches.length === 0) fail("CHROME_ELEMENT_NOT_FOUND", "No element matches a drag selector.");
+      if (matches.length !== 1) fail("CHROME_SELECTOR_NOT_UNIQUE", "Each drag selector must identify exactly one element.");
+      return matches[0];
+    };
+    const source = resolve(sourceSelector);
+    const target = resolve(targetSelector);
+    if (!(source instanceof HTMLElement) || !(target instanceof Element) || source === target || source.contains(target)) {
+      fail("CHROME_DRAG_TARGET_INVALID", "Drag requires distinct source and target elements.");
+    }
+    if (source.getAttribute("draggable") !== "true" || source.draggable !== true) {
+      fail("CHROME_DRAG_UNSUPPORTED", "This action supports explicit HTML draggable elements; pointer-only drags need a separate supported interaction.");
+    }
+    if ((source instanceof HTMLInputElement && source.type === "file") || (target instanceof HTMLInputElement && target.type === "file")) {
+      fail("CHROME_FOREGROUND_REQUIRED", "Background drag does not supply files or operate a native file picker.");
+    }
+    if (typeof DragEvent !== "function" || typeof DataTransfer !== "function") fail("CHROME_DRAG_UNSUPPORTED", "HTML drag events are unavailable in this document.");
+    const originalDocument = document;
+    const assertElement = (element) => {
+      assertDeadline();
+      if (document !== originalDocument || !element.isConnected || element.ownerDocument !== originalDocument) {
+        fail("CHROME_TARGET_CHANGED", "A drag element was replaced or detached; reconcile the page before another action.");
+      }
+      if (element.disabled || element.matches(":disabled") || element.closest('[inert],[aria-disabled="true"]')) {
+        fail("CHROME_ELEMENT_DISABLED", "A drag element is disabled.");
+      }
+      const rect = element.getBoundingClientRect(), style = getComputedStyle(element);
+      if (rect.width <= 0 || rect.height <= 0 || style.display === "none" || style.visibility === "hidden" || style.opacity === "0") {
+        fail("CHROME_ELEMENT_NOT_VISIBLE", "A drag element is not visible.");
+      }
+      return rect;
+    };
+    const assertElements = () => { assertElement(source); return assertElement(target); };
+    assertElements();
+    source.scrollIntoView({ block: "center", inline: "center", behavior: "instant" });
+    const initialSourceRect = assertElement(source);
+    assertElement(target);
+    const sourcePoint = { x: initialSourceRect.left + initialSourceRect.width / 2, y: initialSourceRect.top + initialSourceRect.height / 2 };
+    const transfer = new DataTransfer();
+    // Chromium leaves operation setters inert on constructed DataTransfer
+    // objects. Model only these two standard enum properties on this fresh
+    // instance; data/items remain the browser's native application-owned store.
+    let transferPhase = "initial";
+    let sourceOperation = "uninitialized";
+    let targetOperation = "move";
+    const operationEnums = ["none", "copy", "link", "move", "copyLink", "copyMove", "linkMove", "all", "uninitialized"];
+    Object.defineProperties(transfer, {
+      effectAllowed: {
+        get: () => sourceOperation,
+        set: (value) => { if (transferPhase === "dragstart" && operationEnums.includes(value)) sourceOperation = value; },
+      },
+      dropEffect: {
+        get: () => targetOperation,
+        set: (value) => {
+          if (["dragenter", "dragover"].includes(transferPhase) && ["none", "copy", "link", "move"].includes(value)) targetOperation = value;
+        },
+      },
+    });
+    const dispatch = (element, type, point, buttons) => {
+      assertDeadline();
+      const event = new DragEvent(type, {
+        bubbles: true, cancelable: true, composed: true, view: window,
+        clientX: point.x, clientY: point.y, button: 0, buttons,
+        screenX: Number(window.screenX || 0) + point.x,
+        screenY: Number(window.screenY || 0) + point.y,
+        dataTransfer: transfer,
+      });
+      actionDispatched = true;
+      if (type === "drop") dropDispatched = true;
+      if (type === "dragend") dragEndDispatched = true;
+      events.push(type);
+      transferPhase = type;
+      try { return element.dispatchEvent(event); }
+      finally { transferPhase = "between-events"; }
+    };
+    stage = "drag-start";
+    const startAllowed = dispatch(source, "dragstart", sourcePoint, 1);
+    if (!startAllowed) fail("CHROME_DRAG_CANCELLED", "The page cancelled the drag before it started.");
+    dragStarted = true;
+    const sourceEffectAllowed = transfer.effectAllowed;
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assertElements();
+    target.scrollIntoView({ block: "center", inline: "center", behavior: "instant" });
+    let targetRect = assertElements();
+    let targetPoint = {
+      x: targetRect.left + targetRect.width / 2,
+      y: targetRect.top + targetRect.height * (position === "before" ? 0.25 : position === "after" ? 0.75 : 0.5),
+    };
+    stage = "drag-enter";
+    dispatch(source, "drag", sourcePoint, 1);
+    assertElements();
+    dispatch(target, "dragenter", targetPoint, 1);
+    assertElements();
+    stage = "drag-over";
+    const overAccepted = !dispatch(target, "dragover", targetPoint, 1);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assertElements();
+    const allowedOperations = {
+      none: [], copy: ["copy"], link: ["link"], move: ["move"],
+      copyLink: ["copy", "link"], copyMove: ["copy", "move"], linkMove: ["link", "move"],
+      all: ["copy", "link", "move"], uninitialized: ["copy", "link", "move"],
+    };
+    const dropAllowed = overAccepted
+      && (allowedOperations[sourceEffectAllowed] || []).includes(transfer.dropEffect);
+    if (!dropAllowed) {
+      targetOperation = "none";
+      stage = "drag-cancel";
+      dispatch(target, "dragleave", targetPoint, 0);
+      assertElements();
+      dispatch(source, "dragend", targetPoint, 0);
+      fail("CHROME_DRAG_NOT_ACCEPTED", "The target did not accept an HTML drop. No drop was dispatched; inspect the page before another action.");
+    }
+    // Hover handlers may reorder or scroll the same retained target node.
+    // Recompute the requested relative position without resolving a new node.
+    targetRect = assertElements();
+    targetPoint = {
+      x: targetRect.left + targetRect.width / 2,
+      y: targetRect.top + targetRect.height * (position === "before" ? 0.25 : position === "after" ? 0.75 : 0.5),
+    };
+    stage = "drop";
+    // The same original DOM nodes are retained even if a sortable list moved
+    // them during hover. A replacement is never silently retargeted.
+    dispatch(target, "drop", targetPoint, 0);
+    assertElement(source);
+    stage = "drag-end";
+    dispatch(source, "dragend", targetPoint, 0);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    return {
+      actionDispatched, dragStarted, dropDispatched, dragEndDispatched,
+      targetAcceptedDrag: true, applicationAccepted: null, outcomeVerified: false,
+      strategy: "html5", targetPosition: position, trusted: false,
+      sourceSelector, targetSelector, events, title: document.title, url: location.href,
+    };
+  } catch (error) {
+    const details = { stage, actionDispatched, dragStarted, dropDispatched, dragEndDispatched, outcomeVerified: false };
+    error.details = { ...(error.details || {}), ...details };
+    if (!options.errorsAsData) throw error;
+    return { __mdbPageActionError: { code: error.code || "CHROME_DRAG_FAILED", ...details } };
   }
 }
 
@@ -4566,6 +4728,16 @@ async function dispatch(message) {
         clickStrategy: args.clickStrategy ?? "adaptive-pointer",
         deadlineMs: message.deadlineMs, errorsAsData: true,
       }], "MAIN", { deadlineMs: message.deadlineMs, includeDocumentIdentity: true }), message.deadlineMs);
+    }
+
+    case "tabs.drag": {
+      const tab = await getApprovedTab(args.tabId, compiled);
+      return await observeTabAction(tab.id, () => executeInTab(tab.id, pageDrag, [
+        String(args.sourceSelector || ""), String(args.targetSelector || ""), {
+          targetPosition: args.targetPosition ?? "center",
+          deadlineMs: message.deadlineMs, errorsAsData: true,
+        },
+      ], "MAIN", { deadlineMs: message.deadlineMs, includeDocumentIdentity: true }), message.deadlineMs);
     }
 
     case "tabs.fill": {

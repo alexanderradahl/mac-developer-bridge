@@ -12,7 +12,7 @@ import { fileURLToPath } from "node:url";
 import { createFederation, consumePersonalApproval } from "./lib/federation.mjs";
 import { backgroundChromeCall, backgroundChromeStatus, backgroundChromeOperationStatus, safeChromeDiagnostics } from "./lib/chrome-extension-client.mjs";
 
-const BRIDGE_VERSION = "0.3.5";
+const BRIDGE_VERSION = "0.3.6";
 const SERVER_NAME = "mac-developer-bridge";
 const SERVER_TITLE = "Mac Developer Bridge";
 const MODERN_PROTOCOL = "2026-07-28";
@@ -927,6 +927,24 @@ const TOOLS = [
         operation_id: { type: "string", minLength: 8, maxLength: 128, pattern: "^[A-Za-z0-9][A-Za-z0-9_.:-]{7,127}$", description: "Optional stable ID for this exact click. Use the returned ID to reconcile a timeout before any retry." },
       },
       required: ["tab_id", "selector"],
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
+  },
+  {
+    name: "chrome_drag",
+    title: "Drag an HTML element in background Chrome",
+    description: "Perform one explicit HTML5 drag from an observed draggable element to an observed target in the same MDB tab, without activating Chrome. The target must accept dragover before a drop is sent. No arbitrary data, files, script or pointer-only fallback is supplied. Events are synthetic; drop dispatch does not prove application persistence. Read the resulting page and reconcile the operation ID before another attempt.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        tab_id: { type: "integer", minimum: 0 },
+        source_selector: { type: "string", minLength: 1, maxLength: 10000 },
+        target_selector: { type: "string", minLength: 1, maxLength: 10000 },
+        target_position: { type: "string", enum: ["before", "center", "after"], default: "center", description: "Vertical point within the target: before uses its upper quarter; after uses its lower quarter. This does not itself reorder the DOM." },
+        operation_id: { type: "string", minLength: 8, maxLength: 128, pattern: "^[A-Za-z0-9][A-Za-z0-9_.:-]{7,127}$", description: "Stable ID for this exact drag. Reconcile status after an uncertain outcome; do not automatically repeat." },
+      },
+      required: ["tab_id", "source_selector", "target_selector"],
       additionalProperties: false,
     },
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
@@ -3709,6 +3727,16 @@ async function dispatchTool(name, args) {
       const clickArgs = { tabId, selector };
       if (clickStrategy === "dom-click") clickArgs.clickStrategy = clickStrategy;
       return await callBackgroundChrome(name, "tabs.click", clickArgs, { operationId: chromeOperationId(args) });
+    }
+
+    case "chrome_drag": {
+      const tabId = requireInteger(args, "tab_id", 0, 2_147_483_647);
+      const sourceSelector = requireString(args, "source_selector");
+      const targetSelector = requireString(args, "target_selector");
+      if (sourceSelector.length > 10_000 || targetSelector.length > 10_000) throw new Error("Drag selectors must be at most 10000 characters");
+      const targetPosition = optionalString(args, "target_position", "center");
+      if (!["before", "center", "after"].includes(targetPosition)) throw new Error("'target_position' must be before, center or after");
+      return await callBackgroundChrome(name, "tabs.drag", { tabId, sourceSelector, targetSelector, targetPosition }, { operationId: chromeOperationId(args) });
     }
 
     case "chrome_fill": {

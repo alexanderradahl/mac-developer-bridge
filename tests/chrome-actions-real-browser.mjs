@@ -51,8 +51,8 @@ function extractFunction(name) {
   new vm.Script(`(${source})`, { filename: `${workerPath}:${name}` });
   return source;
 }
-const actionSource = ['pageSnapshot', 'pageClick', 'pageFill'].map(extractFunction).join('\n\n')
-  + '\nwindow.mdbTestActions = { pageSnapshot, pageClick, pageFill };';
+const actionSource = ['pageSnapshot', 'pageClick', 'pageFill', 'pageDrag'].map(extractFunction).join('\n\n')
+  + '\nwindow.mdbTestActions = { pageSnapshot, pageClick, pageFill, pageDrag };';
 
 const receipts = [];
 const server = http.createServer(async (request, response) => {
@@ -60,6 +60,10 @@ const server = http.createServer(async (request, response) => {
   if (request.method === 'GET' && new URL(request.url, 'http://localhost').pathname === '/fixture') {
     response.setHeader('Content-Type', 'text/html; charset=utf-8');
     response.end(fixture);
+  } else if (request.method === 'GET' && new URL(request.url, 'http://localhost').pathname === '/saved-order') {
+    const name = new URL(request.url, 'http://localhost').searchParams.get('scenario');
+    response.setHeader('Content-Type', 'application/json');
+    response.end(JSON.stringify(receipts.findLast(item => item.scenario === name && Array.isArray(item.order)) || {}));
   } else if (request.method === 'GET' && request.url === '/react-fixture.js') {
     response.setHeader('Content-Type', 'application/javascript; charset=utf-8');
     response.end(reactBundle);
@@ -135,6 +139,7 @@ function success(response) {
 try {
   context = await chromium.launchPersistentContext(profilePath, {
     ...(packagedBrowser ? { executablePath: await packagedBrowser.executablePath(), args: ['--disable-gpu'] } : {}),
+    ...(process.env.MDB_BROWSER_TEST_CHANNEL ? { channel: process.env.MDB_BROWSER_TEST_CHANNEL } : {}),
     headless: true,
     viewport: { width: 1100, height: 800 },
     serviceWorkers: 'block',
@@ -144,6 +149,87 @@ try {
   await context.route('**/*', async route => {
     if (new URL(route.request().url()).origin === origin) await route.continue();
     else { blockedRequests.push(route.request().url()); await route.abort('blockedbyclient'); }
+  });
+
+  for (const name of ['drag-native', 'drag-before', 'drag-after', 'drag-second-tab']) {
+    await scenario(name, async (page, call, record) => {
+      await page.waitForSelector('#root[data-ready="true"]');
+      const snapshot = success(await call('pageSnapshot', { maxElements: 50, maxTextChars: 2000 }));
+      assert.ok(JSON.stringify(snapshot).includes('"draggable":true'), 'Draggable controls must be discoverable');
+      assert.equal(await page.evaluate(() => fixtureState.dragEvents.length), 0, 'Snapshots must not dispatch drag events');
+      let decoy;
+      if (name === 'drag-second-tab') {
+        decoy = await context.newPage();
+        await decoy.goto(origin + '/fixture?scenario=passive-snapshot');
+        await decoy.bringToFront();
+        // Headless Chromium can report focus for every page. The installed\n        // MDB loopback smoke separately proves genuine inactive-tab behavior.
+      }
+      let result;
+      if (name === 'drag-native') {
+        await page.dragAndDrop('#source', '#target', { targetPosition: { x: 50, y: 8 } });
+      } else {
+        result = success(await call('pageDrag', '#source', '#target', { targetPosition: name === 'drag-after' ? 'after' : 'before', deadlineMs: Date.now() + 3000 }));
+        assert.equal(result.dropDispatched, true);
+        assert.equal(result.dragEndDispatched, true);
+        assert.equal(result.trusted, false);
+        assert.equal(result.applicationAccepted, null);
+        assert.equal(result.outcomeVerified, false);
+      }
+      await page.waitForFunction(() => document.getElementById('drag-receipt').textContent.length > 0);
+      const expected = name === 'drag-after' ? ['staff', 'target', 'source', 'last'] : ['staff', 'source', 'target', 'last'];
+      const observed = await page.evaluate(() => ({ order: fixtureState.order(), drops: fixtureState.drops, events: fixtureState.dragEvents, hasFocus: document.hasFocus() }));
+      assert.deepEqual(observed.order, expected);
+      assert.equal(observed.drops, 1);
+      assert.equal(receipts.filter(item => item.scenario === name).length, 1, 'Exactly one application save');
+      assert.equal(observed.events.filter(event => event.type === 'drop').length, 1);
+
+      await page.reload();
+      await page.waitForSelector('#root[data-ready="true"]');
+      assert.deepEqual(await page.evaluate(() => fixtureState.order()), expected, 'Server receipt must survive fresh reload');
+      record({ result, observed, persistedOrder: expected });
+      if (decoy) await decoy.close();
+      return { persisted: true, saves: 1, secondTabOpen: name === 'drag-second-tab' };
+    });
+  }
+  for (const [name, code, options] of [
+    ['drag-not-accepted', 'CHROME_DRAG_NOT_ACCEPTED', {}],
+    ['drag-effect-none', 'CHROME_DRAG_NOT_ACCEPTED', {}],
+    ['drag-effect-incompatible', 'CHROME_DRAG_NOT_ACCEPTED', {}],
+    ['drag-cancelled', 'CHROME_DRAG_CANCELLED', {}],
+    ['drag-replaced', 'CHROME_TARGET_CHANGED', {}],
+    ['drag-disabled', 'CHROME_ELEMENT_DISABLED', {}],
+    ['drag-pointer-only', 'CHROME_DRAG_UNSUPPORTED', {}],
+    ['drag-deadline', 'CHROME_OPERATION_DEADLINE_EXCEEDED', { deadlineMs: 1 }],
+    ['drag-over-deadline', 'CHROME_OPERATION_DEADLINE_EXCEEDED', { deadlineMs: Date.now() + 30_000 }],
+    ['drag-ambiguous', 'CHROME_SELECTOR_NOT_UNIQUE', {}],
+  ]) {
+    await scenario(name, async (page, call, record) => {
+      await page.waitForSelector('#root[data-ready="true"]');
+      const response = await call('pageDrag', name === 'drag-ambiguous' ? '#roles > div' : '#source', '#target', options);
+      assert.equal(response.error?.code, code, JSON.stringify(response));
+      assert.equal(response.error.details.dropDispatched, false);
+      const observed = await page.evaluate(() => ({ order: fixtureState.order(), drops: fixtureState.drops, events: fixtureState.dragEvents }));
+      assert.deepEqual(observed.order, ['staff', 'target', 'source', 'last']);
+      assert.equal(observed.drops, 0);
+      assert.equal(receipts.filter(item => item.scenario === name).length, 0);
+      if (['drag-disabled', 'drag-pointer-only', 'drag-deadline', 'drag-ambiguous'].includes(name)) assert.equal(observed.events.length, 0);
+      if (name === 'drag-not-accepted') assert.equal(response.error.details.dragEndDispatched, true);
+      record({ response, observed });
+      return { saves: 0, noDrop: true };
+    });
+  }
+  await scenario('drag-after-drop-replaced', async (page, call, record) => {
+    await page.waitForSelector('#root[data-ready="true"]');
+    const response = await call('pageDrag', '#source', '#target', { targetPosition: 'before', errorsAsData: true });
+    const failure = success(response).__mdbPageActionError;
+    assert.equal(failure.code, 'CHROME_TARGET_CHANGED');
+    assert.equal(failure.dropDispatched, true, 'A dispatched drop must not be reported as safe to retry');
+    assert.equal(failure.dragEndDispatched, false);
+    await page.waitForFunction(() => document.getElementById('drag-receipt').textContent.length > 0);
+    assert.equal(receipts.filter(item => item.scenario === 'drag-after-drop-replaced').length, 1);
+    assert.equal(await page.evaluate(() => fixtureState.drops), 1);
+    record({ failure });
+    return { knownDropDispatched: true, saves: 1, noRetargetOrRetry: true };
   });
 
   await scenario('ordinary-click', async (page, call) => {
@@ -626,10 +712,11 @@ try {
   profileRemoved = await fs.stat(profilePath).then(() => false, error => error.code === 'ENOENT');
 }
 
-const passed = !fatalError && results.length === 42 && results.every(result => result.passed) && profileRemoved && browserClosed;
+const passed = !fatalError && results.length === 57 && results.every(result => result.passed) && profileRemoved && browserClosed;
 console.log(JSON.stringify({
   passed,
   browserVersion,
+  browserChannel: process.env.MDB_BROWSER_TEST_CHANNEL || null,
   reactVersion,
   platform: process.platform,
   architecture: process.arch,
