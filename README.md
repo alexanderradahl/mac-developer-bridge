@@ -106,6 +106,7 @@ Git, package managers, Vercel CLI, database CLIs, AppleScript, browser CLIs, bui
 | `chrome_drag` | Drag one explicit HTML draggable control to an approved target, with durable operation status |
 | `chrome_keypress` | Send one explicit non-text DOM key sequence without selecting Chrome, with durable operation status |
 | `chrome_fill` | Fill and verify the current editable control, with explicit blur commit and optional numeric normalization |
+| `chrome_paste_content` | Paste allowlisted HTML and plain text through one public editor clipboard event, with document/text guards and no insertion fallback |
 | `chrome_set_file_input` | Assign one explicit reviewed image to a pinned native file input; no picker, focus or implicit save |
 | `chrome_operation_status` | Read retained action lifecycle metadata after an uncertain result, without replaying the action |
 | `chrome_close` | Release an `MDB` workspace tab back to the idle pool, or close a non-workspace background tab |
@@ -124,6 +125,27 @@ Git, package managers, Vercel CLI, database CLIs, AppleScript, browser CLIs, bui
 | `codex_thread_list` | Search and page stored Codex threads |
 | `codex_thread_turns_list` | Page stored turns with full, summary, or omitted items |
 | `audit_tail` | Read the local bridge audit tail |
+
+
+### Bounded rich clipboard paste
+
+Use **chrome_paste_content** for an observed rich contenteditable root whose application supports ordinary clipboard paste. Supply a fresh expected_document_id, the snapshot's editableText as expected_text, explicit html and plain_text, mode "replace" or "append", and a stable operation_id. The text guard collapses every whitespace run to one space and trims the result; it detects changed words, but does not detect image, link or formatting changes with identical text.
+
+The bridge accepts HTML fragments containing only p, h2, h3, strong, em, br, ul, ol, li, blockquote, a, and img. Links permit quoted href and title; images permit quoted src, alt, and title. URLs must be HTTPS, without credentials, whitespace, backslashes, local hostnames, trailing-dot hostnames or literal IP addresses. Static URL validation is not a DNS provenance check. Other tags and attributes, malformed markup, comments, event handlers, styles and active formats are rejected. HTML is capped at 128,000 characters, each text field at 64,000, nesting at 24, and images at 40.
+
+Replace mode selects the current body without first deleting it. Append mode selects its end. The operation sends one synthetic ClipboardEvent with text/html and text/plain to the application's public paste handler. It never reads or writes the native clipboard, assigns innerHTML, invokes a private editor API, inserts a fallback copy, or clicks Save. A site without a compatible public paste handler may ignore the event; pasteDispatched, pasteDefaultPrevented and domChanged are evidence of separate facts, not saved application acceptance. Reconcile an uncertain operation before taking another action.
+
+Snapshots expose exact bounded editableText, a truncation flag, and a DOM-order outline of visible paragraphs, headings, emphasis, links and image metadata. Query strings are omitted from outline URLs. Across a snapshot, rich-editor detail is limited to ten roots, 64,000 characters of editableText and 200 outline nodes. Use a fresh saved-page readback to verify article structure and image order.
+
+Run the real ProseMirror persistence fixture with separately installed test dependencies:
+
+~~~sh
+MDB_BROWSER_TEST_PLAYWRIGHT=/absolute/test-deps/node_modules/playwright/index.mjs \
+MDB_BROWSER_TEST_NODE_MODULES=/absolute/test-deps/node_modules \
+MDB_BROWSER_TEST_CHANNEL=chrome npm run test:browser-paste
+~~~
+
+The fixture launches a new private headless profile, serves its own loopback application, intercepts its two exact image URLs without external network access, and verifies the editor model after an explicit server save and fresh reload. It never attaches to an owner profile.
 
 ### Background Chrome without stealing focus
 

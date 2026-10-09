@@ -1,0 +1,127 @@
+{
+  "schemaVersion": 1,
+  "verifiedAt": "2026-10-09T00:05:10.473002+00:00",
+  "scope": "Disposable installed-source snapshot with only the reviewed rich-paste overlay; no installed runtime changes.",
+  "bridgeVersion": "0.3.10",
+  "extensionVersion": "0.2.20",
+  "extensionBuildId": "browser-rich-paste-20261008.1",
+  "baseCommit": "0e3f788944994590ab77e2861b2fe1a40d0d15eb",
+  "runtimeAndTestFiles": [
+    {
+      "relative": "bridge.mjs",
+      "sourceSha256": "6bfc37c4795d81120b41952c86d1bc3b8fd74257e1d9003d8c4f5c6745a0bbc5",
+      "combinedSha256": "6bfc37c4795d81120b41952c86d1bc3b8fd74257e1d9003d8c4f5c6745a0bbc5"
+    },
+    {
+      "relative": "chrome-extension/service-worker.js",
+      "sourceSha256": "c9d5aa1a00ba3cd51cf96b233b1919b249432f6342cbca074900c114b664534d",
+      "combinedSha256": "1991bc7ee66554b78d150f4cdbd7f889e1d97a21a01eb001a721c104dd22e666"
+    },
+    {
+      "relative": "chrome-extension/manifest.json",
+      "sourceSha256": "13c5c860f4bd630c4ee31747f051c1425b4298b51d41803a9513e9b1e5a86e56",
+      "combinedSha256": "13c5c860f4bd630c4ee31747f051c1425b4298b51d41803a9513e9b1e5a86e56"
+    },
+    {
+      "relative": "lib/chrome-extension-client.mjs",
+      "sourceSha256": "bc5c441a8475db9bd0b844982ed03302d205398f1242fe9c2993710f0aa4c9a7",
+      "combinedSha256": "bc5c441a8475db9bd0b844982ed03302d205398f1242fe9c2993710f0aa4c9a7"
+    },
+    {
+      "relative": "package.json",
+      "sourceSha256": "8532d26bdea2c8dfc984ea1b7725833d6fd1d8351c5d1b11e6eb3099199da9a6",
+      "combinedSha256": "8532d26bdea2c8dfc984ea1b7725833d6fd1d8351c5d1b11e6eb3099199da9a6"
+    },
+    {
+      "relative": "tests/chrome-background.mjs",
+      "sourceSha256": "52041db83830828dddd90c1537cfa26072a3e34ebb5de551f272f92d89e8cf15",
+      "combinedSha256": "52041db83830828dddd90c1537cfa26072a3e34ebb5de551f272f92d89e8cf15"
+    },
+    {
+      "relative": "tests/chrome-workspace-capacity.mjs",
+      "sourceSha256": "876d13a63410783fa488e6968d829615eb5b69b03f588730337f19ae8ee463d3",
+      "combinedSha256": "876d13a63410783fa488e6968d829615eb5b69b03f588730337f19ae8ee463d3"
+    },
+    {
+      "relative": "tests/chrome-paste-content.mjs",
+      "sourceSha256": "ef628b3b45e844161ca3d86acc176f0f0bfbc4d730b48c916aa89a6105165743",
+      "combinedSha256": "ef628b3b45e844161ca3d86acc176f0f0bfbc4d730b48c916aa89a6105165743"
+    },
+    {
+      "relative": "tests/chrome-paste-real-browser.mjs",
+      "sourceSha256": "6658675f5dd7c3e54e6af9570d8003711454536af670241265c9c221d28da58e",
+      "combinedSha256": "6658675f5dd7c3e54e6af9570d8003711454536af670241265c9c221d28da58e"
+    },
+    {
+      "relative": "tests/fixtures/chrome-prosemirror-paste.mjs",
+      "sourceSha256": "e826068bae557cd219e5c4916152677b7629e8c1f9046e7b5cde678d8f9ca2a3",
+      "combinedSha256": "e826068bae557cd219e5c4916152677b7629e8c1f9046e7b5cde678d8f9ca2a3"
+    }
+  ],
+  "installedSourceFilesCopied": 134,
+  "combinedSourceHashesUnchangedAfterTests": true,
+  "fullRegression": {
+    "command": "npm test",
+    "passed": true,
+    "processCompleted": true,
+    "exitCodeObserved": false,
+    "exitCodeObservation": "The detached job-status API does not expose an exit code. The complete sequential npm test chain reached its final 51/51 success report, every preceding suite reported success, the job ended, and stderr is empty. The final unit command was also directly verified with exit code 0.",
+    "terminalMarkersVerified": 15,
+    "structuredReportsVerified": 6,
+    "stdout": {
+      "bytes": 17853,
+      "sha256": "9eeb8441c63aadc2679c6ebdbffa8211499af7af54abeed87f2fe348bf2254cb"
+    },
+    "stderr": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  },
+  "syntaxGate": {
+    "command": "npm run check",
+    "exitCode": 0
+  },
+  "finalUnitGate": {
+    "command": "node tests/chrome-paste-content.mjs",
+    "exitCode": 0,
+    "passed": 51,
+    "total": 51
+  },
+  "combinedBrowser": {
+    "command": "node tests/chrome-paste-real-browser.mjs",
+    "passed": 26,
+    "total": 26,
+    "exactWorkerOverrideUsed": true,
+    "cleanup": {
+      "browserClosed": true,
+      "profileRemoved": true,
+      "serverClosed": true
+    },
+    "stdout": {
+      "bytes": 1925,
+      "sha256": "c5949a07109703741516737bc5a5153808d0ef721578340f13a82e295c524e04"
+    },
+    "stderr": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  },
+  "preservedMatoChecks": [
+    {
+      "command": "node tests/chatgpt-private-final-boundary.mjs",
+      "exitCode": 0,
+      "result": "Private-report final boundary: 7 checks passed; exact saved marker only, no private report copied"
+    },
+    {
+      "command": "node tests/chatgpt-report-json-controls.mjs",
+      "exitCode": 0,
+      "result": "Report control-character tests passed; exact-job identity, private markers and strict JSON structure preserved."
+    }
+  ],
+  "limitations": [
+    "This validates an isolated combined source snapshot. Installed runtime activation, installed public-tool acceptance and Patreon saved-draft persistence remain separate steps."
+  ],
+  "installedRuntimeChanged": false,
+  "providerAccountActions": false,
+  "ownerBrowserTabsUsed": false
+}

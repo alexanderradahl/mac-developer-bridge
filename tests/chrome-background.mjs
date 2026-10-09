@@ -137,7 +137,7 @@ function startFakeExtensionHost() {
     ready(profile = { signedIn: true, email: "bound@example.com", id: "123456789012345678901" }) {
       child.stdin.write(frameNative({
         type: "ready",
-        version: "0.2.19",
+        version: "0.2.20",
         instanceId: "fixture-extension-instance",
         connectionGeneration: "fixture-connection-1",
         buildId: "browser-reliability-20261007-fixture",
@@ -219,14 +219,14 @@ try {
   assert.ok(manifest.permissions.includes("tabGroups"));
   assert.ok(manifest.permissions.includes("storage"));
   assert.ok(manifest.icons?.["16"] && manifest.icons?.["128"]);
-  assert.equal(manifest.version, "0.2.19");
+  assert.equal(manifest.version, "0.2.20");
   assert.equal(manifest.permissions.includes("debugger"), false, "realistic click support must not require Chrome debugger permission");
   await Promise.all([16, 32, 48, 128].map(async (size) => {
     const stat = await fs.stat(path.join(root, "chrome-extension", "icons", `icon-${size}.png`));
     assert.ok(stat.size > 0, `expected non-empty ${size}px extension icon`);
   }));
   const workerSource = await fs.readFile(path.join(root, "chrome-extension", "service-worker.js"), "utf8");
-  assert.match(workerSource, /const VERSION = "0\.2\.19"/);
+  assert.match(workerSource, /const VERSION = "0\.2\.20"/);
   assert.match(workerSource, /WORKSPACE_GROUP_TITLE = "MDB"/);
   assert.match(workerSource, /chrome\.tabs\.group/);
   assert.match(workerSource, /chrome\.tabGroups\.query/);
@@ -338,6 +338,12 @@ try {
   assert.equal(dragSchema.additionalProperties, false);
   assert.equal(toolByName.get("chrome_drag").annotations.readOnlyHint, false);
   assert.equal(toolByName.get("chrome_drag").annotations.idempotentHint, false);
+  const pasteSchema = toolByName.get("chrome_paste_content")?.inputSchema;
+  assert.deepEqual(pasteSchema.required, ["tab_id", "selector", "expected_document_id", "html", "plain_text", "expected_text", "mode", "operation_id"]);
+  assert.deepEqual(pasteSchema.properties.mode.enum, ["replace", "append"]);
+  assert.equal(pasteSchema.additionalProperties, false);
+  assert.equal(toolByName.get("chrome_paste_content").annotations.readOnlyHint, false);
+  assert.equal(toolByName.get("chrome_paste_content").annotations.idempotentHint, false);
   const keySchema = toolByName.get("chrome_keypress")?.inputSchema;
   assert.deepEqual(keySchema.required, ["tab_id", "selector", "key"]);
   assert.deepEqual(keySchema.properties.key.enum, ["d", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Enter", "Space", "Escape"]);
@@ -621,6 +627,57 @@ try {
   assert.equal(dragFailure.result.structuredContent.details.dropDispatched, true);
   assert.equal(dragFailure.result.structuredContent.details.dragEndDispatched, false);
   assert.doesNotMatch(JSON.stringify(dragFailure), /private drag detail|must not leak/);
+  const beforePaste = host.seen.length;
+  const pasteArgs = {
+    tab_id: 42, selector: "#article", expected_document_id: "document-paste-a",
+    html: "<p>PRIVATE_PASTE_HTML_MARKER</p>", plain_text: "PRIVATE_PASTE_TEXT_MARKER",
+    expected_text: "PRIVATE_PASTE_GUARD_MARKER", mode: "replace", operation_id: "paste-contract-20261008",
+  };
+  host.respond("tabs.pasteContent", () => ({ ok: true, result: {
+    pasteDispatched: true, pasteDefaultPrevented: true, domChanged: true,
+    applicationAccepted: null, outcomeVerified: false,
+  } }));
+  const pasteAction = await bridgeTool(bridge, "chrome_paste_content", pasteArgs);
+  assert.equal(pasteAction.result.isError, false, pasteAction.result.content[0].text);
+  assert.equal(host.seen.length, beforePaste + 1);
+  assert.equal(host.seen.at(-1).method, "tabs.pasteContent");
+  assert.deepEqual(host.seen.at(-1).args, {
+    tabId: 42, selector: "#article", expectedDocumentId: "document-paste-a",
+    content: { html: pasteArgs.html, plainText: pasteArgs.plain_text, expectedText: pasteArgs.expected_text, mode: "replace" },
+  });
+  assert.deepEqual(new Set(host.seen.at(-1).allowedUrlPatterns), new Set(["http://*:*/*", "https://*:*/*"]));
+  assert.equal((await bridgeTool(bridge, "chrome_paste_content", pasteArgs)).result.isError, false);
+  assert.equal(host.seen.length, beforePaste + 1, "Matching paste identity must never dispatch twice");
+  for (const changes of [
+    { html: "<p>changed</p>" }, { plain_text: "changed" }, { expected_text: "changed" },
+    { mode: "append" }, { expected_document_id: "document-paste-b" }, { selector: "#other" },
+  ]) {
+    const conflict = await bridgeTool(bridge, "chrome_paste_content", { ...pasteArgs, ...changes });
+    assert.equal(conflict.result.structuredContent.code, "CHROME_OPERATION_ID_CONFLICT");
+    assert.equal(host.seen.length, beforePaste + 1);
+  }
+  for (const [index, changes] of [
+    { html: "" }, { html: "x".repeat(128001) }, { plain_text: "x".repeat(64001) },
+    { expected_text: "x".repeat(64001) }, { mode: "insert" }, { expected_document_id: "../stale" },
+    { operation_id: undefined }, { selector: "" }, { expected_text: undefined },
+  ].entries()) {
+    const rejected = await bridgeTool(bridge, "chrome_paste_content", { ...pasteArgs, operation_id: "paste-invalid-20261008-" + index, ...changes });
+    assert.equal(rejected.result.isError, true);
+    assert.equal(host.seen.length, beforePaste + 1, "Invalid paste input must fail before dispatch");
+  }
+  host.respond("tabs.pasteContent", () => ({
+    ok: false, error: { code: "CHROME_TARGET_CHANGED", message: "The original editable changed.",
+      details: { pasteDispatched: true, pasteDefaultPrevented: true, selectionPrepared: true, domChanged: true,
+        html: "PRIVATE_PASTE_FAILURE_MARKER", expectedText: "PRIVATE_PASTE_GUARD_MARKER" } },
+  }));
+  const pasteFailure = await bridgeTool(bridge, "chrome_paste_content", { ...pasteArgs, operation_id: "paste-failure-20261008" });
+  assert.equal(pasteFailure.result.structuredContent.details.pasteDispatched, true);
+  assert.equal(pasteFailure.result.structuredContent.details.pasteDefaultPrevented, true);
+  assert.doesNotMatch(JSON.stringify(pasteFailure), /PRIVATE_PASTE_FAILURE_MARKER|PRIVATE_PASTE_GUARD_MARKER/);
+  host.clearResponse("tabs.pasteContent");
+  const pasteAudit = await fs.readFile(auditFile, "utf8");
+  assert.doesNotMatch(pasteAudit, /PRIVATE_PASTE_HTML_MARKER|PRIVATE_PASTE_TEXT_MARKER|PRIVATE_PASTE_GUARD_MARKER|PRIVATE_PASTE_FAILURE_MARKER/);
+
   const beforeKey = host.seen.length;
   const keyArgs = { tab_id: 42, selector: "#role", key: "d", modifiers: ["Shift", "Meta"], operation_id: "keyboard-contract-20261008" };
   const keyAction = await bridgeTool(bridge, "chrome_keypress", keyArgs);
