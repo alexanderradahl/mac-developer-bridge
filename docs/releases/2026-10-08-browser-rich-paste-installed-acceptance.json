@@ -1,0 +1,178 @@
+{
+  "schemaVersion": 1,
+  "status": "installed_public_mcp_and_provider_draft_acceptance_passed",
+  "verifiedAtUtc": "2026-10-09T00:21:35Z",
+  "runtimeSourceCommit": "891116a9e5a45428283334221db4be657f4c7657",
+  "bridgeVersion": "0.3.10",
+  "extensionVersion": "0.2.20",
+  "build": "browser-rich-paste-20261008.1",
+  "scope": "Evidence-only follow-up. No runtime, test, configuration, or permission changes.",
+  "evidenceProvenance": {
+    "providerEvidenceSha256": "ce82ee9ea1fdd56ad5f37da4f69d1a309d48b62ff28d38b898ccf5b74d2e52d6",
+    "installedFixtureEvidenceSha256": "6d042b0198a948c839aa8d81be29b2b912740d7daedf337890abc0e533542b59",
+    "collectionMethod": "Root task observed native public-DOM snapshots and ordinary UI actions. This sanitized record was derived from those receipts; no private application state was queried.",
+    "redacted": "Draft identifiers/URLs, browser document/operation identifiers, provider CDN paths, local paths, and unrelated draft details are omitted."
+  },
+  "activation": {
+    "installedAtUtc": "2026-10-09T00:08:02.539Z",
+    "independentReconciliationAtUtc": "2026-10-09T00:08:17.828Z",
+    "preserved": {
+      "scopedFiles": 15,
+      "untouchedFiles": 125,
+      "existingConfigurationFiles": 6,
+      "absentApprovalFiles": 2,
+      "supervisor": true,
+      "profileBinding": true,
+      "permissions": true
+    },
+    "existingWorkspaceAndMatoChangesPreserved": true,
+    "combinedWorkerSha256": "1991bc7ee66554b78d150f4cdbd7f889e1d97a21a01eb001a721c104dd22e666"
+  },
+  "installedPublicMcpFixture": {
+    "verifiedAtUtc": "2026-10-09T00:18:01Z",
+    "method": "Installed public MCP tools on an owned inactive loopback ProseMirror tab; one paste, one native Save, new-document reload",
+    "automationActionsInjected": false,
+    "pasteCount": 1,
+    "checks": {
+      "newDocument": true,
+      "normalizedTextMatches": true,
+      "outlineMatches": true,
+      "headerPreserved": true,
+      "unrelatedEditorPreserved": true,
+      "saveCount": 1
+    },
+    "savedAtUtc": "2026-10-09T00:17:43.121Z",
+    "cleanupAtUtc": "2026-10-09T00:18:07.838Z",
+    "serverStopped": true,
+    "savedModel": {
+      "headingLevels": [
+        2,
+        3
+      ],
+      "inlineImages": 2,
+      "strongAndEmphasis": true,
+      "list": true,
+      "blockquote": true,
+      "sourceLink": true
+    },
+    "fixtureSourceSha256": "e826068bae557cd219e5c4916152677b7629e8c1f9046e7b5cde678d8f9ca2a3",
+    "serverBundleSha256": "1824881c01348cbed2ca983627ac546527c46a265c7574ab731bb105e83a8d54"
+  },
+  "providerAcceptance": {
+    "provider": "Patreon",
+    "status": "complete_saved_native_draft",
+    "publicSourceUrl": "https://simgoodie.com/devlog/game-log-1/",
+    "publicSourceSha256": "f480bac6912263900b467d398df4220dc3a407456c325caa606eaa67523d8cd5",
+    "originalPublicationDate": "2026-09-27",
+    "method": "One guarded rich paste into the native editor, native Saved state, fresh-document reload, then native desktop and mobile-web previews.",
+    "checks": {
+      "newDocument": true,
+      "correctTitle": true,
+      "fullTextMatches": true,
+      "textNotTruncated": true,
+      "headingsMatch": true,
+      "exactOriginalParagraphs": true,
+      "originalEmphasis": true,
+      "inlineImageOrderAndAlts": true,
+      "captionsMatch": true,
+      "sourceLink": true,
+      "coverRetained": true,
+      "freeAccess": true,
+      "unscheduled": true,
+      "saved": true,
+      "originalBlockOrderAndCaptionPlacement": true,
+      "notificationsOff": true,
+      "allInlineImagesDecoded": true,
+      "draftInventoryVerified": true,
+      "noPublishedPosts": true
+    },
+    "contentCounts": {
+      "originalParagraphs": 13,
+      "h2Headings": 4,
+      "originalEmphasisSpans": 2,
+      "originalCaptions": 4,
+      "uploadedCover": 1,
+      "inlineImages": 3
+    },
+    "audience": "Free / Public",
+    "published": false,
+    "scheduled": false,
+    "notifications": false,
+    "creatorPagePublished": false,
+    "draftInventory": {
+      "draftCount": 3,
+      "allReleaseDatesUnset": true,
+      "publishedPosts": 0
+    },
+    "media": {
+      "cover": "Original cover uploaded through the native header input; persisted as provider-hosted media.",
+      "coverAltLimitation": "The native header image has an empty alt attribute. Its original caption remains in the article; only the three inline image alts are verified as retained.",
+      "inline": "Original HTTPS source URLs persisted as external embeds hosted on simgoodie.com; no claim that Patreon rehosted these files.",
+      "inlineSources": [
+        {
+          "url": "https://simgoodie.com/images/game/hud-mika-1280.webp",
+          "sha256": "b8981a679dbd86a35ca1d8ff3c6a5ea397fd94db19f7d6052433c6c5c0001425",
+          "altRetained": true
+        },
+        {
+          "url": "https://simgoodie.com/images/game/overlook-bench-1930-1920.webp",
+          "sha256": "73a3bdfe5534accc1b88c8f4deebb3b933ce1ac9cee1cf0632c256eb0141e4fe",
+          "altRetained": true
+        },
+        {
+          "url": "https://simgoodie.com/images/game/linden-rise-idea-to-street-1920.webp",
+          "sha256": "b9767ead5f18c170be75e43a1ba265d1cfe83bccd8d496afdfc84e103c80aa00",
+          "altRetained": true
+        }
+      ],
+      "sourceOrderAndCaptionPlacementRetained": true
+    },
+    "previews": {
+      "desktop": {
+        "decodedImages": 4,
+        "naturalDimensionsPositive": true
+      },
+      "mobileWeb": {
+        "decodedImages": 4,
+        "naturalDimensionsPositive": true
+      },
+      "limit": "Native rendered DOM/text/image-dimension checks, not screenshot-based visual review. The preview's Just now label is simulated and is not a publication receipt."
+    },
+    "limits": [
+      "Historical public article imported as a saved draft, not a new public release or paid early-access update.",
+      "Inline media availability continues to depend on the original public SimGoodie image URLs.",
+      "Native collection picker exposed no selectable posts and the collection popover did not open; collection assignment remains unchanged. This is not a general restriction claim or evidence that every Patreon UI issue is fixed.",
+      "Acceptance applies to this observed editor and saved article; dispatch metadata alone never proves provider acceptance or persistence."
+    ]
+  },
+  "outboundActions": {
+    "emailsSent": 0,
+    "discordMessagesSent": 0,
+    "patreonPostsPublished": 0,
+    "newsletterSends": 0,
+    "contentScheduled": 0,
+    "patreonCreatorPagePublished": false
+  },
+  "relatedSourceReceipts": [
+    "2026-10-08-browser-rich-paste-source-tests.json",
+    "2026-10-08-browser-rich-paste-prosemirror.json",
+    "2026-10-08-browser-rich-paste-combined-tests.json"
+  ],
+  "frozenSourceFilesSha256": {
+    "CHANGELOG.md": "e472c71b5888b55ce2ae791e98d92cd2d5029d289cc6af5a55022240eb164aa4",
+    "README.md": "c36f1c4df575f8c89a1bb0917e91ab956a0bc9c8cfd8d9f0c2f9643b56be8745",
+    "bridge.mjs": "6bfc37c4795d81120b41952c86d1bc3b8fd74257e1d9003d8c4f5c6745a0bbc5",
+    "chrome-extension/manifest.json": "13c5c860f4bd630c4ee31747f051c1425b4298b51d41803a9513e9b1e5a86e56",
+    "chrome-extension/service-worker.js": "c9d5aa1a00ba3cd51cf96b233b1919b249432f6342cbca074900c114b664534d",
+    "docs/releases/2026-10-08-browser-rich-paste-combined-tests.json": "b3f8fa41e3b65eb74559b58ef48d4b7ba08071d4ff5d64241ce3f10c0647fc72",
+    "docs/releases/2026-10-08-browser-rich-paste-prosemirror.json": "7ac623f53c280e590e3a6d1b16a4f65b7adfb5d7defe92067d2e5e19a5e791ba",
+    "docs/releases/2026-10-08-browser-rich-paste-source-tests.json": "adb952e9e02cda3e83287f7866032d043a0058cb4fa33e25568f57bf71291f32",
+    "lib/chrome-extension-client.mjs": "bc5c441a8475db9bd0b844982ed03302d205398f1242fe9c2993710f0aa4c9a7",
+    "package.json": "8532d26bdea2c8dfc984ea1b7725833d6fd1d8351c5d1b11e6eb3099199da9a6",
+    "tests/chrome-background.mjs": "52041db83830828dddd90c1537cfa26072a3e34ebb5de551f272f92d89e8cf15",
+    "tests/chrome-paste-content.mjs": "ef628b3b45e844161ca3d86acc176f0f0bfbc4d730b48c916aa89a6105165743",
+    "tests/chrome-paste-real-browser.mjs": "6658675f5dd7c3e54e6af9570d8003711454536af670241265c9c221d28da58e",
+    "tests/chrome-workspace-capacity.mjs": "876d13a63410783fa488e6968d829615eb5b69b03f588730337f19ae8ee463d3",
+    "tests/fixtures/chrome-prosemirror-paste.mjs": "e826068bae557cd219e5c4916152677b7629e8c1f9046e7b5cde678d8f9ca2a3"
+  }
+}
