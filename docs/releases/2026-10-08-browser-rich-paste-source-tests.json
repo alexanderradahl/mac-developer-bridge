@@ -1,0 +1,55 @@
+{
+  "startedAt": "2026-10-09T00:00:34Z",
+  "sourceHashesAtStart": {
+    "bridge.mjs": "6bfc37c4795d81120b41952c86d1bc3b8fd74257e1d9003d8c4f5c6745a0bbc5",
+    "chrome-extension/service-worker.js": "c9d5aa1a00ba3cd51cf96b233b1919b249432f6342cbca074900c114b664534d",
+    "chrome-extension/manifest.json": "13c5c860f4bd630c4ee31747f051c1425b4298b51d41803a9513e9b1e5a86e56",
+    "lib/chrome-extension-client.mjs": "bc5c441a8475db9bd0b844982ed03302d205398f1242fe9c2993710f0aa4c9a7",
+    "package.json": "8532d26bdea2c8dfc984ea1b7725833d6fd1d8351c5d1b11e6eb3099199da9a6",
+    "tests/chrome-background.mjs": "52041db83830828dddd90c1537cfa26072a3e34ebb5de551f272f92d89e8cf15",
+    "tests/chrome-workspace-capacity.mjs": "876d13a63410783fa488e6968d829615eb5b69b03f588730337f19ae8ee463d3",
+    "tests/chrome-paste-content.mjs": "ef628b3b45e844161ca3d86acc176f0f0bfbc4d730b48c916aa89a6105165743",
+    "tests/chrome-paste-real-browser.mjs": "6658675f5dd7c3e54e6af9570d8003711454536af670241265c9c221d28da58e",
+    "tests/fixtures/chrome-prosemirror-paste.mjs": "e826068bae557cd219e5c4916152677b7629e8c1f9046e7b5cde678d8f9ca2a3"
+  },
+  "steps": [
+    {
+      "name": "check",
+      "command": [
+        "npm",
+        "run",
+        "check"
+      ],
+      "exitCode": 0,
+      "durationSeconds": 0.388,
+      "stdoutSha256": "5766c2c3932dea7838500773413725b75daf26fd55d414d182790df4dc49782d",
+      "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "test",
+      "command": [
+        "npm",
+        "test"
+      ],
+      "exitCode": 0,
+      "durationSeconds": 151.472,
+      "stdoutSha256": "b7ce8b4052135f35249ff543c83a7e4d814dba72a5ab2658783fa4f12f653e8d",
+      "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ],
+  "finishedAt": "2026-10-09T00:03:06Z",
+  "sourceHashesAtEnd": {
+    "bridge.mjs": "6bfc37c4795d81120b41952c86d1bc3b8fd74257e1d9003d8c4f5c6745a0bbc5",
+    "chrome-extension/service-worker.js": "c9d5aa1a00ba3cd51cf96b233b1919b249432f6342cbca074900c114b664534d",
+    "chrome-extension/manifest.json": "13c5c860f4bd630c4ee31747f051c1425b4298b51d41803a9513e9b1e5a86e56",
+    "lib/chrome-extension-client.mjs": "bc5c441a8475db9bd0b844982ed03302d205398f1242fe9c2993710f0aa4c9a7",
+    "package.json": "8532d26bdea2c8dfc984ea1b7725833d6fd1d8351c5d1b11e6eb3099199da9a6",
+    "tests/chrome-background.mjs": "52041db83830828dddd90c1537cfa26072a3e34ebb5de551f272f92d89e8cf15",
+    "tests/chrome-workspace-capacity.mjs": "876d13a63410783fa488e6968d829615eb5b69b03f588730337f19ae8ee463d3",
+    "tests/chrome-paste-content.mjs": "ef628b3b45e844161ca3d86acc176f0f0bfbc4d730b48c916aa89a6105165743",
+    "tests/chrome-paste-real-browser.mjs": "6658675f5dd7c3e54e6af9570d8003711454536af670241265c9c221d28da58e",
+    "tests/fixtures/chrome-prosemirror-paste.mjs": "e826068bae557cd219e5c4916152677b7629e8c1f9046e7b5cde678d8f9ca2a3"
+  },
+  "sourceUnchanged": true,
+  "passed": true
+}

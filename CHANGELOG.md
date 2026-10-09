@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.10 — 2026-10-08
+
+- Add `chrome_paste_content` for one reviewed HTML/plain-text clipboard event through an exact rich editor’s public paste handler, with pinned document, original-target, visible-text, selection and deadline guards.
+- Strictly reconstruct a small content-only HTML fragment and public HTTPS attributes without parsing raw markup, private editor state, native clipboard access or insertion fallback. Existing fill behavior and extension permissions remain unchanged.
+- Preserve paste-dispatch evidence through extension/native error filtering and redact all payload and existing-text guard fields in every audit mode.
+- Add bounded passive editor text and DOM-order structure to snapshots, plus real ProseMirror save/reload tests in active and unfocused isolated browser pages and MCP deduplication/refusal tests.
+
 ## 0.3.9 — 2026-10-08
 
 - Add `chrome_set_file_input` for one explicit regular non-symlink PNG, JPEG or WebP image up to 1 MiB, with reviewed SHA-256/MIME/signature checks and exact document/input targeting.

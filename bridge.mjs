@@ -14,7 +14,7 @@ import { backgroundChromeCall, backgroundChromeStatus, backgroundChromeOperation
 
 import { prepareChromeImageFile } from "./lib/chrome-image-file.mjs";
 
-const BRIDGE_VERSION = "0.3.9";
+const BRIDGE_VERSION = "0.3.10";
 const SERVER_NAME = "mac-developer-bridge";
 const SERVER_TITLE = "Mac Developer Bridge";
 const MODERN_PROTOCOL = "2026-07-28";
@@ -477,6 +477,19 @@ function redactString(input) {
 // hash prefix keep the record useful for correlating a session without keeping the
 // secret.
 function auditSafeArguments(tool, args) {
+  if (tool === "chrome_paste_content") {
+    // Explicit clipboard content and existing editor text never enter any audit.
+    return {
+      tab_id: args?.tab_id ?? args?.tabId,
+      selector: args?.selector,
+      expected_document_id: args?.expected_document_id ?? args?.expectedDocumentId,
+      mode: args?.mode ?? args?.content?.mode,
+      operation_id: args?.operation_id,
+      html: "[REDACTED_CLIPBOARD_HTML]",
+      plain_text: "[REDACTED_CLIPBOARD_TEXT]",
+      expected_text: "[REDACTED_EXISTING_EDITOR_TEXT]",
+    };
+  }
   if (tool === "chrome_set_file_input") {
     // Neither a private local path nor image bytes belong in any audit mode.
     const mimeType = args?.mime_type ?? args?.file?.mimeType;
@@ -1001,6 +1014,27 @@ const TOOLS = [
         operation_id: { type: "string", minLength: 8, maxLength: 128, pattern: "^[A-Za-z0-9][A-Za-z0-9_.:-]{7,127}$", description: "Optional stable ID for this exact fill request. Query its status after an uncertain timeout." },
       },
       required: ["tab_id", "selector", "value"],
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
+  },
+  {
+    name: "chrome_paste_content",
+    title: "Paste reviewed rich content through an editor's clipboard handler",
+    description: "Dispatch one standard synthetic paste event with explicit HTML and plain text to an exact observed rich contenteditable root in the expected document. Replace selects the existing body without deleting; append selects its end. The required expected_text guard compares visible innerText with all whitespace runs collapsed to one space and trimmed. Only p, h2, h3, strong, em, br, ul, ol, li, blockquote, a and img content tags, quoted allowed attributes and public HTTPS URLs are accepted. No script, style, framework state, innerHTML write, native clipboard access, browser default insertion, Save, fallback or replay. The page's public paste handler must accept it. URL/profile grants and durable operation IDs apply. Read the saved application state afterward; dispatch and DOM changes do not prove acceptance or persistence. The text guard does not detect formatting-only changes.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        tab_id: { type: "integer", minimum: 0 },
+        selector: { type: "string", minLength: 1, maxLength: 10000 },
+        expected_document_id: { type: "string", minLength: 1, maxLength: 128, pattern: "^[A-Za-z0-9_-]+$", description: "Exact documentId from a fresh chrome_snapshot; never target a replacement document." },
+        html: { type: "string", minLength: 1, maxLength: 128000, description: "Reviewed HTML fragment, with quoted href/src/alt/title attributes only on supported links/images. Rejected before parsing or paste if outside the content allowlist." },
+        plain_text: { type: "string", maxLength: 64000, description: "Explicit text/plain companion for the same reviewed content." },
+        expected_text: { type: "string", maxLength: 64000, description: "Fresh visible editor text from snapshot editableText. Whitespace runs are collapsed for comparison; supply an empty string only for an observed empty editor." },
+        mode: { type: "string", enum: ["replace", "append"] },
+        operation_id: { type: "string", minLength: 8, maxLength: 128, pattern: "^[A-Za-z0-9][A-Za-z0-9_.:-]{7,127}$", description: "Stable ID for this exact paste. Reconcile uncertainty before another action." },
+      },
+      required: ["tab_id", "selector", "expected_document_id", "html", "plain_text", "expected_text", "mode", "operation_id"],
       additionalProperties: false,
     },
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
@@ -3827,6 +3861,24 @@ async function dispatchTool(name, args) {
       const fillArgs = { tabId, selector, value, submit, commit, normalization };
       if (inputStrategy !== "set-value") fillArgs.inputStrategy = inputStrategy;
       return await callBackgroundChrome(name, "tabs.fill", fillArgs, { operationId: chromeOperationId(args) });
+    }
+
+    case "chrome_paste_content": {
+      const tabId = requireInteger(args, "tab_id", 0, 2_147_483_647);
+      const selector = requireString(args, "selector");
+      const expectedDocumentId = requireString(args, "expected_document_id");
+      const html = requireString(args, "html");
+      const plainText = requireString(args, "plain_text", { allowEmpty: true });
+      const expectedText = requireString(args, "expected_text", { allowEmpty: true });
+      const mode = requireString(args, "mode");
+      if (selector.length > 10_000) throw new Error("'selector' must be at most 10000 characters");
+      if (!/^[A-Za-z0-9_-]{1,128}$/.test(expectedDocumentId)) throw new Error("'expected_document_id' must identify the observed document");
+      if (html.length > 128_000 || plainText.length > 64_000 || expectedText.length > 64_000) throw new Error("Clipboard content exceeds the documented size limit");
+      if (!["replace", "append"].includes(mode)) throw new Error("'mode' must be replace or append");
+      const operationId = chromeOperationId(args, { required: true });
+      return await callBackgroundChrome(name, "tabs.pasteContent", {
+        tabId, selector, expectedDocumentId, content: { html, plainText, expectedText, mode },
+      }, { operationId });
     }
 
     case "chrome_set_file_input": {

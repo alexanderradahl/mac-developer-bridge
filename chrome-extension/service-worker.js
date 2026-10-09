@@ -1,7 +1,7 @@
 const NATIVE_HOST = "io.github.alexanderradahl.mac_developer_bridge";
-const VERSION = "0.2.19";
+const VERSION = "0.2.20";
 // Immutable identity of the executing release, sent on every native handshake.
-const LOADED_EXTENSION_BUILD_ID = "browser-images-20261008.1";
+const LOADED_EXTENSION_BUILD_ID = "browser-rich-paste-20261008.1";
 const NATIVE_INSTANCE_ID = crypto.randomUUID();
 const NATIVE_OPERATION_RETENTION_MS = 24 * 60 * 60 * 1000;
 const MAX_NATIVE_OPERATIONS = 5_000;
@@ -137,6 +137,7 @@ function errorPayload(error, code = "CHROME_EXTENSION_ERROR") {
         "focusAttempted", "focusEventCompletionUsed",
         "keyDownDispatched", "keyUpDispatched", "keyDownDefaultPrevented", "keyUpDefaultPrevented",
         "focusChanged", "keyUpTargetChanged", "keyEvents",
+        "pasteDispatched", "pasteDefaultPrevented", "selectionPrepared", "domChanged", "pasteMode", "textGuardNormalization",
         "fileAssigned", "inputEventDispatched", "changeEventDispatched",
         "inputDefaultPrevented", "changeDefaultPrevented", "fileRetained", "fileCount", "fileSize", "fileSha256",
         "navigationObserved",
@@ -3290,6 +3291,50 @@ function pageSnapshot(maxTextChars, maxElements) {
     return parts.join(" > ") || null;
   }
 
+
+  let editableRootCount = 0, editableTextBudget = 64000, editableNodeBudget = 200;
+  function editableDetails(element) {
+    if (!(element instanceof HTMLElement) || !element.isContentEditable
+        || !["", "true"].includes(element.getAttribute("contenteditable"))) return {};
+    if (++editableRootCount > 10) return { editableText: "", editableTextTruncated: true, editableNodes: [], editableNodesTruncated: true };
+    const editorText = String(element.innerText || "");
+    const textLimit = Math.min(64000, editableTextBudget);
+    editableTextBudget -= Math.min(editorText.length, textLimit);
+    const nodeLimit = Math.min(200, editableNodeBudget);
+    const nodes = [];
+    const candidates = [...element.querySelectorAll("p,h2,h3,strong,em,b,i,blockquote,li,a[href],img")];
+    const safeUrl = value => {
+      try {
+        const url = new URL(value, location.href);
+        return ["https:", "http:"].includes(url.protocol) && !url.username && !url.password
+          ? url.origin + url.pathname : null;
+      } catch { return null; }
+    };
+    for (const node of candidates) {
+      if (nodes.length >= nodeLimit) break;
+      const rect = node.getBoundingClientRect(), style = getComputedStyle(node);
+      if (rect.width <= 0 || rect.height <= 0 || style.display === "none" || style.visibility === "hidden" || style.opacity === "0") continue;
+      if (node.tagName === "IMG" && !node.currentSrc && !node.getAttribute("src")) continue;
+      const text = String(node.innerText || node.textContent || "");
+      editableNodeBudget--;
+      nodes.push({
+        selector: selectorFor(node), tag: node.tagName.toLowerCase(),
+        text: node.tagName === "IMG" ? null : text.slice(0, 2000),
+        textTruncated: node.tagName === "IMG" ? false : text.length > 2000,
+        ...(node.tagName === "A" ? { hrefWithoutQuery: safeUrl(node.href) } : {}),
+        ...(node.tagName === "IMG" ? {
+          alt: String(node.alt || "").slice(0, 2000),
+          srcWithoutQuery: safeUrl(node.currentSrc || node.src),
+          complete: node.complete, naturalWidth: node.naturalWidth, naturalHeight: node.naturalHeight,
+        } : {}),
+      });
+    }
+    return {
+      editableText: editorText.slice(0, textLimit), editableTextTruncated: editorText.length > textLimit,
+      editableNodes: nodes, editableNodesTruncated: candidates.length > nodeLimit,
+    };
+  }
+
   const bodyText = (document.body?.innerText || "").slice(0, maxTextChars);
   const candidates = [...document.querySelectorAll(
     'a[href],button,input,textarea,select,[draggable="true"],[contenteditable]:not([contenteditable="false"]),summary,[role=button],[role=link],[role=textbox],[role=searchbox],[role=checkbox],[role=radio],[role=switch],[role=tab],[role=combobox],[role=listbox],[role=menu],[role=menuitem],[role=menuitemradio],[role=menuitemcheckbox],[role=option],[role=slider],[role=spinbutton],[role=treeitem],[tabindex]:not([tabindex="-1"])',
@@ -3308,6 +3353,7 @@ function pageSnapshot(maxTextChars, maxElements) {
     }
     elements.push({
       selector: selectorFor(element),
+      ...editableDetails(element),
       tag: element.tagName.toLowerCase(),
       type,
       role: element.getAttribute("role"),
@@ -3426,6 +3472,278 @@ function pageSnapshot(maxTextChars, maxElements) {
     images,
     imagesTruncated: imageCandidates.length > imageLimit,
   };
+}
+
+
+async function pagePasteContent(selector, content, options = {}) {
+  let stage = "validate-content";
+  let actionDispatched = false;
+  let focusAttempted = false;
+  let focusEventFallbackUsed = false;
+  let selectionPrepared = false;
+  let pasteDispatched = false;
+  let pasteDefaultPrevented = null;
+  let domChanged = false;
+  let targetReplaced = false;
+  const deadline = Number(options.deadlineMs);
+  const fail = (code, message) => { const error = new Error(message); error.code = code; throw error; };
+  const assertDeadline = () => {
+    if (Number.isFinite(deadline) && Date.now() >= deadline) fail("CHROME_OPERATION_DEADLINE_EXCEEDED", "The paste deadline elapsed; reconcile before another action.");
+  };
+  const normalizeText = value => String(value).replace(/\s+/gu, " ").trim();
+  const metadata = () => ({
+    stage, actionDispatched, focusAttempted, focusEventFallbackUsed, selectionPrepared,
+    pasteDispatched, pasteDefaultPrevented, domChanged, targetReplaced,
+    pasteMode: content?.mode, textGuardNormalization: "collapse-whitespace",
+    trusted: false, applicationAccepted: null, outcomeVerified: false,
+  });
+
+  function sanitizeHtml(input) {
+    const invalid = () => fail("CHROME_PASTE_HTML_INVALID", "Clipboard HTML must use the supported content tags, quoted attributes and public HTTPS URLs.");
+    if (typeof input !== "string" || !input.trim() || input.length > 128000 || /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/u.test(input)) invalid();
+    const allowed = new Set(["p", "h2", "h3", "strong", "em", "br", "ul", "ol", "li", "blockquote", "a", "img"]);
+    const voidTags = new Set(["br", "img"]);
+    const inline = new Set(["strong", "em", "br", "a", "img"]);
+    const stack = [];
+    let output = "", offset = 0, count = 0, imageCount = 0;
+    const entities = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: "\u00a0" };
+    const decode = value => value.replace(/&(#x[0-9a-f]+|#[0-9]+|[a-z][a-z0-9]+);/giu, (_, entity) => {
+      if (entity[0] !== "#") {
+        if (!Object.hasOwn(entities, entity.toLowerCase())) invalid();
+        return entities[entity.toLowerCase()];
+      }
+      const number = entity[1].toLowerCase() === "x" ? parseInt(entity.slice(2), 16) : Number(entity.slice(1));
+      if (!Number.isSafeInteger(number) || number < 32 || number > 0x10ffff || number >= 0xd800 && number <= 0xdfff || number === 127) invalid();
+      return String.fromCodePoint(number);
+    });
+    const escape = value => value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+    const safeUrl = raw => {
+      const value = decode(raw);
+      if (!/^https:\/\//iu.test(value) || /[\s\\\u0000-\u001f\u007f]/u.test(value) || value.length > 2048) invalid();
+      let url;
+      try { url = new URL(value); } catch { invalid(); }
+      const hostname = url.hostname.toLowerCase();
+      if (url.protocol !== "https:" || url.username || url.password || !hostname.includes(".") || hostname.endsWith(".")
+          || hostname === "localhost" || /\.(?:localhost|local|internal)$/u.test(hostname)
+          || /^(?:\d{1,3}\.){3}\d{1,3}$/u.test(hostname) || hostname.startsWith("[")) invalid();
+      return url.href;
+    };
+    const token = /<(?:[^<>"']|"[^"]*"|'[^']*')*>|[^<]+/gy;
+    while (offset < input.length) {
+      token.lastIndex = offset;
+      const match = token.exec(input);
+      if (!match || match.index !== offset) invalid();
+      offset = token.lastIndex;
+      const part = match[0];
+      if (part[0] !== "<") {
+        const text = decode(part);
+        if (["ul", "ol"].includes(stack.at(-1)) && text.trim()) invalid();
+        output += escape(text);
+        continue;
+      }
+      if (++count > 1000) invalid();
+      const closing = /^<\s*\/\s*([a-z][a-z0-9]*)\s*>$/iu.exec(part);
+      if (closing) {
+        const name = closing[1].toLowerCase();
+        if (stack.pop() !== name || voidTags.has(name)) invalid();
+        output += "</" + name + ">";
+        continue;
+      }
+      const parsed = /^<\s*([a-z][a-z0-9]*)([\s\S]*?)>$/iu.exec(part);
+      if (!parsed) invalid();
+      const name = parsed[1].toLowerCase();
+      let remaining = parsed[2];
+      const selfClosing = /\/\s*$/u.test(remaining);
+      if (selfClosing) remaining = remaining.replace(/\/\s*$/u, "");
+      if (!allowed.has(name) || selfClosing && !voidTags.has(name)) invalid();
+      const parent = stack.at(-1);
+      if (["p", "h2", "h3", "strong", "em", "a"].includes(parent) && !inline.has(name)) invalid();
+      if (["ul", "ol"].includes(parent) && name !== "li") invalid();
+      if (name === "li" && !["ul", "ol"].includes(parent)) invalid();
+      if (name === "a" && stack.includes("a")) invalid();
+      const attributes = {};
+      while (remaining.trim()) {
+        const attr = /^\s+([a-z][a-z0-9:-]*)\s*=\s*(?:"([^"]*)"|'([^']*)')/iu.exec(remaining);
+        if (!attr) invalid();
+        const key = attr[1].toLowerCase();
+        const permits = name === "a" ? ["href", "title"] : name === "img" ? ["src", "alt", "title"] : [];
+        if (!permits.includes(key) || Object.hasOwn(attributes, key)) invalid();
+        const raw = attr[2] === undefined ? attr[3] : attr[2];
+        attributes[key] = key === "href" || key === "src" ? safeUrl(raw) : decode(raw);
+        if (attributes[key].length > 2048) invalid();
+        remaining = remaining.slice(attr[0].length);
+      }
+      if (name === "a" && !attributes.href || name === "img" && !attributes.src) invalid();
+      if (name === "img" && ++imageCount > 40) invalid();
+      output += "<" + name + Object.entries(attributes).map(([key, value]) => " " + key + '="' + escape(value) + '"').join("") + ">";
+      if (!voidTags.has(name)) {
+        stack.push(name);
+        if (stack.length > 24) invalid();
+      }
+    }
+    if (stack.length || !output.trim()) invalid();
+    return output;
+  }
+
+  try {
+    assertDeadline();
+    if (!content || typeof content !== "object" || !["replace", "append"].includes(content.mode)
+        || typeof content.plainText !== "string" || content.plainText.length > 64000
+        || typeof content.expectedText !== "string" || content.expectedText.length > 64000) {
+      fail("CHROME_PASTE_CONTENT_INVALID", "Explicit bounded HTML, plain text, mode and expected existing text are required.");
+    }
+    // A strict text tokenizer reconstructs the allowlisted markup. No raw HTML
+    // enters a DOM parser, detached element, clipboard or resource loader.
+    const sanitizedHtml = sanitizeHtml(content.html);
+    if (typeof DataTransfer !== "function" || typeof ClipboardEvent !== "function") {
+      fail("CHROME_PASTE_UNSUPPORTED", "This document does not support a standard clipboard paste event.");
+    }
+    const transfer = new DataTransfer();
+    transfer.setData("text/html", sanitizedHtml);
+    transfer.setData("text/plain", content.plainText);
+    const paste = new ClipboardEvent("paste", { clipboardData: transfer, bubbles: true, cancelable: true, composed: true });
+    if (paste.clipboardData?.getData("text/html") !== sanitizedHtml
+        || paste.clipboardData?.getData("text/plain") !== content.plainText) {
+      fail("CHROME_PASTE_UNSUPPORTED", "The document did not retain both explicit clipboard formats.");
+    }
+    stage = "resolve";
+    const documentAtStart = document, rootAtStart = document.documentElement, urlAtStart = location.href;
+    if (options.expectedUrl && options.expectedUrl !== urlAtStart) fail("CHROME_DOCUMENT_CHANGED", "The observed document URL changed.");
+    let matches;
+    try { matches = [...document.querySelectorAll(selector)]; }
+    catch { fail("CHROME_SELECTOR_INVALID", "The observed editable selector is invalid."); }
+    if (!matches.length) fail("CHROME_ELEMENT_NOT_FOUND", "No element matches the observed editable selector.");
+    if (matches.length !== 1) fail("CHROME_SELECTOR_NOT_UNIQUE", "The observed editable selector must identify exactly one element.");
+    const element = matches[0];
+    const assertTarget = () => {
+      assertDeadline();
+      if (document !== documentAtStart || window.document !== documentAtStart || document.documentElement !== rootAtStart || location.href !== urlAtStart) {
+        fail("CHROME_DOCUMENT_CHANGED", "The original document changed during paste.");
+      }
+      if (!element.isConnected || element.ownerDocument !== documentAtStart
+          || document.querySelectorAll(selector).length !== 1 || document.querySelector(selector) !== element) {
+        targetReplaced = true;
+        fail("CHROME_TARGET_CHANGED", "The original editable was replaced; no replacement is targeted.");
+      }
+      if (!(element instanceof HTMLElement) || !element.isContentEditable
+          || !["", "true"].includes(element.getAttribute("contenteditable"))) {
+        fail("CHROME_ELEMENT_NOT_CONTENTEDITABLE", "Paste requires an explicit rich contenteditable root, not an inherited editable child or native input.");
+      }
+      if (element.disabled || element.matches(":disabled") || element.closest('[inert],[aria-disabled="true"]')) fail("CHROME_ELEMENT_DISABLED", "The editable is disabled.");
+      if (element.readOnly || element.closest('[aria-readonly="true"]')) fail("CHROME_ELEMENT_READ_ONLY", "The editable is read-only.");
+      const rect = element.getBoundingClientRect(), style = getComputedStyle(element);
+      if (rect.width <= 0 || rect.height <= 0 || style.visibility === "hidden" || style.display === "none" || style.opacity === "0") {
+        fail("CHROME_ELEMENT_NOT_VISIBLE", "The editable is not visible.");
+      }
+    };
+    const assertText = () => {
+      assertTarget();
+      const current = element.innerText;
+      if (current.length > 64000 || normalizeText(current) !== normalizeText(content.expectedText)) {
+        fail("CHROME_PASTE_TEXT_CHANGED", "The editable's visible text no longer matches the explicit existing-text guard.");
+      }
+    };
+    assertText();
+    stage = "focus";
+    const activeBefore = document.activeElement;
+    if (activeBefore !== element) {
+      const types = ["focus", "focusin"], observed = new Set();
+      const observe = event => { if (event.target === element) observed.add(event.type); };
+      for (const type of types) {
+        element.addEventListener(type, observe, true);
+        document.addEventListener(type, observe, true);
+      }
+      try {
+        assertText();
+        actionDispatched = true;
+        focusAttempted = true;
+        element.focus({ preventScroll: true });
+        assertText();
+        if (document.activeElement !== element) fail("CHROME_FOCUS_CHANGED", "The page redirected focus away from the intended editable.");
+        if (typeof document.hasFocus === "function" && !document.hasFocus()) {
+          const relatedTarget = activeBefore instanceof Element && activeBefore !== document.body && activeBefore !== document.documentElement ? activeBefore : null;
+          for (const type of types) {
+            if (observed.has(type)) continue;
+            assertText();
+            if (document.activeElement !== element) fail("CHROME_FOCUS_CHANGED", "The page changed focus during the editable transition.");
+            focusEventFallbackUsed = true;
+            element.dispatchEvent(new FocusEvent(type, { bubbles: type === "focusin", composed: true, relatedTarget }));
+            assertText();
+          }
+        }
+      } finally {
+        for (const type of types) {
+          element.removeEventListener(type, observe, true);
+          document.removeEventListener(type, observe, true);
+        }
+      }
+    }
+    await new Promise(resolve => setTimeout(resolve, 0));
+    assertText();
+    if (document.activeElement !== element) fail("CHROME_FOCUS_CHANGED", "The intended editable lost focus before selection.");
+    stage = "selection";
+    const selection = window.getSelection();
+    if (!selection) fail("CHROME_PASTE_SELECTION_CHANGED", "The document has no editable selection.");
+    const range = document.createRange();
+    range.selectNodeContents(element);
+    if (content.mode === "append") range.collapse(false);
+    actionDispatched = true;
+    selection.removeAllRanges();
+    selection.addRange(range);
+    selectionPrepared = true;
+    // Let the ordinary selectionchange reach the editor's public DOM handlers.
+    await new Promise(resolve => setTimeout(resolve, 0));
+    const atBoundary = (node, offset, end) => {
+      if (node.nodeType === Node.TEXT_NODE) {
+        if (offset !== (end ? node.nodeValue.length : 0)) return false;
+      } else if (offset !== (end ? node.childNodes.length : 0)) return false;
+      while (node !== element) {
+        const parent = node.parentNode;
+        if (!parent || !(parent === element || element.contains(parent))) return false;
+        if (end ? node !== parent.lastChild : node !== parent.firstChild) return false;
+        node = parent;
+      }
+      return true;
+    };
+    const assertSelection = () => {
+      assertText();
+      if (document.activeElement !== element || selection.rangeCount !== 1) fail("CHROME_PASTE_SELECTION_CHANGED", "The intended editable selection lost focus or changed.");
+      const current = selection.getRangeAt(0);
+      if (!(current.startContainer === element || element.contains(current.startContainer))
+          || !(current.endContainer === element || element.contains(current.endContainer))
+          || !atBoundary(current.endContainer, current.endOffset, true)
+          || (content.mode === "append" ? !current.collapsed : !atBoundary(current.startContainer, current.startOffset, false))) {
+        fail("CHROME_PASTE_SELECTION_CHANGED", "The page moved the selection outside the intended replace or append boundary.");
+      }
+    };
+    assertSelection();
+    stage = "paste";
+    const observer = new MutationObserver(records => { domChanged ||= records.length > 0; });
+    observer.observe(element, { childList: true, characterData: true, subtree: true, attributes: true, attributeFilter: ["href", "src", "alt", "title"] });
+    try {
+      assertSelection();
+      pasteDispatched = true;
+      actionDispatched = true;
+      element.dispatchEvent(paste);
+      pasteDefaultPrevented = paste.defaultPrevented;
+      await new Promise(resolve => setTimeout(resolve, 0));
+      domChanged ||= observer.takeRecords().length > 0;
+      stage = "readback";
+      assertTarget();
+    } finally {
+      domChanged ||= observer.takeRecords().length > 0;
+      observer.disconnect();
+      pasteDefaultPrevented = paste.defaultPrevented;
+    }
+    // A synthetic paste has no browser default insertion. Only the application's
+    // public paste handler may update its model. No DOM edit, fallback or Save.
+    return metadata();
+  } catch (error) {
+    const details = metadata();
+    error.details = { ...(error.details || {}), ...details };
+    if (!options.errorsAsData) throw error;
+    return { __mdbPageActionError: { code: error.code || "CHROME_PASTE_FAILED", ...details } };
+  }
 }
 
 async function pageSetFileInput(selector, file, options = {}) {
@@ -5193,6 +5511,21 @@ async function dispatch(message) {
       return await observeTabAction(tab.id, () => executeInTab(tab.id, pageKeypress, [String(args.selector || ""), args.key, {
         modifiers: args.modifiers === undefined ? [] : args.modifiers, deadlineMs: message.deadlineMs, errorsAsData: true,
       }], "MAIN", { deadlineMs: message.deadlineMs, includeDocumentIdentity: true }), message.deadlineMs);
+    }
+
+    case "tabs.pasteContent": {
+      const tab = await getApprovedTab(args.tabId, compiled);
+      if (typeof args.expectedDocumentId !== "string" || !/^[A-Za-z0-9_-]{1,128}$/.test(args.expectedDocumentId)) {
+        const error = new Error("A fresh observed document ID is required for rich paste.");
+        error.code = "CHROME_DOCUMENT_CHANGED";
+        error.details = { stage: "before-injection", actionDispatched: false, pasteDispatched: false };
+        throw error;
+      }
+      return await observeTabAction(tab.id, () => executeInTab(tab.id, pagePasteContent, [
+        String(args.selector || ""), args.content, {
+          deadlineMs: message.deadlineMs, expectedUrl: tab.url, errorsAsData: true,
+        },
+      ], "MAIN", { deadlineMs: message.deadlineMs, includeDocumentIdentity: true, expectedDocumentId: args.expectedDocumentId }), message.deadlineMs);
     }
 
     case "tabs.setFileInput": {
