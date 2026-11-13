@@ -1,0 +1,10 @@
+{
+  "task": "Background collection and existing-tag selection",
+  "status": "partial_keyboard_compatibility_installed_provider_dropdown_unresolved",
+  "beads": "bd status returned no database; no unrelated tracker initialization performed",
+  "remaining": [
+    "Third-party collection dropdown acceptance",
+    "Existing tag suggestion acceptance"
+  ],
+  "authority": "No publication, scheduling, notification, permission changes or alternate model execution"
+}

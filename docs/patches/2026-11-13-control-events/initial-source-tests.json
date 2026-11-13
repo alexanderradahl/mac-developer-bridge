@@ -1,0 +1,46 @@
+{
+  "tests": [
+    {
+      "test": "tests/chrome-action-correctness.mjs",
+      "exit_code": 0,
+      "duration_seconds": 0.061,
+      "stdout_sha256": "148a83895d2cc1aa07d9bb4851b5f85128f62c6024b68325d2a4cd1dd5eb96d9",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "test": "tests/chrome-fill-background.mjs",
+      "exit_code": 0,
+      "duration_seconds": 1.534,
+      "stdout_sha256": "82b26b5040417084ae6f23ea21b803fb02ef92d0efc311e78f3e4ac83495b51a",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "test": "tests/chrome-snapshot-layout-diagnostics.mjs",
+      "exit_code": 0,
+      "duration_seconds": 0.091,
+      "stdout_sha256": "e9fcdd5497ecd8ea46b1ce9f58570d5e02c54c771f92f4f0cd53b28933a71714",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "test": "tests/chrome-snapshot-media-diagnostics.mjs",
+      "exit_code": 1,
+      "duration_seconds": 0.041,
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_sha256": "5545107a2139f0b928be4aec5373264ed9bc1ec350a65b3181ba2e3fcc36ea44"
+    },
+    {
+      "test": "tests/chrome-open-shadow.mjs",
+      "exit_code": 0,
+      "duration_seconds": 0.129,
+      "stdout_sha256": "1fb29acfd4ea776cd80f9d4d001efaa171dfb8616c4463b2ffe1c128bb82182b",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "test": "tests/chrome-background.mjs",
+      "exit_code": 0,
+      "verification": "background Chrome test passed in captured standalone run"
+    }
+  ],
+  "all_targeted_passed": false,
+  "npm_run_check": "passed"
+}

@@ -1,0 +1,133 @@
+--- a/chrome-extension/service-worker.js
++++ b/chrome-extension/service-worker.js
+@@ -1,7 +1,7 @@
+ const NATIVE_HOST = "io.github.alexanderradahl.mac_developer_bridge";
+-const VERSION = "0.2.23";
++const VERSION = "0.2.24";
+ // Immutable identity of the executing release, sent on every native handshake.
+-const LOADED_EXTENSION_BUILD_ID = "browser-nonsemantic-controls-20261023.3";
++const LOADED_EXTENSION_BUILD_ID = "browser-control-events-20261113.1";
+ const NATIVE_INSTANCE_ID = crypto.randomUUID();
+ const NATIVE_OPERATION_RETENTION_MS = 24 * 60 * 60 * 1000;
+ const MAX_NATIVE_OPERATIONS = 5_000;
+@@ -3587,8 +3587,41 @@
+     if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement || element instanceof HTMLSelectElement) {
+       value = type === "password" || type === "file" ? "<redacted>" : String(element.value || "").slice(0, 20000);
+     }
++    // Exact-text discovery can surface a decorative child of a custom control.
++    // Report bounded ordinary DOM context, never handlers/framework internals,
++    // so callers can explicitly choose an observed ancestor rather than guess.
++    let controlContext;
++    if (options.textQuery !== undefined) {
++      const describeControlNode = (node) => {
++        if (!(node instanceof Element) || !node.isConnected || node.ownerDocument !== document) return null;
++        const box = node.getBoundingClientRect(), css = getComputedStyle(node);
++        if (box.width <= 0 || box.height <= 0 || css.display === "none"
++            || css.visibility === "hidden" || css.opacity === "0") return null;
++        return { selector: selectorFor(node), tag: node.tagName.toLowerCase(),
++          role: node.getAttribute("role"), pointerEvents: css.pointerEvents,
++          tabIndex: Number.isInteger(node.tabIndex) ? node.tabIndex : null,
++          ariaExpanded: node.getAttribute("aria-expanded"),
++          ariaHasPopup: node.getAttribute("aria-haspopup"),
++          disabled: Boolean(node.disabled) || node.matches(":disabled")
++            || node.getAttribute("aria-disabled") === "true" };
++      };
++      const ancestors = [];
++      let parent = element.parentElement;
++      for (let depth = 0; parent && depth < 4; depth++, parent = parent.parentElement) {
++        if (parent === document.body || parent === document.documentElement) break;
++        const description = describeControlNode(parent);
++        if (!description || parent.matches('[inert],[aria-hidden="true"]')) break;
++        ancestors.push(description);
++      }
++      const x = rect.left + rect.width / 2, y = rect.top + rect.height / 2;
++      const hit = x >= 0 && y >= 0 && x < window.innerWidth && y < window.innerHeight
++        && typeof document.elementFromPoint === "function" ? document.elementFromPoint(x, y) : null;
++      controlContext = { pointerEvents: style.pointerEvents, ancestors,
++        centerHit: describeControlNode(hit), hitInsideTarget: hit ? element.contains(hit) : null };
++    }
+     elements.push({
+       selector: selectorFor(element),
++      ...(controlContext ? { controlContext } : {}),
+       ...(discoveredTargets.get(element) || {}),
+       ...editableDetails(element),
+       tag: element.tagName.toLowerCase(),
+@@ -5368,8 +5401,14 @@
+     // that callback, and never send the key to a freshly queried node.
+     await new Promise(resolve => setTimeout(resolve, 0));
+     assertFocusedOriginal();
++    // Some otherwise modern controls still branch on keyCode/which. Supply
++    // the standard legacy values through KeyboardEventInit; do not override
++    // event trust, synthesize default clicks, or replay application actions.
++    const legacyKeyCodes = { d: 68, ArrowUp: 38, ArrowDown: 40, ArrowLeft: 37,
++      ArrowRight: 39, Enter: 13, Space: 32, Escape: 27 };
+     const eventOptions = {
+       key: key === "Space" ? " " : key, code: keyCodes[key],
++      keyCode: legacyKeyCodes[key], which: legacyKeyCodes[key], charCode: 0,
+       ctrlKey: modifiers.includes("Control"), metaKey: modifiers.includes("Meta"),
+       shiftKey: modifiers.includes("Shift"), altKey: modifiers.includes("Alt"),
+       bubbles: true, cancelable: true, composed: true, view: window,
+--- a/chrome-extension/manifest.json
++++ b/chrome-extension/manifest.json
+@@ -1,7 +1,7 @@
+ {
+   "manifest_version": 3,
+   "name": "Mac Developer Bridge Background Browser",
+-  "version": "0.2.23",
++  "version": "0.2.24",
+   "description": "Lets Mac Developer Bridge operate approved Chrome tabs without bringing Chrome to the foreground.",
+   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAq9QjCNUI8xWx8wNSCITv4TFRy2pYhd77cDUTmYFJqduaYwhplrkvbo1BB9wTn7VBKLe8ohNp4fnZz9T03il69oRPsYGRb5aHAdSVaYdCrOiGs7GN00wvwUf6d2lQeuslDd53SpTnXZdtGRMVRBeK4X4NyEksQHzxKpaeaRlT0R9qREp+TdiLfEh5Z6UImZ0ZeBVn7efazrNBYMARBjas3A/AbXUyH654TVMOAqePUpgj129g8ZGQjcPqOFKGqhAyyCVhpbJBU+1Kt7sX6wbIIREtjmryW7sqMba7TnubqCv2qTPLZNeHQVQaQpl75cYdL26lh8PXwSTHeQKX+3KwHwIDAQAB",
+   "permissions": [
+--- a/tests/chrome-background.mjs
++++ b/tests/chrome-background.mjs
+@@ -219,15 +219,15 @@
+   assert.ok(manifest.permissions.includes("tabGroups"));
+   assert.ok(manifest.permissions.includes("storage"));
+   assert.ok(manifest.icons?.["16"] && manifest.icons?.["128"]);
+-  assert.equal(manifest.version, "0.2.23");
++  assert.equal(manifest.version, "0.2.24");
+   assert.equal(manifest.permissions.includes("debugger"), false, "realistic click support must not require Chrome debugger permission");
+   await Promise.all([16, 32, 48, 128].map(async (size) => {
+     const stat = await fs.stat(path.join(root, "chrome-extension", "icons", `icon-${size}.png`));
+     assert.ok(stat.size > 0, `expected non-empty ${size}px extension icon`);
+   }));
+   const workerSource = await fs.readFile(path.join(root, "chrome-extension", "service-worker.js"), "utf8");
+-  assert.match(workerSource, /const VERSION = "0\.2\.23"/);
+-  assert.match(workerSource, /LOADED_EXTENSION_BUILD_ID = "browser-nonsemantic-controls-20261023\.3"/);
++  assert.match(workerSource, /const VERSION = "0\.2\.24"/);
++  assert.match(workerSource, /LOADED_EXTENSION_BUILD_ID = "browser-control-events-20261113\.1"/);
+   assert.match(workerSource, /WORKSPACE_GROUP_TITLE = "MDB"/);
+   assert.match(workerSource, /chrome\.tabs\.group/);
+   assert.match(workerSource, /chrome\.tabGroups\.query/);
+--- a/tests/chrome-workspace-capacity.mjs
++++ b/tests/chrome-workspace-capacity.mjs
+@@ -9,7 +9,7 @@
+ const manifest = JSON.parse(await fs.readFile(path.join(root, "chrome-extension", "manifest.json"), "utf8"));
+ const workerVersion = workerSource.match(/const VERSION = "([^"]+)";/)?.[1];
+ assert.equal(workerVersion, manifest.version, "service worker and manifest versions should match");
+-assert.equal(workerVersion, "0.2.23");
++assert.equal(workerVersion, "0.2.24");
+ const helperMatch = workerSource.match(
+   /function normalizeWorkspacePoolSize[\s\S]*?\n}\n\n(?=function errorPayload)/,
+ );
+--- a/tests/chrome-snapshot-media-diagnostics.mjs
++++ b/tests/chrome-snapshot-media-diagnostics.mjs
+@@ -307,6 +307,6 @@
+ assert.match(source, /roots\.length >= 512/);
+ assert.match(source, /entry\.depth >= 16/);
+ assert.match(source, /observedElements\.length >= 20000/);
+-assert.match(source, /LOADED_EXTENSION_BUILD_ID = "browser-nonsemantic-controls-20261023\.3"/);
++assert.match(source, /LOADED_EXTENSION_BUILD_ID = "browser-control-events-20261113\.1"/);
+ 
+ console.log("chrome-snapshot-media-diagnostics: bounds, privacy, and passive-read checks passed");
+--- a/tests/chrome-video-file-input.mjs
++++ b/tests/chrome-video-file-input.mjs
+@@ -345,7 +345,7 @@
+ assert.match(source, /activeVideoTransferCount >= MAX_ACTIVE_VIDEO_FILE_TRANSFERS/);
+ assert.match(source, /extensionReloadReserved = true;/);
+ assert.match(source, /countActiveVideoFileTransfers\(\)/);
+-assert.match(source, /LOADED_EXTENSION_BUILD_ID = "browser-nonsemantic-controls-20261023\.3"/);
++assert.match(source, /LOADED_EXTENSION_BUILD_ID = "browser-control-events-20261113\.1"/);
+ assert.match(source, /selector.length > 10000/);
+ for (const phase of ["Begin", "Chunk", "Commit", "Abort"]) {
+   assert.ok(source.includes('case "tabs.videoFile' + phase + '":'));

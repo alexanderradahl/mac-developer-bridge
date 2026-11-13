@@ -1,0 +1,45 @@
+{
+  "version": "0.2.24",
+  "build_id": "browser-control-events-20261113.1",
+  "patch": "control-events-only.patch",
+  "application": "Apply only against exact baseline file hashes. This overlay preserves unrelated local changes.",
+  "files": [
+    {
+      "path": "chrome-extension/service-worker.js",
+      "baseline_sha256": "9229f212bf93c8e8c3f8ccc53c211dc08838f5026220245acece8ecb2067dee8",
+      "patched_sha256": "4f4191bef3e47780209ed319d2c5505ccc93042f09654e7ef5e04024c950d596"
+    },
+    {
+      "path": "chrome-extension/manifest.json",
+      "baseline_sha256": "a07ac41c1caf4a2b9fcae6d57ffe43d97bf668b083dfc8b22d9e8b0da1c0e7e2",
+      "patched_sha256": "1f3ec2124c50ea6942f8bb9f7f8281f3b4eb6b10af9cafecb686570f1ba0cb14"
+    },
+    {
+      "path": "tests/chrome-background.mjs",
+      "baseline_sha256": "c2a1a09fe298ce70fe94baaa7262c3fb618da4293bab23ff33545c39b179eb4c",
+      "patched_sha256": "343245ef38a398d34444b6f64526e67693bbba2b8a18efbba60423b2dc590e4e"
+    },
+    {
+      "path": "tests/chrome-workspace-capacity.mjs",
+      "baseline_sha256": "6a0249040e5cf5641b0483f823c169e6a3ca03f9950fa912498cd8cc40359bc8",
+      "patched_sha256": "cfb40c589eb8ff67cca1fe5e0bdc02154745d4a999b89e7d70fbdf2ec4540bcb"
+    },
+    {
+      "path": "tests/chrome-snapshot-media-diagnostics.mjs",
+      "baseline_sha256": "15067647747619de0320e9afe3d305f321b485ae017656bdb0e575defcab7306",
+      "patched_sha256": "224cb3bb787f84699ce94d2043842099f355f02b19425bfeadd7a14c0939e3b9"
+    },
+    {
+      "path": "tests/chrome-video-file-input.mjs",
+      "baseline_sha256": "9d7d92125365323156d6fd0d5be321b1dfa329471f5470899f955d93f17c2e4a",
+      "patched_sha256": "c633c6ca5e8a9b0cc09feb722b886b32343d8208f0971fbd66d4d547893ff007"
+    }
+  ],
+  "new_files": [
+    {
+      "source": "tests/chrome-control-events-real-browser.mjs",
+      "destination": "tests/chrome-control-events-real-browser.mjs",
+      "sha256": "607786da0db273f1ce414151d73f87ad6fe870a423f114a97a4d1ee395f6aa51"
+    }
+  ]
+}

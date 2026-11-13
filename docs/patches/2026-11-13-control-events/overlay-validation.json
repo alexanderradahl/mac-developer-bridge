@@ -1,0 +1,6 @@
+{
+  "baseline_apply_passed": true,
+  "patched_bytes_match_installed": true,
+  "installed_reverse_check_passed": true,
+  "untouched_owner_files_not_in_patch": true
+}

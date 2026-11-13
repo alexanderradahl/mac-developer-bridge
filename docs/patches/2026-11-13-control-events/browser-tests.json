@@ -1,0 +1,55 @@
+{
+  "passed": 6,
+  "total": 6,
+  "workerSha256": "4f4191bef3e47780209ed319d2c5505ccc93042f09654e7ef5e04024c950d596",
+  "baselineCompared": true,
+  "freshProfileRemoved": true,
+  "observations": {
+    "baseline": [
+      {
+        "key": "Enter",
+        "code": "Enter",
+        "keyCode": 0,
+        "which": 0,
+        "charCode": 0,
+        "trusted": false
+      }
+    ],
+    "repaired": [
+      {
+        "key": "Enter",
+        "code": "Enter",
+        "keyCode": 13,
+        "which": 13,
+        "charCode": 0,
+        "trusted": false
+      }
+    ]
+  },
+  "results": [
+    {
+      "name": "baseline-reproduces-enter-without-legacy-codes",
+      "passed": true
+    },
+    {
+      "name": "enter-commits-legacy-tag-control-once-without-trusted-event",
+      "passed": true
+    },
+    {
+      "name": "all-allowlisted-keys-match-native-key-fields",
+      "passed": true
+    },
+    {
+      "name": "default-snapshot-unchanged-and-exact-text-context-is-passive-bounded",
+      "passed": true
+    },
+    {
+      "name": "observed-wrapper-target-opens-collection-without-auto-retarget",
+      "passed": true
+    },
+    {
+      "name": "disabled-and-expired-actions-do-not-dispatch",
+      "passed": true
+    }
+  ]
+}

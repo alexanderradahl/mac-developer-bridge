@@ -1,0 +1,210 @@
+{
+  "npm_run_check": "passed",
+  "new_real_browser_suite": {
+    "passed": 6,
+    "total": 6
+  },
+  "earlier_source_tests": [
+    {
+      "test": "tests/chrome-action-correctness.mjs",
+      "exit_code": 0,
+      "duration_seconds": 0.061,
+      "stdout_sha256": "148a83895d2cc1aa07d9bb4851b5f85128f62c6024b68325d2a4cd1dd5eb96d9",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "test": "tests/chrome-fill-background.mjs",
+      "exit_code": 0,
+      "duration_seconds": 1.534,
+      "stdout_sha256": "82b26b5040417084ae6f23ea21b803fb02ef92d0efc311e78f3e4ac83495b51a",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "test": "tests/chrome-snapshot-layout-diagnostics.mjs",
+      "exit_code": 0,
+      "duration_seconds": 0.091,
+      "stdout_sha256": "e9fcdd5497ecd8ea46b1ce9f58570d5e02c54c771f92f4f0cd53b28933a71714",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "test": "tests/chrome-open-shadow.mjs",
+      "exit_code": 0,
+      "duration_seconds": 0.129,
+      "stdout_sha256": "1fb29acfd4ea776cd80f9d4d001efaa171dfb8616c4463b2ffe1c128bb82182b",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "test": "tests/chrome-background.mjs",
+      "exit_code": 0,
+      "verification": "background Chrome test passed in captured standalone run"
+    }
+  ],
+  "continued_npm_test_suite": {
+    "all_passed": true,
+    "results": [
+      {
+        "command": [
+          "node",
+          "tests/chrome-workspace-capacity.mjs"
+        ],
+        "exit_code": 0,
+        "duration_seconds": 0.044,
+        "stdout_sha256": "7d6b2dd09c707c0b649ad8c96ecef91cfee7717b230e676050939a371802f22f",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "command": [
+          "node",
+          "tests/chrome-fill-background.mjs"
+        ],
+        "exit_code": 0,
+        "duration_seconds": 1.535,
+        "stdout_sha256": "82b26b5040417084ae6f23ea21b803fb02ef92d0efc311e78f3e4ac83495b51a",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "command": [
+          "node",
+          "tests/chrome-action-correctness.mjs"
+        ],
+        "exit_code": 0,
+        "duration_seconds": 0.077,
+        "stdout_sha256": "148a83895d2cc1aa07d9bb4851b5f85128f62c6024b68325d2a4cd1dd5eb96d9",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "command": [
+          "node",
+          "tests/chrome-transport-reliability.mjs"
+        ],
+        "exit_code": 0,
+        "duration_seconds": 1.004,
+        "stdout_sha256": "db7dbe6a1c4da439261d39f07a149a8ea87662109b471e8391c5a0d63e3fcb10",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "command": [
+          "node",
+          "tests/chatgpt-handoff-diagnostics.mjs"
+        ],
+        "exit_code": 0,
+        "duration_seconds": 1.111,
+        "stdout_sha256": "7e025ed13a527251d5a5d2bf67bc765ac94ed0971021d4c9a5e08005f48d44a6",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "command": [
+          "node",
+          "tests/chrome-background.mjs"
+        ],
+        "exit_code": 0,
+        "duration_seconds": 4.184,
+        "stdout_sha256": "e6e6bc65dc70b95ee2bdfbc15f6b6de26eddc1b19d615c3d021710053df2df9a",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "command": [
+          "node",
+          "tests/chatgpt-installation-status.mjs"
+        ],
+        "exit_code": 0,
+        "duration_seconds": 0.114,
+        "stdout_sha256": "c76c71db587542554c8e8ea2f5adbc7fad7b73a4445bb3540218ee0b5f68b6a6",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "command": [
+          "bash",
+          "tests/installer-mock.sh"
+        ],
+        "exit_code": 0,
+        "duration_seconds": 6.37,
+        "stdout_sha256": "0b9ac5036cb5b61ba64a7c1a7c2706559f0762d6831490bf31883ca8b70e803d",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "command": [
+          "node",
+          "tests/chrome-image-file-input.mjs"
+        ],
+        "exit_code": 0,
+        "duration_seconds": 0.066,
+        "stdout_sha256": "9090268ca32913526be861764f1c796112e6e33faa393502093c3a7df3735710",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "command": [
+          "node",
+          "tests/chrome-paste-content.mjs"
+        ],
+        "exit_code": 0,
+        "duration_seconds": 0.051,
+        "stdout_sha256": "6fc837fcd51a0932a5f9827349831fa31f2da5b9c95d37b1b6a1e33ac9195f37",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "command": [
+          "node",
+          "tests/chrome-video-file-prepare.mjs"
+        ],
+        "exit_code": 0,
+        "duration_seconds": 0.084,
+        "stdout_sha256": "851e06eeeec66bcce1e11bd11f9706dd655f75f31de8ac5d84230d2702ff2de4",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "command": [
+          "node",
+          "tests/chrome-video-upload.mjs"
+        ],
+        "exit_code": 0,
+        "duration_seconds": 0.07,
+        "stdout_sha256": "888a4c907b44640585dcd2ea5aeab5978103d124f1a390b5e66864cf7c14e67d",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "command": [
+          "node",
+          "tests/chrome-video-file-input.mjs"
+        ],
+        "exit_code": 0,
+        "duration_seconds": 0.07,
+        "stdout_sha256": "2fdd7a2156400b7197641e514dbeae6399f9048e792d258613ab0910ef6ee09b",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "command": [
+          "node",
+          "tests/chrome-open-shadow.mjs"
+        ],
+        "exit_code": 0,
+        "duration_seconds": 0.164,
+        "stdout_sha256": "1fb29acfd4ea776cd80f9d4d001efaa171dfb8616c4463b2ffe1c128bb82182b",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "command": [
+          "node",
+          "tests/chrome-snapshot-media-diagnostics.mjs"
+        ],
+        "exit_code": 0,
+        "duration_seconds": 0.044,
+        "stdout_sha256": "293d7d766c07cde0d2dcc39c0e4bec0899e388d8761ae8fe16f549159e331070",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "command": [
+          "node",
+          "tests/chrome-csv-file-input.mjs"
+        ],
+        "exit_code": 0,
+        "duration_seconds": 0.082,
+        "stdout_sha256": "025701b3948b80c61811402b64461537c60bfefeaa4ffb1c88d0176a34d3268e",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    ]
+  },
+  "initial_full_suite_result": "stopped at stale version assertion in chrome-workspace-capacity; version expectations updated and all remaining npm test commands passed",
+  "full_single_pass_rerun": false,
+  "additional_existing_nonsemantic_browser_suite": "not run successfully because separately installed Playwright browser revision was absent; new dedicated six-case browser suite used an isolated installed Chrome channel instead"
+}
