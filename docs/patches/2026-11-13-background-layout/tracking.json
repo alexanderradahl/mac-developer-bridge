@@ -1,0 +1,12 @@
+{
+  "status": "installed_and_verified",
+  "post_metadata": "completed_and_reopened",
+  "bridge_controls": "collection_tag_suggestion_and_tier_menus_verified",
+  "remaining_task_blockers": [],
+  "beads": "No database found in this repo; no unrelated tracker initialized.",
+  "future_limitations": [
+    "A previously saved page must be explicitly reloaded to install the bootstrap; unsaved editors must not be reloaded.",
+    "Closed roots, cross-origin frames and controls requiring trusted owner gestures remain outside this compatibility action.",
+    "Future provider changes still require fresh readback."
+  ]
+}

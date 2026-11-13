@@ -1,0 +1,28 @@
+{
+  "installed_build_verified": "browser-body-layout-bootstrap-20261113.8",
+  "owned_hidden_fixture": {
+    "before_initial_deliveries": 0,
+    "after_initial_deliveries": 1,
+    "menu_opened": true
+  },
+  "authorized_provider_editor": {
+    "before_menu_handler_semantics": false,
+    "after_menu_has_popup": "menu",
+    "collection_options_opened": true,
+    "existing_collection_checked_state_preserved": true,
+    "existing_tag_suggestions_rendered": true,
+    "tier_menu_opened": true,
+    "initial_body_subscriptions_observed": 77,
+    "supplemental_initial_deliveries": 76,
+    "native_body_deliveries_during_bootstrap": 0,
+    "constructor_restored": true,
+    "pending_supplemental_callbacks_after_restoration": 0
+  },
+  "foreground_activation": false,
+  "permission_changes": false,
+  "private_app_api_or_framework_access": false,
+  "published_content_test_mutations": false,
+  "member_notifications_sent": false,
+  "provider_acceptance_scope": "Observed authorized editor only; no universal compatibility claim.",
+  "private_page_receipts_included_in_public_patch": false
+}

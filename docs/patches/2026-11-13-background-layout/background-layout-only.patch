@@ -1,0 +1,818 @@
+--- a/bridge.mjs
++++ b/bridge.mjs
+@@ -968,6 +968,26 @@
+     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
+   },
+   {
++    name: "chrome_background_layout_status",
++    title: "Read the bridge-owned background-layout bootstrap receipt",
++    description: "Read only the bounded diagnostic counters written by the bridge's own initial body-layout shim in one approved tab. Does not inspect application internals, trigger observations, reload, activate, or change the page. Null means no own bootstrap receipt is present in this document.",
++    inputSchema: {type:"object",properties:{tab_id:{type:"integer",minimum:0}},required:["tab_id"],additionalProperties:false},
++    annotations:{readOnlyHint:true,destructiveHint:false,idempotentHint:true,openWorldHint:true}
++  },
++  {
++    name: "chrome_reload_for_background_layout",
++    title: "Reload one saved MDB page with a measured initial body-layout notification",
++    description: "Explicit compatibility action for a saved, inactive MDB tab whose controls wait for a document.body ResizeObserver notification that is suspended in hidden tabs. Requires a fresh URL/document guard and acknowledgement that reload discards unsaved edits. Reloads the same URL only. For ten seconds, newly created native ResizeObservers observing document.body may receive one supplemental initial content-box notification measured from actual CSS geometry, capped at 256. No tab activation, visibility spoofing, animation-frame forcing, trusted input, app internals or publishing. Native later observations continue unchanged. Temporary startup registration and window.name marker are removed/restored. Reopen/read the actual controls afterward; bootstrap installation is not provider acceptance.",
++    inputSchema: { type: "object", properties: {
++      tab_id: { type: "integer", minimum: 0 },
++      expected_url: { type: "string", minLength: 1, maxLength: 20000 },
++      expected_document_id: { type: "string", minLength: 1, maxLength: 128, pattern: "^[A-Za-z0-9_-]+$" },
++      reload_saved_page: { type: "boolean", const: true },
++      operation_id: { type: "string", minLength: 8, maxLength: 128, pattern: "^[A-Za-z0-9][A-Za-z0-9_.:-]{7,127}$" }
++    }, required: ["tab_id","expected_url","expected_document_id","reload_saved_page","operation_id"], additionalProperties: false },
++    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true }
++  },
++  {
+     name: "chrome_snapshot",
+     title: "Read Chrome page in background",
+     description: "Read visible text, controls, passive validity, visible image sources/dimensions and bounded file-input metadata from an MDB Chrome tab without activating Chrome or triggering form validation. Hidden file inputs expose ordinary control metadata and associated labels, never selected paths or bytes. Password values are redacted. Strict approvals restrict readable URLs to active scoped grants.",
+@@ -995,6 +1015,7 @@
+       properties: {
+         tab_id: { type: "integer", minimum: 0 },
+         selector: { type: "string", minLength: 1, maxLength: 10000 },
++        observe_animation_frames: { type: "boolean", default: false, description: "Explicit bounded diagnostic: observe animation-frame registrations during this click for up to 120 ms. Native callbacks and scheduling remain unchanged; no frames are forced, visibility spoofed or additional input sent. The temporary observer is restored before returning. Reports counts only, never callback source." },
+         click_strategy: { type: "string", enum: ["adaptive-pointer", "dom-click"], default: "adaptive-pointer", description: "Adaptive-pointer preserves the existing pointer sequence and conditional combobox keyboard activation. Explicit dom-click invokes HTMLElement.click once, without hover, pointer-down/up, or focus prelude. Neither strategy provides browser user activation. The selected strategy is never automatically retried or switched." },
+         operation_id: { type: "string", minLength: 8, maxLength: 128, pattern: "^[A-Za-z0-9][A-Za-z0-9_.:-]{7,127}$", description: "Optional stable ID for this exact click. Use the returned ID to reconcile a timeout before any retry." },
+       },
+@@ -3879,6 +3900,24 @@
+       return await callBackgroundChrome(name, "tabs.navigate", { tabId, url }, { operationId: chromeOperationId(args) });
+     }
+ 
++    case "chrome_background_layout_status": {
++      const tabId = requireInteger(args, "tab_id", 0, 2_147_483_647);
++      return await callBackgroundChrome(name, "tabs.backgroundLayoutStatus", {tabId});
++    }
++
++    case "chrome_reload_for_background_layout": {
++      const tabId = requireInteger(args, "tab_id", 0, 2_147_483_647);
++      const expectedUrl = requireString(args, "expected_url");
++      const expectedDocumentId = requireString(args, "expected_document_id");
++      if (expectedUrl.length > 20000) throw new Error("expected_url must be at most 20000 characters");
++      const operationId = chromeOperationId(args);
++      if (!operationId) throw new Error("A stable operation_id is required for this reload.");
++      if (args.reload_saved_page !== true || !/^[A-Za-z0-9_-]{1,128}$/.test(expectedDocumentId)) throw new Error("Explicit saved-page reload acknowledgement and a fresh document ID are required.");
++      return await callBackgroundChrome("chrome_reload_for_background_layout", "tabs.reloadForBackgroundLayout", {
++        tabId, expectedUrl, expectedDocumentId, reloadSavedPage: true,
++      }, { operationId });
++    }
++
+     case "chrome_snapshot": {
+       const tabId = requireInteger(args, "tab_id", 0, 2_147_483_647);
+       const maxTextChars = optionalInteger(args, "max_text_chars", 50_000, 1_000, 200_000);
+@@ -3903,6 +3942,7 @@
+       if (selector.length > 10_000) throw new Error("'selector' must be at most 10000 characters");
+       // Preserve retained operation identities for omitted and explicit defaults.
+       const clickArgs = { tabId, selector };
++      if (optionalBoolean(args, "observe_animation_frames", false)) clickArgs.observeAnimationFrames = true;
+       if (clickStrategy === "dom-click") clickArgs.clickStrategy = clickStrategy;
+       return await callBackgroundChrome(name, "tabs.click", clickArgs, { operationId: chromeOperationId(args) });
+     }
+--- a/chrome-extension/service-worker.js
++++ b/chrome-extension/service-worker.js
+@@ -1,7 +1,7 @@
+ const NATIVE_HOST = "io.github.alexanderradahl.mac_developer_bridge";
+-const VERSION = "0.2.24";
++const VERSION = "0.2.25";
+ // Immutable identity of the executing release, sent on every native handshake.
+-const LOADED_EXTENSION_BUILD_ID = "browser-control-events-20261113.1";
++const LOADED_EXTENSION_BUILD_ID = "browser-body-layout-bootstrap-20261113.8";
+ const NATIVE_INSTANCE_ID = crypto.randomUUID();
+ const NATIVE_OPERATION_RETENTION_MS = 24 * 60 * 60 * 1000;
+ const MAX_NATIVE_OPERATIONS = 5_000;
+@@ -3591,7 +3591,7 @@
+     // Report bounded ordinary DOM context, never handlers/framework internals,
+     // so callers can explicitly choose an observed ancestor rather than guess.
+     let controlContext;
+-    if (options.textQuery !== undefined) {
++    if (options.textQuery !== undefined || options.includeNonsemantic === true) {
+       const describeControlNode = (node) => {
+         if (!(node instanceof Element) || !node.isConnected || node.ownerDocument !== document) return null;
+         const box = node.getBoundingClientRect(), css = getComputedStyle(node);
+@@ -3616,7 +3616,8 @@
+       const x = rect.left + rect.width / 2, y = rect.top + rect.height / 2;
+       const hit = x >= 0 && y >= 0 && x < window.innerWidth && y < window.innerHeight
+         && typeof document.elementFromPoint === "function" ? document.elementFromPoint(x, y) : null;
+-      controlContext = { pointerEvents: style.pointerEvents, ancestors,
++      const labels = Array.from(element.labels || []).slice(0, 4).map(describeControlNode).filter(Boolean);
++      controlContext = { pointerEvents: style.pointerEvents, ancestors, labels,
+         centerHit: describeControlNode(hit), hitInsideTarget: hit ? element.contains(hit) : null };
+     }
+     elements.push({
+@@ -3895,8 +3896,33 @@
+       viewport, groups,
+     };
+   }
++  // Passive, bounded rendering diagnostics. Hidden popup text, application
++  // internals, animation callbacks and event handlers are never inspected.
++  let popupDiagnostics;
++  if (options.includeNonsemantic === true || options.textQuery !== undefined) {
++    const popupNodes = observedElements.filter(node => node.matches('[role="menu"],[role="listbox"],[role="dialog"],[role="tooltip"],[aria-modal="true"],[popover]'));
++    const scriptNodes = observedElements.filter(node => node.tagName === "SCRIPT" && node.hasAttribute("src"));
++    popupDiagnostics = {
++      // Source URLs only, never inline scripts, source text or runtime state.
++      scriptSources: scriptNodes.slice(0, 100).map(node => mediaUrlWithoutQuery(node.src)).filter(Boolean),
++      scriptSourcesTruncated: scriptNodes.length > 100 || openShadowTraversalTruncated,
++      documentVisibility: ['visible', 'hidden', 'prerender'].includes(document.visibilityState) ? document.visibilityState : null,
++      documentHasFocus: typeof document.hasFocus === 'function' ? Boolean(document.hasFocus()) : null,
++      count: popupNodes.length, truncated: popupNodes.length > 20 || openShadowTraversalTruncated,
++      samples: popupNodes.slice(0, 20).map(node => {
++        const box = node.getBoundingClientRect(), css = getComputedStyle(node);
++        const finite = n => Number.isFinite(n) && Math.abs(n) < 10000000 ? n : null;
++        return { selector: selectorFor(node), tag: node.tagName.toLowerCase(), role: node.getAttribute('role'),
++          ariaHidden: node.getAttribute('aria-hidden'),
++          rect: {x: finite(box.x), y: finite(box.y), width: finite(box.width), height: finite(box.height)},
++          display: css.display, visibility: css.visibility, opacity: finite(Number(css.opacity)),
++          pointerEvents: css.pointerEvents, inert: node.hasAttribute('inert') };
++      }),
++    };
++  }
+   const activeElement = deepActiveElement();
+   return {
++    ...(popupDiagnostics ? { popupDiagnostics } : {}),
+     title: document.title,
+     url: location.href,
+     bodyText,
+@@ -4800,6 +4826,8 @@
+     }
+     return active;
+   }
++  let frameObservation = null;
++  let restoreFrameObserver = null;
+   let actionDispatched = false;
+   let clickDispatched = false;
+   let focusEventFallbackUsed = false;
+@@ -4846,6 +4874,56 @@
+       error.code = "CHROME_ELEMENT_NOT_VISIBLE";
+       throw error;
+     }
++    if (options.observeAnimationFrames === true) {
++      const key = Symbol.for("macDeveloperBridge.frameObserver.v1");
++      if (window[key]) {
++        const error = new Error("A scoped frame observation is already running.");
++        error.code = "CHROME_FRAME_OBSERVER_BUSY";
++        throw error;
++      }
++      const original = window.requestAnimationFrame;
++      if (typeof original !== "function") {
++        const error = new Error("Animation-frame observation is unavailable.");
++        error.code = "CHROME_FRAME_OBSERVER_UNAVAILABLE";
++        throw error;
++      }
++      frameObservation = { registered: 0, completed: 0, sampleLimit: 32,
++        truncated: false, observedForMs: 0, restored: false,
++        documentVisibility: document.visibilityState, documentHasFocus: document.hasFocus() };
++      const receipt = frameObservation;
++      const owner = {};
++      const wrapped = function mdbObservedAnimationFrame(callback) {
++        if (typeof callback !== "function" || receipt.registered >= 32) {
++          if (receipt.registered >= 32) receipt.truncated = true;
++          return original.call(this, callback);
++        }
++        receipt.registered++;
++        return original.call(this, function(timestamp) {
++          receipt.completed++;
++          return callback.call(this, timestamp);
++        });
++      };
++      window[key] = owner;
++      window.requestAnimationFrame = wrapped;
++      if (window.requestAnimationFrame !== wrapped) {
++        if (window[key] === owner) delete window[key];
++        const error = new Error("Animation-frame observation could not be installed.");
++        error.code = "CHROME_FRAME_OBSERVER_UNAVAILABLE";
++        throw error;
++      }
++      restoreFrameObserver = async () => {
++        const remaining = Number.isFinite(deadline) ? Math.max(0, deadline - Date.now()) : 120;
++        const wait = Math.min(120, remaining);
++        const started = Date.now();
++        if (wait) await new Promise(resolve => setTimeout(resolve, wait));
++        receipt.observedForMs = Date.now() - started;
++        if (window.requestAnimationFrame === wrapped) {
++          window.requestAnimationFrame = original;
++          receipt.restored = window.requestAnimationFrame === original;
++        }
++        if (window[key] === owner) delete window[key];
++      };
++    }
+     const documentAtStart = document;
+     const assertTarget = () => {
+       assertDeadline();
+@@ -4868,14 +4946,17 @@
+       events.push(type);
+       actionDispatched = true;
+       return element.dispatchEvent(new PointerEvent(type, {
+-        ...common, button: ["pointerdown", "pointerup"].includes(type) ? 0 : -1,
++        ...common, ...(type === "pointerenter" ? { bubbles: false, cancelable: false, composed: false } : {}),
++        button: ["pointerdown", "pointerup"].includes(type) ? 0 : -1,
+         buttons, pointerId: 1, pointerType: "mouse", isPrimary: true, pressure: buttons ? 0.5 : 0,
+       }));
+     };
+     const dispatchMouse = (type, buttons) => {
+       events.push(type);
+       actionDispatched = true;
+-      return element.dispatchEvent(new MouseEvent(type, { ...common, buttons, detail: ["mousedown", "mouseup"].includes(type) ? 1 : 0 }));
++      return element.dispatchEvent(new MouseEvent(type, { ...common,
++        ...(type === "mouseenter" ? { bubbles: false, cancelable: false, composed: false } : {}),
++        buttons, detail: ["mousedown", "mouseup"].includes(type) ? 1 : 0 }));
+     };
+     const focusTarget = () => {
+       const assertFocusable = () => {
+@@ -4981,6 +5062,7 @@
+       await new Promise((resolve) => setTimeout(resolve, 0));
+       const after = readActivationState();
+       return {
++        ...(frameObservation ? { animationFrameObservation: frameObservation } : {}),
+         clicked: clickDispatched, clickDispatched, actionDispatched, focusEventFallbackUsed,
+         activationObserved: semanticMouseDownControl ? stateChanged(before, after) : null,
+         applicationAccepted: null, outcomeVerified: false, selector,
+@@ -4993,7 +5075,9 @@
+     }
+     stage = "pointer-down";
+     dispatchPointer("pointerover", 0);
++    dispatchPointer("pointerenter", 0);
+     dispatchMouse("mouseover", 0);
++    dispatchMouse("mouseenter", 0);
+     dispatchPointer("pointermove", 0);
+     dispatchMouse("mousemove", 0);
+     const pointerDownAllowed = dispatchPointer("pointerdown", 1);
+@@ -5057,6 +5141,7 @@
+     }
+     return {
+       // This is dispatch evidence, never an application/persistence receipt.
++      ...(frameObservation ? { animationFrameObservation: frameObservation } : {}),
+       clicked: clickDispatched,
+       clickDispatched,
+       actionDispatched,
+@@ -5081,6 +5166,8 @@
+     error.details = { ...(error.details || {}), ...details };
+     if (!options.errorsAsData) throw error;
+     return { __mdbPageActionError: { code: error.code || "CHROME_CLICK_FAILED", ...details } };
++  } finally {
++    if (restoreFrameObserver) await restoreFrameObserver();
+   }
+ }
+ 
+@@ -6213,6 +6300,81 @@
+       const settled = await waitForApprovedNavigation(tab.id, compiled, { previousUrl, requestedUrl: url });
+       await touchWorkspaceLease(tab.id);
+       return { tabId: settled.id, windowId: settled.windowId, active: Boolean(settled.active), url: settled.url || url };
++    }
++
++    case "tabs.backgroundLayoutStatus": {
++      const tab = await getApprovedTab(args.tabId, compiled);
++      return await executeInTab(tab.id, () => {
++        const r = window[Symbol.for("macDeveloperBridge.bodyLayoutSeed.v1")];
++        if (!r || typeof r !== "object") return {bootstrap:null};
++        const count = x => Number.isSafeInteger(x) && x >= 0 && x <= 100000 ? x : null;
++        return {bootstrap:{installed:r.installed===true,restored:r.restored===true,
++          initialBodyDeliveries:count(r.initialBodyDeliveries),nativeBodyDeliveries:count(r.nativeBodyDeliveries),
++          skipped:count(r.skipped),bodyObserveRequests:count(r.bodyObserveRequests),pendingAtRestore:count(r.pendingAtRestore),
++          expired:Number.isFinite(r.expiresAt)&&Date.now()>=r.expiresAt,
++          visibilityAtStart:["visible","hidden","prerender"].includes(r.visibilityAtStart)?r.visibilityAtStart:null}};
++      }, [], "MAIN", {deadlineMs:message.deadlineMs,includeDocumentIdentity:true});
++    }
++
++    case "tabs.reloadForBackgroundLayout": {
++      const tab = await getApprovedTab(args.tabId, compiled);
++      const expectedUrl = String(args.expectedUrl || "");
++      const expectedDocumentId = String(args.expectedDocumentId || "");
++      const fail = (code, text) => { const error = new Error(text); error.code = code; throw error; };
++      if (args.reloadSavedPage !== true || tab.active || String(tab.url) !== expectedUrl
++          || !/^[A-Za-z0-9_-]{1,128}$/.test(expectedDocumentId)) fail("CHROME_LAYOUT_RELOAD_GUARD", "Saved inactive page and exact URL/document guards are required.");
++      const workspace = await workspaceStatus();
++      if (!workspace.tabIds?.includes(tab.id)) fail("CHROME_LAYOUT_WORKSPACE_REQUIRED", "Only an extension-owned inactive MDB tab may use layout bootstrap.");
++      assertUrlAllowed(expectedUrl, compiled);
++      const parsed = new URL(expectedUrl);
++      if (!["https:","http:"].includes(parsed.protocol) || parsed.username || parsed.password || parsed.pathname.includes("*")) fail("CHROME_LAYOUT_URL_INVALID", "Layout bootstrap requires an ordinary exact HTTP/HTTPS URL.");
++      const nonce = crypto.randomUUID(), registrationId = "mdb-body-layout-" + nonce;
++      let registered = false, markerInstalled = false;
++      try {
++        await chrome.scripting.registerContentScripts([{id:registrationId,js:["background-layout-start.js"],
++          matches:[parsed.origin + parsed.pathname + "*"],runAt:"document_start",world:"MAIN",allFrames:false,persistAcrossSessions:false}]);
++        registered = true;
++        await executeInTab(tab.id, (nonce, expectedUrl) => {
++          if (location.href !== expectedUrl || document.visibilityState !== "hidden" || typeof window.name !== "string" || window.name.length > 65536) return {__mdbPageActionError:{code:"CHROME_LAYOUT_RELOAD_GUARD",actionDispatched:false}};
++          const previousName = window.name;
++          window.name = JSON.stringify({type:"mdb-body-layout-seed-v1",nonce,previousName,expectedUrl});
++          return {markerInstalled:true};
++        }, [nonce,expectedUrl], "MAIN", {deadlineMs:message.deadlineMs,expectedDocumentId,includeDocumentIdentity:true});
++        markerInstalled = true;
++        await chrome.tabs.reload(tab.id, {bypassCache:false});
++        let loaded;
++        const stopAt = Math.min(message.deadlineMs || Date.now()+20000,Date.now()+15000);
++        while (Date.now() < stopAt) {
++          const current = await getApprovedTab(tab.id,compiled);
++          if (current.url !== expectedUrl) { await new Promise(resolve=>setTimeout(resolve,100)); continue; }
++          try {
++            const probe = await executeInTab(tab.id, nonce => {
++              const r=window[Symbol.for("macDeveloperBridge.bodyLayoutSeed.v1")];
++              return {readyState:document.readyState,bootstrap:r?.nonce===nonce ? {
++                installed:r.installed,restored:r.restored,initialBodyDeliveries:r.initialBodyDeliveries,
++                nativeBodyDeliveries:r.nativeBodyDeliveries,skipped:r.skipped,expiresAt:r.expiresAt,
++                visibilityAtStart:r.visibilityAtStart,reason:r.reason||null}:null};
++            }, [nonce], "MAIN", {deadlineMs:message.deadlineMs,includeDocumentIdentity:true});
++            if (probe.documentId !== expectedDocumentId && ["interactive","complete"].includes(probe.readyState) && probe.bootstrap) { loaded=probe;break; }
++          } catch { /* A document can be replaced between load and probe. Never replay the reload. */ }
++          await new Promise(resolve=>setTimeout(resolve,100));
++        }
++        if (!loaded) fail("CHROME_LAYOUT_RELOAD_UNVERIFIED", "Reload/bootstrap outcome is unverified; inspect the page before another action.");
++        await touchWorkspaceLease(tab.id);
++        return {...loaded,url:expectedUrl,tabId:tab.id,active:false,reloaded:true,
++          applicationAccepted:null,outcomeVerified:false,temporaryStartupRegistrationRemoved:true};
++      } finally {
++        if (registered) await chrome.scripting.unregisterContentScripts({ids:[registrationId]});
++        if (markerInstalled) {
++          const current = await chrome.tabs.get(tab.id).catch(()=>null);
++          if (current?.url===expectedUrl) {
++            await executeInTab(tab.id, nonce=>{
++              try {const m=JSON.parse(window.name);if(m?.type==="mdb-body-layout-seed-v1"&&m.nonce===nonce&&typeof m.previousName==="string")window.name=m.previousName;}catch{}
++              return {markerCleanupAttempted:true};
++            },[nonce],"MAIN").catch(()=>{});
++          }
++        }
++      }
+     }
+ 
+     case "tabs.close": {
+@@ -6522,6 +6684,7 @@
+       const tab = await getApprovedTab(args.tabId, compiled);
+       return await observeTabAction(tab.id, () => executeInTab(tab.id, pageClick, [String(args.selector || ""), {
+         clickStrategy: args.clickStrategy ?? "adaptive-pointer",
++        ...(args.observeAnimationFrames === true ? { observeAnimationFrames: true } : {}),
+         deadlineMs: message.deadlineMs, errorsAsData: true,
+       }], "MAIN", { deadlineMs: message.deadlineMs, includeDocumentIdentity: true }), message.deadlineMs);
+     }
+--- a/chrome-extension/manifest.json
++++ b/chrome-extension/manifest.json
+@@ -1,7 +1,7 @@
+ {
+   "manifest_version": 3,
+   "name": "Mac Developer Bridge Background Browser",
+-  "version": "0.2.24",
++  "version": "0.2.25",
+   "description": "Lets Mac Developer Bridge operate approved Chrome tabs without bringing Chrome to the foreground.",
+   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAq9QjCNUI8xWx8wNSCITv4TFRy2pYhd77cDUTmYFJqduaYwhplrkvbo1BB9wTn7VBKLe8ohNp4fnZz9T03il69oRPsYGRb5aHAdSVaYdCrOiGs7GN00wvwUf6d2lQeuslDd53SpTnXZdtGRMVRBeK4X4NyEksQHzxKpaeaRlT0R9qREp+TdiLfEh5Z6UImZ0ZeBVn7efazrNBYMARBjas3A/AbXUyH654TVMOAqePUpgj129g8ZGQjcPqOFKGqhAyyCVhpbJBU+1Kt7sX6wbIIREtjmryW7sqMba7TnubqCv2qTPLZNeHQVQaQpl75cYdL26lh8PXwSTHeQKX+3KwHwIDAQAB",
+   "permissions": [
+--- a/package.json
++++ b/package.json
+@@ -6,8 +6,8 @@
+   "scripts": {
+     "start": "node bridge.mjs",
+     "start:http": "node mcp-http.mjs",
+-    "check": "node --check bridge.mjs && node --check mcp-http.mjs && node --check lib/chatgpt-responses-adapter.mjs && node --check lib/chrome-extension-client.mjs && node --check lib/chrome-operation-registry.mjs && node --check scripts/chrome-native-host.mjs && node --check chrome-extension/service-worker.js && node --check lib/chrome-image-file.mjs && node --check scripts/mcp-call.mjs && node --check lib/chrome-video-file.mjs && node --check lib/chrome-video-upload.mjs && node --check scripts/mcp-call-stdio.mjs && node --check lib/chrome-csv-file.mjs",
+-    "test": "node tests/smoke.mjs && node tests/integration.mjs && node tests/adversarial.mjs && node tests/chatgpt-responses.mjs && node tests/http.mjs && node tests/oauth.mjs && node tests/pty.mjs && node tests/federation.mjs && node tests/chatgpt-conversation.mjs && node tests/chatgpt-runtime.mjs && node tests/chatgpt-conversation-runs.mjs && node tests/chrome-workspace-capacity.mjs && node tests/chrome-fill-background.mjs && node tests/chrome-action-correctness.mjs && node tests/chrome-transport-reliability.mjs && node tests/chatgpt-handoff-diagnostics.mjs && node tests/chrome-background.mjs && node tests/chatgpt-installation-status.mjs && bash tests/installer-mock.sh && node tests/chrome-image-file-input.mjs && node tests/chrome-paste-content.mjs && node tests/chrome-video-file-prepare.mjs && node tests/chrome-video-upload.mjs && node tests/chrome-video-file-input.mjs && node tests/chrome-open-shadow.mjs && node tests/chrome-snapshot-media-diagnostics.mjs && node tests/chrome-csv-file-input.mjs",
++    "check": "node --check bridge.mjs && node --check mcp-http.mjs && node --check lib/chatgpt-responses-adapter.mjs && node --check lib/chrome-extension-client.mjs && node --check lib/chrome-operation-registry.mjs && node --check scripts/chrome-native-host.mjs && node --check chrome-extension/service-worker.js && node --check lib/chrome-image-file.mjs && node --check scripts/mcp-call.mjs && node --check lib/chrome-video-file.mjs && node --check lib/chrome-video-upload.mjs && node --check scripts/mcp-call-stdio.mjs && node --check lib/chrome-csv-file.mjs && node --check chrome-extension/background-layout-start.js",
++    "test": "node tests/smoke.mjs && node tests/integration.mjs && node tests/adversarial.mjs && node tests/chatgpt-responses.mjs && node tests/http.mjs && node tests/oauth.mjs && node tests/pty.mjs && node tests/federation.mjs && node tests/chatgpt-conversation.mjs && node tests/chatgpt-runtime.mjs && node tests/chatgpt-conversation-runs.mjs && node tests/chrome-workspace-capacity.mjs && node tests/chrome-fill-background.mjs && node tests/chrome-action-correctness.mjs && node tests/chrome-transport-reliability.mjs && node tests/chatgpt-handoff-diagnostics.mjs && node tests/chrome-background.mjs && node tests/chatgpt-installation-status.mjs && bash tests/installer-mock.sh && node tests/chrome-image-file-input.mjs && node tests/chrome-paste-content.mjs && node tests/chrome-video-file-prepare.mjs && node tests/chrome-video-upload.mjs && node tests/chrome-video-file-input.mjs && node tests/chrome-open-shadow.mjs && node tests/chrome-snapshot-media-diagnostics.mjs && node tests/chrome-csv-file-input.mjs && node tests/chrome-body-layout-bootstrap.mjs && node tests/chrome-body-layout-routing.mjs",
+     "test:bridge-repair": "node tests/chatgpt-runtime.mjs && node tests/chatgpt-installation-status.mjs && node tests/chrome-background.mjs",
+     "test:browser": "node tests/chrome-actions-real-browser.mjs",
+     "test:browser-reliability": "node tests/chrome-fill-background.mjs && node tests/chrome-action-correctness.mjs && node tests/chrome-transport-reliability.mjs && node tests/chatgpt-handoff-diagnostics.mjs && node tests/chrome-background.mjs",
+@@ -15,13 +15,14 @@
+     "test:browser-images": "node tests/chrome-image-file-real-browser.mjs",
+     "test:browser-paste": "node tests/chrome-paste-real-browser.mjs",
+     "test:browser-video": "node tests/chrome-video-file-prepare.mjs && node tests/chrome-video-upload.mjs && node tests/chrome-video-file-input.mjs && node tests/chrome-open-shadow.mjs && node tests/chrome-snapshot-media-diagnostics.mjs",
+-    "test:browser-csv": "node tests/chrome-csv-file-input.mjs"
++    "test:browser-csv": "node tests/chrome-csv-file-input.mjs",
++    "test:browser-popup": "node tests/chrome-popup-diagnostics-real-browser.mjs"
+   },
+   "engines": {
+     "node": ">=18"
+   },
+   "license": "MIT",
+-  "author": "Alexander Rådahl Benz",
++  "author": "Alexander R\u00e5dahl Benz",
+   "repository": {
+     "type": "git",
+     "url": "https://github.com/alexanderradahl/mac-developer-bridge.git"
+--- a/README.md
++++ b/README.md
+@@ -796,3 +796,27 @@
+ Receipts distinguish focus attempts/completion, keydown/keyup dispatch, default prevention, focus changes and the explicit synthetic `keyEvents` trace. The trace excludes native browser events and application-created events. Dispatch is not application acceptance: read ordinary page state after each separate key, then verify persistence through a new document when appropriate. Original-node replacement, disablement, invalid focus or elapsed deadline stops the sequence with partial evidence. Use stable operation IDs and reconcile uncertainty; no automatic key replay or Escape recovery is performed.
+ 
+ This is an application DOM action. It does not deliver hardware-trusted input, invoke browser/OS shortcuts, insert text, click, or submit a form on the operator's behalf. The page's own event handlers still run normally. Permissions and foreground approvals are unchanged.
++
++
++### Saved-page background layout recovery (0.2.25)
++
++Some sites wait for the initial `ResizeObserver(document.body)` callback before
++attaching dropdown handlers. A hidden tab can leave that callback pending, so a
++button is visible but has no menu behavior. `chrome_reload_for_background_layout`
++is an explicit compatibility action for this case, not an automatic fallback.
++It reloads one already saved, inactive MDB page using an exact URL/document guard,
++then supplies a bounded initial content-box notification measured from actual CSS
++geometry. It does not activate Chrome, spoof visibility, force animation frames,
++call private application methods, or add extension permissions. Save and verify
++any edits before using it; a reload discards unsaved work.
++
++Use `chrome_background_layout_status` to read the bridge-owned counters and verify
++that its temporary constructor has been restored. Native later resize callbacks
++continue normally. The bootstrap lasts ten seconds and is capped at 256 initial
++body observations; it is not a permanent background rendering engine. Full details,
++limits, tests and the observed Patreon workflow are in
++[Background layout compatibility](docs/browser-background-layout.md).
++
++If a long-lived connector still exposes the older schema, the existing public
++`scripts/mcp-call-stdio.mjs` client loads the installed source without restarting
++the shared bridge. Discover its current `tools/list` schema before invoking it.
+--- a/tests/chrome-background.mjs
++++ b/tests/chrome-background.mjs
+@@ -219,15 +219,15 @@
+   assert.ok(manifest.permissions.includes("tabGroups"));
+   assert.ok(manifest.permissions.includes("storage"));
+   assert.ok(manifest.icons?.["16"] && manifest.icons?.["128"]);
+-  assert.equal(manifest.version, "0.2.24");
++  assert.equal(manifest.version, "0.2.25");
+   assert.equal(manifest.permissions.includes("debugger"), false, "realistic click support must not require Chrome debugger permission");
+   await Promise.all([16, 32, 48, 128].map(async (size) => {
+     const stat = await fs.stat(path.join(root, "chrome-extension", "icons", `icon-${size}.png`));
+     assert.ok(stat.size > 0, `expected non-empty ${size}px extension icon`);
+   }));
+   const workerSource = await fs.readFile(path.join(root, "chrome-extension", "service-worker.js"), "utf8");
+-  assert.match(workerSource, /const VERSION = "0\.2\.24"/);
+-  assert.match(workerSource, /LOADED_EXTENSION_BUILD_ID = "browser-control-events-20261113\.1"/);
++  assert.match(workerSource, /const VERSION = "0\.2\.25"/);
++  assert.match(workerSource, /LOADED_EXTENSION_BUILD_ID = "browser-body-layout-bootstrap-20261113\.8"/);
+   assert.match(workerSource, /WORKSPACE_GROUP_TITLE = "MDB"/);
+   assert.match(workerSource, /chrome\.tabs\.group/);
+   assert.match(workerSource, /chrome\.tabGroups\.query/);
+--- a/tests/chrome-workspace-capacity.mjs
++++ b/tests/chrome-workspace-capacity.mjs
+@@ -9,7 +9,7 @@
+ const manifest = JSON.parse(await fs.readFile(path.join(root, "chrome-extension", "manifest.json"), "utf8"));
+ const workerVersion = workerSource.match(/const VERSION = "([^"]+)";/)?.[1];
+ assert.equal(workerVersion, manifest.version, "service worker and manifest versions should match");
+-assert.equal(workerVersion, "0.2.24");
++assert.equal(workerVersion, "0.2.25");
+ const helperMatch = workerSource.match(
+   /function normalizeWorkspacePoolSize[\s\S]*?\n}\n\n(?=function errorPayload)/,
+ );
+--- a/tests/chrome-snapshot-media-diagnostics.mjs
++++ b/tests/chrome-snapshot-media-diagnostics.mjs
+@@ -307,6 +307,6 @@
+ assert.match(source, /roots\.length >= 512/);
+ assert.match(source, /entry\.depth >= 16/);
+ assert.match(source, /observedElements\.length >= 20000/);
+-assert.match(source, /LOADED_EXTENSION_BUILD_ID = "browser-control-events-20261113\.1"/);
++assert.match(source, /LOADED_EXTENSION_BUILD_ID = "browser-body-layout-bootstrap-20261113\.8"/);
+ 
+ console.log("chrome-snapshot-media-diagnostics: bounds, privacy, and passive-read checks passed");
+--- a/tests/chrome-video-file-input.mjs
++++ b/tests/chrome-video-file-input.mjs
+@@ -345,7 +345,7 @@
+ assert.match(source, /activeVideoTransferCount >= MAX_ACTIVE_VIDEO_FILE_TRANSFERS/);
+ assert.match(source, /extensionReloadReserved = true;/);
+ assert.match(source, /countActiveVideoFileTransfers\(\)/);
+-assert.match(source, /LOADED_EXTENSION_BUILD_ID = "browser-control-events-20261113\.1"/);
++assert.match(source, /LOADED_EXTENSION_BUILD_ID = "browser-body-layout-bootstrap-20261113\.8"/);
+ assert.match(source, /selector.length > 10000/);
+ for (const phase of ["Begin", "Chunk", "Commit", "Abort"]) {
+   assert.ok(source.includes('case "tabs.videoFile' + phase + '":'));
+--- /dev/null
++++ b/chrome-extension/background-layout-start.js
+@@ -0,0 +1,103 @@
++// Opt-in one-navigation compatibility shim. It supplements only the INITIAL
++// document.body content-box notification in a hidden document, using measured
++// CSS geometry. It never activates a tab, changes visibility, forces animation
++// frames, invokes application internals or supplies trusted input events.
++(() => {
++  'use strict';
++  const key = Symbol.for('macDeveloperBridge.bodyLayoutSeed.v1');
++  let marker;
++  try { marker = JSON.parse(window.name); } catch { return; }
++  if (!marker || marker.type !== 'mdb-body-layout-seed-v1'
++      || !/^[a-f0-9-]{36}$/.test(marker.nonce || '')
++      || typeof marker.previousName !== 'string' || marker.previousName.length > 65536
++      || typeof marker.expectedUrl !== 'string') return;
++  window.name = marker.previousName;
++  if (location.href !== marker.expectedUrl || window.top !== window || window[key]) return;
++  const NativeObserver = window.ResizeObserver;
++  const report = { nonce: marker.nonce, installed: false, restored: false,
++    initialBodyDeliveries: 0, nativeBodyDeliveries: 0, skipped: 0, bodyObserveRequests: 0, pendingAtRestore: 0,
++    expiresAt: Date.now() + 10000, visibilityAtStart: document.visibilityState };
++  Object.defineProperty(window, key, { value: report, configurable: true });
++  if (typeof NativeObserver !== 'function' || document.visibilityState !== 'hidden') {
++    report.reason = 'native-visible-or-observer-unavailable'; report.restored = true; return;
++  }
++  const states = new WeakMap();
++  const pending = new Set();
++  let delivered = 0;
++  const cancel = state => {
++    if (state.timer !== null) { clearTimeout(state.timer); pending.delete(state.timer); state.timer = null; }
++  };
++  const measureBody = target => {
++    if (target !== document.body || !target.isConnected || target.ownerDocument !== document) return null;
++    const css = getComputedStyle(target);
++    if (css.display === 'none' || css.visibility === 'hidden') return null;
++    const number = name => { const n = Number.parseFloat(css[name]); return Number.isFinite(n) ? n : 0; };
++    const pl=number('paddingLeft'), pr=number('paddingRight'), pt=number('paddingTop'), pb=number('paddingBottom');
++    const bl=number('borderLeftWidth'), br=number('borderRightWidth'), bt=number('borderTopWidth'), bb=number('borderBottomWidth');
++    let width=Number.parseFloat(css.width), height=Number.parseFloat(css.height);
++    if (css.boxSizing === 'border-box') { width -= pl+pr+bl+br; height -= pt+pb+bt+bb; }
++    if (![width,height].every(n=>Number.isFinite(n)&&n>=0&&n<10000000)) return null;
++    const vertical=/^(vertical|sideways)-/.test(css.writingMode);
++    const size=(w,h)=>Object.freeze({inlineSize:vertical?h:w,blockSize:vertical?w:h});
++    const rect=new DOMRectReadOnly(pl,pt,width,height);
++    return Object.freeze({target,contentRect:rect,
++      contentBoxSize:Object.freeze([size(width,height)]),
++      borderBoxSize:Object.freeze([size(width+pl+pr+bl+br,height+pt+pb+bt+bb)])});
++  };
++  class InitialBodyObserver extends NativeObserver {
++    constructor(callback) {
++      if (typeof callback !== 'function') { super(callback); return; }
++      let state;
++      super((entries,observer)=>{
++        if (state && entries.some(entry=>entry.target===document.body)) {
++          state.nativeBodySeen=true; cancel(state); report.nativeBodyDeliveries++;
++        }
++        callback(entries,observer);
++      });
++      state={callback,observer:this,target:null,timer:null,nativeBodySeen:false,seeded:false};
++      states.set(this,state);
++    }
++    observe(target,options) {
++      const result=super.observe(target,options), state=states.get(this);
++      if (target===document.body) report.bodyObserveRequests=Math.min(100000,report.bodyObserveRequests+1);
++      if (!state || state.seeded || state.timer!==null || target!==document.body
++          || (options?.box && options.box!=='content-box') || Date.now()>=report.expiresAt
++          || document.visibilityState!=='hidden' || delivered>=256 || pending.size>=256) return result;
++      state.target=target; state.nativeBodySeen=false;
++      state.timer=setTimeout(()=>{
++        pending.delete(state.timer);state.timer=null;
++        if (state.target!==target || state.nativeBodySeen || state.seeded
++            || Date.now()>=report.expiresAt || document.visibilityState!=='hidden' || delivered>=256) return;
++        const entry=measureBody(target);
++        if (!entry) {report.skipped++;return;}
++        state.seeded=true;delivered++;report.initialBodyDeliveries++;
++        // Supplemental initial delivery only. Later native notifications remain
++        // native and are not suppressed or fabricated by this compatibility shim.
++        state.callback([entry],state.observer);
++      },50);
++      pending.add(state.timer);
++      return result;
++    }
++    unobserve(target) {
++      const result=super.unobserve(target),state=states.get(this);
++      if (state && state.target===target) {state.target=null;cancel(state);}
++      return result;
++    }
++    disconnect() {
++      const result=super.disconnect(),state=states.get(this);
++      if (state) {state.target=null;cancel(state);}
++      return result;
++    }
++  }
++  window.ResizeObserver=InitialBodyObserver;
++  report.installed=window.ResizeObserver===InitialBodyObserver;
++  const restore=()=>{
++    report.pendingAtRestore=pending.size;
++    for (const timer of pending) clearTimeout(timer);pending.clear();
++    if (window.ResizeObserver===InitialBodyObserver) window.ResizeObserver=NativeObserver;
++    report.restored=window.ResizeObserver===NativeObserver;
++    window.removeEventListener('pagehide',restore);
++  };
++  window.addEventListener('pagehide',restore,{once:true});
++  setTimeout(restore,10000);
++})();
+--- /dev/null
++++ b/docs/browser-background-layout.md
+@@ -0,0 +1,105 @@
++# Background layout compatibility
++
++## Reproduced problem and acceptance
++
++The November 13, 2026 investigation distinguished input dispatch from application
++readiness. Patreon’s public viewport hook initially reports a pending state and
++uses a native body ResizeObserver callback to choose its breakpoint. Until that
++callback arrives, its menu wrapper renders the visual button without menu
++handlers. In the observed hidden tab, ordinary clicks and stronger event details
++could not fix an uninitialized control.
++
++An owned localhost fixture reproduced the dependency using a native observer and
++a menu that remained closed until the initial body measurement. The explicit
++bootstrap changed the fixture from zero deliveries and no menu to one measured
++delivery and an operable menu, with the tab still hidden.
++
++The initial 32-delivery limit was insufficient on the actual editor. Its diagnostic
++receipt reached the cap before all viewport hooks initialized. The final 256 cap
++covered 77 observed body subscriptions and 76 supplemental initial deliveries. The
++real collection menu then exposed its native menu semantics and all choices,
++including the already-selected Supporter Notebook. Existing tag suggestions also
++rendered. The original constructor was restored after the ten-second window, with
++zero pending supplemental callbacks. No collection was toggled for testing.
++
++This verifies the installed hidden-tab workflow observed in this session. It does
++not establish universal compatibility with arbitrary controls or future site code.
++
++## Explicit tools
++
++`chrome_reload_for_background_layout` requires:
++
++- `tab_id`: an inactive extension-owned MDB tab.
++- `expected_url` and `expected_document_id`: from a fresh snapshot.
++- `reload_saved_page: true`: acknowledgement that unsaved edits will be discarded.
++- `operation_id`: a unique stable ID for the one reload.
++
++The action reloads only the guarded URL. A temporary top-frame document-start
++registration recognizes a nonce-scoped marker in that tab, restores its previous
++window name, and wraps newly created ResizeObservers for ten seconds. It supplies
++at most one supplemental initial body content-box notification per eligible
++observer, with caps of 256 pending and 256 delivered callbacks. CSS content/border
++box dimensions and writing mode are measured; hidden, disconnected or non-finite
++geometry is skipped. Explicit other box modes are not supplemented. Native first
++delivery wins; disconnect and unobserve cancel pending supplementation. Later
++native notifications remain unchanged. There is no ongoing synthetic resize loop.
++
++The temporary registration is removed after the reload action. The constructor is
++restored on timeout or page exit. `chrome_background_layout_status` reads only the
++bridge’s own bounded counters and restoration state; it cannot inspect app stores,
++callbacks, credentials or private framework properties. A fresh page can return no
++receipt. Installation and event dispatch remain distinct from saved app acceptance.
++
++Do not reload an editor containing unsaved user work. Never bypass a rejected URL,
++profile, document or inactive-tab guard. Reconcile uncertain reload outcomes before
++considering another action. The feature needs no new extension permissions,
++foreground browser control, debugger, user-gesture spoof, private endpoint or
++arbitrary script-evaluation interface.
++
++## Other compatibility improvements
++
++Adaptive pointer clicks now include pointerenter and mouseenter with their native
++non-bubbling, non-cancelable, non-composed characteristics. The complete measured
++sequence matches the native owned-button reference. The explicit dom-click mode
++remains a single activation without this pointer prelude.
++
++Enhanced snapshots include bounded visible native labels, ancestor/control context,
++popup geometry and external script source URLs without query strings. They never
++return hidden popup text or inline script contents. Default snapshots stay unchanged.
++
++The opt-in `observe_animation_frames` click diagnostic temporarily counts native
++frame registrations/completions. It never forces a frame. The observer is removed
++before the response, cancellation still works, and no callback source is exposed.
++The diagnostic rejected an early frame-only explanation for the actual Patreon
++collection button: no frames were registered because its menu handler was absent.
++
++## Patreon metadata workflow
++
++For a published post, verify the exact existing ID, title, body, audience and
++notification settings before saving. Do not treat a successful click or retained
++input value as a persisted setting. Open the native menu and confirm the selected
++collection by its actual label and checked state.
++
++An existing tag may make Enter defer to the suggestion menu instead of creating a
++chip. With menus initialized, inspect and select the ordinary suggestion. A second
++supported path is the editor’s native blur commit: fill the input with `set-value`
++and `commit: blur`, then inspect the resulting chips. The app can consume/recreate
++the input during a successful commit, so a CHROME_TARGET_CHANGED receipt requires
++reconciliation, not automatic replay or an assumption of failure.
++
++When updating a published post, open Emails and notifications and verify the
++member-notification switch is off unless notification is expressly authorized.
++Compare the protected body/title and access with the saved baseline, use Update
++once, then reopen the published page and verify its tags/collection/media. The
++November 13 forest post required only its missing development tag; its owner had
++already published it in Supporter Notebook. No republication or member notification
++was performed by this repair.
++
++## Tests
++
++`npm run check` and `npm test` include syntax and bootstrap/routing guards.
++`npm run test:browser-popup` uses an isolated headless Chrome profile and owned
++fixtures. It does not attach to the owner’s session. The prior keyboard regression
++can additionally be run against its saved pre-keycode baseline. Installed acceptance
++used the normal public bridge tools against an owned loopback fixture, then inspected
++the authorized Patreon editor. Private receipts stay outside the public patch package.
+--- /dev/null
++++ b/tests/chrome-body-layout-bootstrap.mjs
+@@ -0,0 +1,30 @@
++import assert from 'node:assert/strict';
++import fs from 'node:fs/promises';
++import path from 'node:path';
++import vm from 'node:vm';
++import {fileURLToPath} from 'node:url';
++const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
++const code=await fs.readFile(path.join(root,'chrome-extension/background-layout-start.js'),'utf8');
++const nonce='11111111-2222-4333-8444-555555555555', url='https://example.test/owned-fixture';
++function fixture({visibility='hidden',valid=true,bodyStyle={}}={}){
++ let now=0,id=0;const timers=new Map(),native=[];
++ class NativeObserver{constructor(callback){if(typeof callback!=='function')throw new TypeError();this.callback=callback;this.targets=new Set();native.push(this);}observe(t){this.targets.add(t);}unobserve(t){this.targets.delete(t);}disconnect(){this.targets.clear();}}
++ const document={visibilityState:visibility},body={isConnected:true,ownerDocument:document};document.body=body;
++ const style={display:'block',visibility:'visible',boxSizing:'content-box',width:'200px',height:'100px',paddingLeft:'10px',paddingRight:'15px',paddingTop:'5px',paddingBottom:'6px',borderLeftWidth:'1px',borderRightWidth:'2px',borderTopWidth:'3px',borderBottomWidth:'4px',writingMode:'horizontal-tb',...bodyStyle};
++ const win={name:valid?JSON.stringify({type:'mdb-body-layout-seed-v1',nonce,previousName:'PRIVATE-NAME',expectedUrl:url}):'PRIVATE-NAME',ResizeObserver:NativeObserver,addEventListener(){},removeEventListener(){}};win.top=win;
++ const ctx=vm.createContext({window:win,document,location:{href:url},Symbol,JSON,Object,WeakMap,Set,Number,Date:{now:()=>now},getComputedStyle:()=>style,DOMRectReadOnly:class{constructor(x,y,width,height){Object.assign(this,{x,y,width,height});}},setTimeout:(fn,delay)=>{const key=++id;timers.set(key,{fn,at:now+delay});return key;},clearTimeout:key=>timers.delete(key)});
++ vm.runInContext(code,ctx);
++ return {win,body,document,native,NativeObserver,timers,report:()=>win[Symbol.for('macDeveloperBridge.bodyLayoutSeed.v1')],advance:ms=>{now+=ms;for(const [key,t]of [...timers])if(t.at<=now){timers.delete(key);t.fn();}}};
++}
++const results=[];function test(name,fn){try{fn();results.push({name,passed:true});}catch(e){results.push({name,passed:false,error:e.message});}}
++test('unmarked-page-and-visible-page-leave-native-observer-alone',()=>{for(const args of [{valid:false},{visibility:'visible'}]){const f=fixture(args);assert.equal(f.win.ResizeObserver,f.NativeObserver);assert.equal(f.win.name,'PRIVATE-NAME');}});
++test('hidden-body-initial-size-is-measured-once-with-original-observer-instance',()=>{const f=fixture(),seen=[];const o=new f.win.ResizeObserver((entries,obs)=>seen.push({entries,obs}));assert.ok(o instanceof f.NativeObserver);o.observe(f.body);assert.equal(seen.length,0);f.advance(50);assert.equal(seen.length,1);assert.equal(seen[0].obs,o);assert.deepEqual({...seen[0].entries[0].contentRect},{x:10,y:5,width:200,height:100});assert.equal(seen[0].entries[0].borderBoxSize[0].inlineSize,228);assert.equal(f.win.name,'PRIVATE-NAME');o.observe(f.body);f.advance(50);assert.equal(seen.length,1);});
++test('native-initial-delivery-wins-and-later-native-callbacks-remain-intact',()=>{const f=fixture(),seen=[];const o=new f.win.ResizeObserver(e=>seen.push(e));o.observe(f.body);o.callback([{target:f.body,contentRect:{width:200,height:100}}],o);f.advance(50);assert.equal(seen.length,1);assert.equal(f.report().initialBodyDeliveries,0);o.callback([{target:f.body,contentRect:{width:210,height:100}}],o);assert.equal(seen.length,2);});
++test('disconnect-unobserve-nonbody-and-explicit-other-box-do-not-seed',()=>{for(const mode of ['disconnect','unobserve','other','border']){const f=fixture();let n=0;const o=new f.win.ResizeObserver(()=>n++);const target=mode==='other'?{...f.body}:f.body;o.observe(target,mode==='border'?{box:'border-box'}:undefined);if(mode==='disconnect')o.disconnect();if(mode==='unobserve')o.unobserve(target);f.advance(50);assert.equal(n,0,mode);}});
++test('zero-invisible-or-nonfinite-content-dimensions-are-not-invented',()=>{for(const bodyStyle of [{display:'none'},{width:'auto'},{height:'Infinitypx'}]){const f=fixture({bodyStyle});let n=0;new f.win.ResizeObserver(()=>n++).observe(f.body);f.advance(50);assert.equal(n,0);}});
++test('border-box-and-vertical-writing-dimensions-are-accounted-for',()=>{const f=fixture({bodyStyle:{boxSizing:'border-box',width:'228px',height:'118px',writingMode:'vertical-rl'}});let e;new f.win.ResizeObserver(x=>e=x[0]).observe(f.body);f.advance(50);assert.equal(e.contentRect.width,200);assert.equal(e.contentRect.height,100);assert.equal(e.contentBoxSize[0].inlineSize,100);assert.equal(e.contentBoxSize[0].blockSize,200);});
++test('initial-pending-and-delivery-cap-is-256-and-constructor-restores',()=>{const f=fixture();let n=0;for(let i=0;i<300;i++)new f.win.ResizeObserver(()=>n++).observe(f.body);assert.ok(f.timers.size<=257);f.advance(50);assert.equal(n,256);f.advance(10000);assert.equal(f.win.ResizeObserver,f.NativeObserver);assert.equal(f.report().restored,true);assert.equal(f.timers.size,0);});
++test('guarded-source-has-no-user-gesture-or-framework-bypass',()=>{assert.doesNotMatch(code,/isTrusted|Object\.defineProperty\(document|requestAnimationFrame\s*=|__react|fetch\(|XMLHttpRequest|innerHTML\s*=/);const manifest=JSON.parse(requireText('chrome-extension/manifest.json'));assert.ok(!manifest.permissions.includes('debugger'));});
++function requireText(p){return fsSync.readFileSync(path.join(root,p),'utf8');}
++import fsSync from 'node:fs';
++console.log(JSON.stringify({passed:results.filter(x=>x.passed).length,total:results.length,results},null,2));if(results.some(x=>!x.passed))process.exitCode=1;
+--- /dev/null
++++ b/tests/chrome-body-layout-routing.mjs
+@@ -0,0 +1,50 @@
++import assert from 'node:assert/strict';
++import fs from 'node:fs/promises';
++import vm from 'node:vm';
++import path from 'node:path';
++import {fileURLToPath} from 'node:url';
++const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
++const bridge=await fs.readFile(path.join(root,'bridge.mjs'),'utf8');
++const worker=await fs.readFile(path.join(root,'chrome-extension/service-worker.js'),'utf8');
++const plain=x=>JSON.parse(JSON.stringify(x));
++function fn(source,name){const at=source.indexOf('function '+name+'(');assert.ok(at>=0,name);return source.slice(at,source.indexOf('\n}',at)+2);}
++function clause(source,name){const at=source.indexOf('    case "'+name+'": {');assert.ok(at>=0,name);const end=source.indexOf('\n    case "',at+1);assert.ok(end>at,name);return source.slice(at,end);}
++const results=[];async function test(name,run){try{await run();results.push({name,passed:true});}catch(e){results.push({name,passed:false,error:e.message,stack:e.stack});}}
++await test('public-reload-argument-guards-use-real-helpers-and-forward-exact-identity',async()=>{
++ const calls=[];const context=vm.createContext({callBackgroundChrome:async(...a)=>{calls.push(plain(a));return {};},crypto:{randomUUID:()=>{throw Error('Implicit ID disallowed in fixture');}}});
++ for(const n of ['requireString','requireInteger','chromeOperationId'])vm.runInContext(fn(bridge,n),context);
++ const dispatch=vm.runInContext('(async function(args){switch("chrome_reload_for_background_layout"){'+clause(bridge,'chrome_reload_for_background_layout')+'}})',context);
++ const good={tab_id:7,expected_url:'https://example.test/owned',expected_document_id:'doc_before',reload_saved_page:true,operation_id:'owned-layout-0001'};
++ await dispatch(good);assert.equal(calls.length,1);assert.deepEqual(calls[0],['chrome_reload_for_background_layout','tabs.reloadForBackgroundLayout',{tabId:7,expectedUrl:good.expected_url,expectedDocumentId:'doc_before',reloadSavedPage:true},{operationId:'owned-layout-0001'}]);
++ for(const bad of [{...good,tab_id:-1},{...good,expected_document_id:'bad doc'},{...good,reload_saved_page:false},{...good,operation_id:undefined},{...good,expected_url:'x'.repeat(20001)}])await assert.rejects(()=>dispatch(bad));assert.equal(calls.length,1);
++});
++function fixture({active=false,url='https://example.test/owned',owned=true,deny=false,pinFails=false,reloadFails=false,cleanupFails=false}={}){
++ const events=[],tab={id:7,active,url};let injections=0;
++ const context=vm.createContext({URL,Date,Number,String,RegExp,crypto:{randomUUID:()=> '11111111-2222-4333-8444-555555555555'},setTimeout:(f)=>setTimeout(f,0),
++ getApprovedTab:async()=>{events.push('grant');if(deny)throw Error('DENIED');return tab;},workspaceStatus:async()=>({tabIds:owned?[7]:[]}),assertUrlAllowed:()=>events.push('url-grant'),touchWorkspaceLease:async()=>events.push('touch'),
++ chrome:{scripting:{registerContentScripts:async x=>events.push(['register',plain(x)]),unregisterContentScripts:async x=>{events.push(['unregister',plain(x)]);if(cleanupFails)throw Error('CLEANUP_FAILED');}},tabs:{reload:async()=>{events.push('reload');if(reloadFails)throw Error('RELOAD_FAILED');},get:async()=>tab}},
++ executeInTab:async(_tab,func,args,world,options)=>{
++  events.push(['inject',world,plain(options||{})]);injections++;
++  if(injections===1){if(pinFails)throw Error('DOCUMENT_CHANGED');assert.equal(options.expectedDocumentId,'doc_before');return {markerInstalled:true};}
++  if(injections===2)return {readyState:'interactive',documentId:'doc_after',bootstrap:{installed:true,restored:false,initialBodyDeliveries:0,nativeBodyDeliveries:0,skipped:0}};
++  return {markerCleanupAttempted:true};
++ }});
++ const dispatch=vm.runInContext('(async function(args){const compiled={};const message={deadlineMs:Date.now()+1000};switch("tabs.reloadForBackgroundLayout"){'+clause(worker,'tabs.reloadForBackgroundLayout')+'}})',context);
++ return {events,run:(args={})=>dispatch({tabId:7,expectedUrl:'https://example.test/owned',expectedDocumentId:'doc_before',reloadSavedPage:true,...args})};
++}
++await test('inactive-owned-exact-page-reloads-once-and-cleans-registration-and-marker',async()=>{
++ const f=fixture();const r=await f.run();assert.equal(f.events.filter(x=>x==='reload').length,1);const reg=f.events.find(x=>Array.isArray(x)&&x[0]==='register')[1][0];assert.equal(reg.runAt,'document_start');assert.equal(reg.world,'MAIN');assert.equal(reg.persistAcrossSessions,false);assert.equal(reg.allFrames,false);assert.deepEqual(reg.js,['background-layout-start.js']);assert.equal(f.events.filter(x=>Array.isArray(x)&&x[0]==='unregister').length,1);assert.equal(r.applicationAccepted,null);assert.equal(r.outcomeVerified,false);assert.equal(r.active,false);assert.equal(r.reloaded,true);
++});
++await test('active-nonworkspace-denied-mismatched-page-and-invalid-ack-refused-before-registration',async()=>{
++ for(const opts of [{active:true},{owned:false},{deny:true},{url:'https://example.test/other'}]){const f=fixture(opts);await assert.rejects(()=>f.run());assert.ok(!f.events.some(x=>x==='reload'||Array.isArray(x)&&x[0]==='register'));}
++ const f=fixture();await assert.rejects(()=>f.run({reloadSavedPage:false}));assert.ok(!f.events.includes('reload'));
++});
++await test('stale-document-pin-cleans-registration-without-reload',async()=>{const f=fixture({pinFails:true});await assert.rejects(()=>f.run(),/DOCUMENT_CHANGED/);assert.ok(!f.events.includes('reload'));assert.equal(f.events.filter(x=>Array.isArray(x)&&x[0]==='unregister').length,1);});
++await test('reload-failure-restores-marker-and-never-retries',async()=>{const f=fixture({reloadFails:true});await assert.rejects(()=>f.run(),/RELOAD_FAILED/);assert.equal(f.events.filter(x=>x==='reload').length,1);assert.equal(f.events.filter(x=>Array.isArray(x)&&x[0]==='unregister').length,1);assert.equal(f.events.filter(x=>Array.isArray(x)&&x[0]==='inject').length,2);});
++await test('cleanup-failure-is-not-misreported-as-a-clean-success',async()=>{const f=fixture({cleanupFails:true});await assert.rejects(()=>f.run(),/CLEANUP_FAILED/);});
++await test('read-only-status-exposes-only-bounded-owned-counters',async()=>{
++ const report={installed:true,restored:true,initialBodyDeliveries:76,nativeBodyDeliveries:0,skipped:0,bodyObserveRequests:77,pendingAtRestore:0,expiresAt:0,visibilityAtStart:'hidden',private:'PRIVATE-CANARY'};
++ const ctx=vm.createContext({getApprovedTab:async()=>({id:7}),executeInTab:async(_tab,func)=>vm.runInNewContext('('+func.toString()+')()', {window:{[Symbol.for('macDeveloperBridge.bodyLayoutSeed.v1')]:report},Symbol,Number,Date})});
++ const run=vm.runInContext('(async function(args){const compiled={};const message={deadlineMs:Date.now()+1000};switch("tabs.backgroundLayoutStatus"){'+clause(worker,'tabs.backgroundLayoutStatus')+'}})',ctx);const r=await run({tabId:7});assert.equal(r.bootstrap.initialBodyDeliveries,76);assert.doesNotMatch(JSON.stringify(r),/PRIVATE-CANARY|nonce|private/);
++});
++console.log(JSON.stringify({passed:results.filter(x=>x.passed).length,total:results.length,results},null,2));if(results.some(x=>!x.passed))process.exitCode=1;
+--- /dev/null
++++ b/tests/chrome-popup-diagnostics-real-browser.mjs
+@@ -0,0 +1,35 @@
++import assert from 'node:assert/strict';
++import fs from 'node:fs/promises';
++import path from 'node:path';
++import os from 'node:os';
++import {createRequire} from 'node:module';
++import {fileURLToPath} from 'node:url';
++const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
++const source=await fs.readFile(path.join(root,'chrome-extension/service-worker.js'),'utf8');
++const require=createRequire(import.meta.url), p=await import(require.resolve('playwright'));
++const {chromium}=p.chromium?p:p.default;
++function extract(name){const m=new RegExp('^(?:async )?function '+name+'\\(','m').exec(source);assert.ok(m);return source.slice(m.index,source.indexOf('\n}',m.index)+2);}
++const profile=await fs.mkdtemp(path.join(os.tmpdir(),'mdb-popup-diagnostics-'));await fs.chmod(profile,0o700);
++const results=[];let ctx;
++async function test(name,fn){const page=await ctx.newPage();try{await page.setContent('<!doctype html><title>Owned popup fixture</title><label id="label" style="display:block;padding:20px">Enable<input id="check" type="checkbox" style="opacity:0"></label><button id="button">Open menu</button><button id="disabled" disabled>Disabled</button><div id="hidden" role="listbox" style="display:none">PRIVATE-HIDDEN-CANARY</div><output id="result">0</output>');await page.addScriptTag({content:extract('pageSnapshot')+'\n'+extract('pageClick')+'\nwindow.actions={pageSnapshot,pageClick};window.originalFrame=requestAnimationFrame;'});await fn(page);results.push({name,passed:true});}catch(e){results.push({name,passed:false,error:e.message});}finally{await page.close();}}
++try{ctx=await chromium.launchPersistentContext(profile,{headless:true,channel:'chrome',serviceWorkers:'block',acceptDownloads:false,viewport:{width:1000,height:800}});await ctx.route('**/*',r=>r.abort());
++await test('default-snapshot-has-no-opt-in-diagnostics',async page=>{const s=await page.evaluate(()=>actions.pageSnapshot(10000,100));assert.equal(s.popupDiagnostics,undefined);assert.ok(s.elements.every(e=>!e.controlContext));});
++await test('visible-native-label-is-observed-and-activates-hidden-checkbox',async page=>{const s=await page.evaluate(()=>actions.pageSnapshot(10000,100,{includeNonsemantic:true}));const e=s.elements.find(e=>e.selector==='#check');assert.equal(e.controlContext.labels[0].selector,'#label');await page.evaluate(()=>actions.pageClick('#label'));assert.equal(await page.locator('#check').isChecked(),true);});
++await test('hidden-popup-metadata-contains-no-hidden-text-and-is-bounded',async page=>{await page.evaluate(()=>{for(let i=0;i<25;i++){const e=document.createElement('div');e.setAttribute('role','menu');e.style.display='none';e.textContent='PRIVATE-HIDDEN-CANARY';document.body.append(e);}});const s=await page.evaluate(()=>actions.pageSnapshot(10000,100,{includeNonsemantic:true}));assert.equal(s.popupDiagnostics.count,26);assert.equal(s.popupDiagnostics.samples.length,20);assert.equal(s.popupDiagnostics.truncated,true);assert.doesNotMatch(JSON.stringify(s),/PRIVATE-HIDDEN-CANARY/);});
++await test('frame-observation-keeps-native-callback-timing-and-restores-api',async page=>{await page.evaluate(()=>document.querySelector('#button').onclick=()=>requestAnimationFrame(t=>{document.querySelector('#result').textContent=String(Number(document.querySelector('#result').textContent)+1);window.frameTimestamp=t;}));const r=await page.evaluate(()=>actions.pageClick('#button',{observeAnimationFrames:true}));assert.equal(r.animationFrameObservation.registered,1);assert.equal(r.animationFrameObservation.completed,1);assert.equal(r.animationFrameObservation.restored,true);assert.equal(await page.locator('#result').innerText(),'1');assert.equal(await page.evaluate(()=>requestAnimationFrame===originalFrame),true);});
++await test('native-cancellation-remains-effective',async page=>{await page.evaluate(()=>document.querySelector('#button').onclick=()=>{const id=requestAnimationFrame(()=>document.querySelector('#result').textContent='BAD');cancelAnimationFrame(id);});const r=await page.evaluate(()=>actions.pageClick('#button',{observeAnimationFrames:true}));assert.equal(r.animationFrameObservation.registered,1);assert.equal(r.animationFrameObservation.completed,0);assert.equal(r.animationFrameObservation.restored,true);assert.equal(await page.locator('#result').innerText(),'0');});
++await test('disabled-control-does-not-install-observer-or-send-event',async page=>{const r=await page.evaluate(()=>actions.pageClick('#disabled',{observeAnimationFrames:true,errorsAsData:true}));assert.equal(r.__mdbPageActionError.actionDispatched,false);assert.equal(await page.evaluate(()=>requestAnimationFrame===originalFrame),true);});
++await test('target-removal-restores-frame-observer-without-replay',async page=>{await page.evaluate(()=>document.querySelector('#button').addEventListener('pointerdown',e=>e.currentTarget.remove()));const r=await page.evaluate(()=>actions.pageClick('#button',{observeAnimationFrames:true,errorsAsData:true}));assert.equal(r.__mdbPageActionError.code,'CHROME_TARGET_CHANGED');assert.equal(await page.evaluate(()=>requestAnimationFrame===originalFrame),true);assert.equal(await page.evaluate(()=>Object.hasOwn(window,Symbol.for('macDeveloperBridge.frameObserver.v1'))),false);});
++await test('pointer-entry-sequence-matches-native-event-fields',async page=>{
++ await page.evaluate(()=>{
++  window.events=[];const fields=['type','button','buttons','detail','pointerType','pointerId','isPrimary','pressure','width','height','bubbles','cancelable','composed'];
++  for(const type of ['pointerover','pointerenter','mouseover','mouseenter','pointermove','mousemove','pointerdown','mousedown','focus','focusin','pointerup','mouseup','click'])
++   document.querySelector('#button').addEventListener(type,e=>window.events.push(Object.fromEntries(fields.map(k=>[k,e[k]]))));
++ });
++ await page.locator('#button').click();const native=await page.evaluate(()=>events);
++ await page.evaluate(()=>{document.querySelector('#button').blur();events=[];});
++ await page.evaluate(()=>actions.pageClick('#button'));const synthetic=await page.evaluate(()=>events);
++ assert.deepEqual(synthetic,native);
++});
++}finally{if(ctx)await ctx.close();await fs.rm(profile,{recursive:true,force:true});}
++console.log(JSON.stringify({passed:results.filter(r=>r.passed).length,total:results.length,profileRemoved:true,results},null,2));if(results.some(r=>!r.passed))process.exitCode=1;
+--- /dev/null
++++ b/tests/chrome-body-layout-installed-smoke.mjs
+@@ -0,0 +1,7 @@
++import http from 'node:http';import fs from 'node:fs/promises';import os from 'node:os';import path from 'node:path';
++// Explicit owned loopback fixture. Starts no browser and touches no account.
++const output=await fs.mkdtemp(path.join(os.tmpdir(),'mdb-body-layout-acceptance-'));await fs.chmod(output,0o700);
++const js=`const state={bodyReady:false,deliveries:0,menuOpen:false};const read=()=>{document.querySelector('#state').textContent=JSON.stringify(state)};document.querySelector('#menu').onclick=()=>{if(!state.bodyReady)return;state.menuOpen=!state.menuOpen;document.querySelector('#choices').hidden=!state.menuOpen;read()};const bodyObserver=new ResizeObserver(entries=>{state.bodyReady=true;state.deliveries++;const e=entries[0];state.width=e.contentRect.width;state.height=e.contentRect.height;document.querySelector('#menu').setAttribute('aria-haspopup','menu');read()});bodyObserver.observe(document.body);read();`;
++const html='<!doctype html><meta charset="utf-8"><title>MDB initial body-layout fixture</title><style>body{width:640px;padding:20px;font:16px system-ui}button{padding:12px}#choices[hidden]{display:none}</style><h1>Owned initial layout fixture</h1><p>Controls wait for the initial body ResizeObserver callback. No account or external requests.</p><button id="menu">Select collection</button><div id="choices" role="menu" hidden><button role="menuitem">Supporter Notebook fixture</button></div><pre id="state"></pre><script src="/app.js"></script>';
++const server=http.createServer((req,res)=>{res.setHeader('Cache-Control','no-store');res.setHeader('Content-Security-Policy',"default-src 'none';script-src 'self';style-src 'unsafe-inline';connect-src 'none';img-src 'none';base-uri 'none';form-action 'none'");if(req.method!=='GET'){res.writeHead(405);res.end();return;}if(req.url==='/'){res.setHeader('Content-Type','text/html');res.end(html);return;}if(req.url==='/app.js'){res.setHeader('Content-Type','text/javascript');res.end(js);return;}res.writeHead(404);res.end();});
++server.listen(0,'127.0.0.1',async()=>{const s={pid:process.pid,origin:'http://127.0.0.1:'+server.address().port,directory:output};await fs.writeFile(path.join(output,'server-info.json'),JSON.stringify(s));console.log(JSON.stringify(s))});for(const signal of ['SIGTERM','SIGINT'])process.on(signal,()=>server.close(()=>process.exit(0)));

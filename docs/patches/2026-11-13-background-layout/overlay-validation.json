@@ -1,0 +1,7 @@
+{
+  "baseline_apply_check": true,
+  "patched_bytes_match_installed": true,
+  "installed_reverse_check": true,
+  "permissions_unchanged": true,
+  "unrelated_owner_files_included": false
+}

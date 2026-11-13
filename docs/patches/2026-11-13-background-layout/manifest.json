@@ -1,0 +1,86 @@
+{
+  "created_at_utc": "2026-11-13T20:44:10.784362+00:00",
+  "extension_version": "0.2.25",
+  "build_id": "browser-body-layout-bootstrap-20261113.8",
+  "patch": "background-layout-only.patch",
+  "expected_predecessor": "browser-control-events-20261113.1",
+  "purpose": "Overlay on the combined installed working tree; does not replace prior owner changes.",
+  "existing_files": [
+    {
+      "path": "bridge.mjs",
+      "baseline_sha256": "aad2a2091dad1cc7b4b4b2a9f4b8eefa1645310e4a8774e571cb9793e09a839a",
+      "installed_sha256": "df4540e173b17f3033ea1712e4dfbcd89b5fab24cf66c6109a0312b216ad834f"
+    },
+    {
+      "path": "chrome-extension/service-worker.js",
+      "baseline_sha256": "4f4191bef3e47780209ed319d2c5505ccc93042f09654e7ef5e04024c950d596",
+      "installed_sha256": "5aa85827e7cf72fcafdf03aa6047fbd133635ec2c536758485b2b81b723ee200"
+    },
+    {
+      "path": "chrome-extension/manifest.json",
+      "baseline_sha256": "1f3ec2124c50ea6942f8bb9f7f8281f3b4eb6b10af9cafecb686570f1ba0cb14",
+      "installed_sha256": "7a1a0fd7bfc480b526151571760407a405aff98d0b23dc8a25a69d725e2e3bbd"
+    },
+    {
+      "path": "lib/chrome-operation-registry.mjs",
+      "baseline_sha256": "a11f3df727f7f2f648581a6a2c9e65584ca9fd12bad188fe59bd432e353e76cd",
+      "installed_sha256": "a11f3df727f7f2f648581a6a2c9e65584ca9fd12bad188fe59bd432e353e76cd"
+    },
+    {
+      "path": "package.json",
+      "baseline_sha256": "109e4b9770346afc68df97cc0dd7abffff807a0a2889b2f359c6a713e32158a4",
+      "installed_sha256": "7cffb09b7a1cd7dc1348dc55c7f1640c86a46aef8da974ee6e7aa342a51f8df5"
+    },
+    {
+      "path": "README.md",
+      "baseline_sha256": "c36f1c4df575f8c89a1bb0917e91ab956a0bc9c8cfd8d9f0c2f9643b56be8745",
+      "installed_sha256": "4090e4ccabe4c52fc6bfb7195145b76a6159461d0bf3164a90a3edf08a5d133c"
+    },
+    {
+      "path": "tests/chrome-background.mjs",
+      "baseline_sha256": "343245ef38a398d34444b6f64526e67693bbba2b8a18efbba60423b2dc590e4e",
+      "installed_sha256": "3b74b52c1cc18dae75bb4e1fb66596fa8f36fbf8c7391541b10f3d89af1e5a6d"
+    },
+    {
+      "path": "tests/chrome-workspace-capacity.mjs",
+      "baseline_sha256": "cfb40c589eb8ff67cca1fe5e0bdc02154745d4a999b89e7d70fbdf2ec4540bcb",
+      "installed_sha256": "859392acbc77fada853a303820dbaf6b20b6fde20431b618b5e54d39578f93e9"
+    },
+    {
+      "path": "tests/chrome-snapshot-media-diagnostics.mjs",
+      "baseline_sha256": "224cb3bb787f84699ce94d2043842099f355f02b19425bfeadd7a14c0939e3b9",
+      "installed_sha256": "d41942088497cf2c6b418255b929726879d52fd3f6e9bb63a5284cd339475a89"
+    },
+    {
+      "path": "tests/chrome-video-file-input.mjs",
+      "baseline_sha256": "c633c6ca5e8a9b0cc09feb722b886b32343d8208f0971fbd66d4d547893ff007",
+      "installed_sha256": "1c59c9c7b7647fd565b6ba760a7281b0df8f839fc28aafca40106a6abce2b89a"
+    }
+  ],
+  "new_files": [
+    {
+      "path": "chrome-extension/background-layout-start.js",
+      "installed_sha256": "82418df20e6845132d016cdf8932bbef9861f872df86a2bb6a81b16f1460e750"
+    },
+    {
+      "path": "docs/browser-background-layout.md",
+      "installed_sha256": "4bff625995573b65c280f9acc16659a207a525a8f0680360df193e2fcd205315"
+    },
+    {
+      "path": "tests/chrome-body-layout-bootstrap.mjs",
+      "installed_sha256": "b54bbfb19ab984d2ea32e585d046c2c2b2403470142143f9d26926ed395bcfaa"
+    },
+    {
+      "path": "tests/chrome-body-layout-routing.mjs",
+      "installed_sha256": "c3fcc4894d0b569d286fdc0818f40862745df2757b5a3a78c340f39e677548ff"
+    },
+    {
+      "path": "tests/chrome-popup-diagnostics-real-browser.mjs",
+      "installed_sha256": "5afdefa3854eb737ae4f1406de3bfcaa25170b015cc08d7d434d68cb1db33c64"
+    },
+    {
+      "path": "tests/chrome-body-layout-installed-smoke.mjs",
+      "installed_sha256": "fc411ecbf3aecbe36a78c350fb484a0677806b73972c9a398ebaeaae54f20f89"
+    }
+  ]
+}

@@ -1,0 +1,171 @@
+{
+  "syntax_check": "passed",
+  "npm_test_exit_code": 0,
+  "npm_test_log_sha256": "7dca58db3389a926129c25ee698a5b0e22400c73441661bdd253b7d6c8ac150c",
+  "new_bootstrap_tests": {
+    "passed": 8,
+    "total": 8,
+    "results": [
+      {
+        "name": "unmarked-page-and-visible-page-leave-native-observer-alone",
+        "passed": true
+      },
+      {
+        "name": "hidden-body-initial-size-is-measured-once-with-original-observer-instance",
+        "passed": true
+      },
+      {
+        "name": "native-initial-delivery-wins-and-later-native-callbacks-remain-intact",
+        "passed": true
+      },
+      {
+        "name": "disconnect-unobserve-nonbody-and-explicit-other-box-do-not-seed",
+        "passed": true
+      },
+      {
+        "name": "zero-invisible-or-nonfinite-content-dimensions-are-not-invented",
+        "passed": true
+      },
+      {
+        "name": "border-box-and-vertical-writing-dimensions-are-accounted-for",
+        "passed": true
+      },
+      {
+        "name": "initial-pending-and-delivery-cap-is-256-and-constructor-restores",
+        "passed": true
+      },
+      {
+        "name": "guarded-source-has-no-user-gesture-or-framework-bypass",
+        "passed": true
+      }
+    ]
+  },
+  "new_routing_tests": {
+    "passed": 7,
+    "total": 7,
+    "results": [
+      {
+        "name": "public-reload-argument-guards-use-real-helpers-and-forward-exact-identity",
+        "passed": true
+      },
+      {
+        "name": "inactive-owned-exact-page-reloads-once-and-cleans-registration-and-marker",
+        "passed": true
+      },
+      {
+        "name": "active-nonworkspace-denied-mismatched-page-and-invalid-ack-refused-before-registration",
+        "passed": true
+      },
+      {
+        "name": "stale-document-pin-cleans-registration-without-reload",
+        "passed": true
+      },
+      {
+        "name": "reload-failure-restores-marker-and-never-retries",
+        "passed": true
+      },
+      {
+        "name": "cleanup-failure-is-not-misreported-as-a-clean-success",
+        "passed": true
+      },
+      {
+        "name": "read-only-status-exposes-only-bounded-owned-counters",
+        "passed": true
+      }
+    ]
+  },
+  "popup_browser_tests": {
+    "passed": 8,
+    "total": 8,
+    "profileRemoved": true,
+    "results": [
+      {
+        "name": "default-snapshot-has-no-opt-in-diagnostics",
+        "passed": true
+      },
+      {
+        "name": "visible-native-label-is-observed-and-activates-hidden-checkbox",
+        "passed": true
+      },
+      {
+        "name": "hidden-popup-metadata-contains-no-hidden-text-and-is-bounded",
+        "passed": true
+      },
+      {
+        "name": "frame-observation-keeps-native-callback-timing-and-restores-api",
+        "passed": true
+      },
+      {
+        "name": "native-cancellation-remains-effective",
+        "passed": true
+      },
+      {
+        "name": "disabled-control-does-not-install-observer-or-send-event",
+        "passed": true
+      },
+      {
+        "name": "target-removal-restores-frame-observer-without-replay",
+        "passed": true
+      },
+      {
+        "name": "pointer-entry-sequence-matches-native-event-fields",
+        "passed": true
+      }
+    ]
+  },
+  "prior_keyboard_browser_tests": {
+    "passed": 6,
+    "total": 6,
+    "workerSha256": "5aa85827e7cf72fcafdf03aa6047fbd133635ec2c536758485b2b81b723ee200",
+    "baselineCompared": true,
+    "freshProfileRemoved": true,
+    "observations": {
+      "baseline": [
+        {
+          "key": "Enter",
+          "code": "Enter",
+          "keyCode": 0,
+          "which": 0,
+          "charCode": 0,
+          "trusted": false
+        }
+      ],
+      "repaired": [
+        {
+          "key": "Enter",
+          "code": "Enter",
+          "keyCode": 13,
+          "which": 13,
+          "charCode": 0,
+          "trusted": false
+        }
+      ]
+    },
+    "results": [
+      {
+        "name": "baseline-reproduces-enter-without-legacy-codes",
+        "passed": true
+      },
+      {
+        "name": "enter-commits-legacy-tag-control-once-without-trusted-event",
+        "passed": true
+      },
+      {
+        "name": "all-allowlisted-keys-match-native-key-fields",
+        "passed": true
+      },
+      {
+        "name": "default-snapshot-unchanged-and-exact-text-context-is-passive-bounded",
+        "passed": true
+      },
+      {
+        "name": "observed-wrapper-target-opens-collection-without-auto-retarget",
+        "passed": true
+      },
+      {
+        "name": "disabled-and-expired-actions-do-not-dispatch",
+        "passed": true
+      }
+    ]
+  }
+}
